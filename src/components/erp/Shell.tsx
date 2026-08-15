@@ -39,17 +39,11 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
       <div className="flex-1 overflow-y-auto px-3 py-4">
         <p className="section-label px-2 pb-2">Navigation</p>
         <nav className="space-y-0.5">
-          <NavRow
-            to="/"
-            icon="LayoutGrid"
-            label="Home Dashboard"
-            active={pathname === "/"}
-            onNavigate={onNavigate}
-          />
+          <NavRow icon="LayoutGrid" label="Home Dashboard" active={pathname === "/"} onNavigate={onNavigate} />
           {navItems.map((item) => (
             <NavRow
               key={item.module}
-              to={`/m/${item.module}`}
+              module={item.module}
               icon={item.icon}
               label={item.title.replace(/\s*\(.*\)$/, "")}
               active={pathname === `/m/${item.module}`}
@@ -72,37 +66,50 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
   );
 }
 
-function NavRow({
-  to,
-  icon,
-  label,
-  active,
-  onNavigate,
-}: {
-  to: string;
+interface NavRowProps {
+  module?: string | undefined;
   icon: string;
   label: string;
   active: boolean;
-  onNavigate?: () => void;
-}) {
+  onNavigate?: (() => void) | undefined;
+}
+
+function NavRow({ module, icon, label, active, onNavigate }: NavRowProps) {
   const Icon = getIcon(icon);
-  return (
-    <Link
-      to={to}
-      onClick={onNavigate}
-      className={cn(
-        "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.82rem] font-medium transition-colors",
-        active
-          ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-muted",
-      )}
-    >
+  const className = cn(
+    "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.82rem] font-medium transition-colors",
+    active
+      ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
+      : "text-sidebar-foreground hover:bg-muted",
+  );
+  const inner = (
+    <>
       {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-primary" />}
       <Icon className={cn("size-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
       <span className="truncate">{label}</span>
+    </>
+  );
+
+  if (module) {
+    return (
+      <Link
+        to="/m/$moduleId"
+        params={{ moduleId: module }}
+        onClick={onNavigate}
+        className={className}
+      >
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <Link to="/" onClick={onNavigate} className={className}>
+      {inner}
     </Link>
   );
 }
+
 
 function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
   const { role, roleId, setRoleId } = useErp();
