@@ -197,7 +197,7 @@ function ModulePage() {
                       fontSize: 12,
                     }}
                   />
-                  <Bar dataKey="value" fill="var(--color-primary)" radius={[6, 6, 0, 0]} maxBarSize={46} />
+                  <Bar dataKey="value" fill="var(--color-primary)" radius={[6, 6, 0, 0]} maxBarSize={46} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
