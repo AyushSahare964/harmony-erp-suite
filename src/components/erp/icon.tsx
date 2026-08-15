@@ -1,0 +1,53 @@
+import {
+  Activity,
+  BarChart3,
+  Bone,
+  Boxes,
+  Building2,
+  CalendarClock,
+  CreditCard,
+  FileText,
+  FlaskConical,
+  Home,
+  LayoutGrid,
+  Megaphone,
+  MessageSquare,
+  PawPrint,
+  Pill,
+  Plug,
+  Receipt,
+  ShieldCheck,
+  Stethoscope,
+  Users,
+  Wallet,
+  Waves,
+  type LucideIcon,
+} from "lucide-react";
+
+const MAP: Record<string, LucideIcon> = {
+  Activity,
+  BarChart3,
+  Bone,
+  Boxes,
+  Building2,
+  CalendarClock,
+  CreditCard,
+  FileText,
+  FlaskConical,
+  Home,
+  Megaphone,
+  MessageSquare,
+  PawPrint,
+  Pill,
+  Plug,
+  Receipt,
+  ShieldCheck,
+  Stethoscope,
+  Users,
+  Wallet,
+  Waves,
+};
+
+export function getIcon(name: string): LucideIcon {
+  return MAP[name] ?? LayoutGrid;
+}
