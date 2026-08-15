@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
   const { role } = useErp();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
