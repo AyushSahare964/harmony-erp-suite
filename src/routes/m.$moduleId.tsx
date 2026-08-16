@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Bar,
   BarChart,
@@ -89,18 +90,22 @@ function ModulePage() {
   if (!ws) {
     return (
       <Shell title="Module not found">
-        <div className="erp-card mx-auto max-w-md p-8 text-center">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="erp-card mx-auto max-w-md p-8 text-center"
+        >
           <h1 className="text-xl font-bold">Module not available</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             This module isn't part of the current workspace.
           </p>
           <Link
             to="/"
-            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover transition-colors"
           >
             <ArrowLeft className="size-4" /> Back to dashboard
           </Link>
-        </div>
+        </motion.div>
       </Shell>
     );
   }
@@ -141,38 +146,56 @@ function ModulePage() {
 
   return (
     <Shell title={ws.title}>
-      <div className="mx-auto max-w-[1500px] space-y-6">
+      <motion.div 
+        key={ws.id}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        className="mx-auto max-w-[1500px] space-y-6"
+      >
+        {/* Module Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <span className="flex size-11 items-center justify-center rounded-lg bg-primary-soft text-primary">
+            <motion.span 
+              whileHover={{ rotate: 8, scale: 1.05 }}
+              transition={{ type: "spring", stiffness: 400, damping: 15 }}
+              className="flex size-11 items-center justify-center rounded-xl bg-primary-soft text-primary shadow-xs"
+            >
               <Icon className="size-5" />
-            </span>
+            </motion.span>
             <div>
               <h1 className="page-title">{ws.title}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{ws.subtitle}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => resetRows(ws.id)}>
+            <Button variant="outline" size="sm" onClick={() => resetRows(ws.id)} className="transition-all hover:bg-muted active:scale-95">
               <RotateCcw className="size-4" /> Reset
             </Button>
-            <Button variant="outline" size="sm" onClick={exportCsv}>
+            <Button variant="outline" size="sm" onClick={exportCsv} className="transition-all hover:bg-muted active:scale-95">
               <Download className="size-4" /> Export
             </Button>
-            <Button size="sm" onClick={() => setOpen(true)}>
+            <Button size="sm" onClick={() => setOpen(true)} className="transition-all shadow-xs active:scale-95">
               <Plus className="size-4" /> {ws.createLabel}
             </Button>
           </div>
         </div>
 
+        {/* KPIs Grid */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {ws.kpis.map((k) => (
-            <KpiCard key={k.label} kpi={k} />
+          {ws.kpis.map((k, idx) => (
+            <KpiCard key={k.label} kpi={k} index={idx} />
           ))}
         </div>
 
+        {/* Chart Section */}
         {ws.series && (
-          <div className="erp-card p-5">
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.15 }}
+            className="erp-card p-5"
+          >
             <p className="section-label">{ws.seriesLabel}</p>
             <div className="mt-4 h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -195,24 +218,31 @@ function ModulePage() {
                       borderRadius: 10,
                       border: "1px solid var(--color-border)",
                       fontSize: 12,
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
                     }}
                   />
-                  <Bar dataKey="value" fill="var(--color-primary)" radius={[6, 6, 0, 0]} maxBarSize={46} isAnimationActive={false} />
+                  <Bar dataKey="value" fill="var(--color-primary)" radius={[6, 6, 0, 0]} maxBarSize={46} isAnimationActive={true} animationDuration={600} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </motion.div>
         )}
 
-        <div className="erp-card overflow-hidden">
-          <div className="flex flex-wrap items-center gap-3 border-b border-border p-4">
+        {/* Interactive Data Table Container */}
+        <motion.div 
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
+          className="erp-card overflow-hidden shadow-xs"
+        >
+          <div className="flex flex-wrap items-center gap-3 border-b border-border p-4 bg-card">
             <div className="relative min-w-[220px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search records…"
-                className="pl-9"
+                className="pl-9 transition-all focus:ring-2 focus:ring-primary/10"
               />
             </div>
             {statuses.length > 0 && (
@@ -230,15 +260,15 @@ function ModulePage() {
                 </SelectContent>
               </Select>
             )}
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground font-medium">
               {visible.length} of {rows.length} records
             </p>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scrollbar-thin">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-muted/70">
+                <tr className="bg-muted/60 text-muted-foreground border-b border-border">
                   {ws.columns.map((c) => (
                     <th
                       key={c.key}
@@ -252,39 +282,49 @@ function ModulePage() {
                   <th className="w-12 px-4 py-3" />
                 </tr>
               </thead>
-              <tbody>
-                {visible.map((row, i) => (
-                  <tr key={i} className="border-t border-border transition-colors hover:bg-primary-soft/40">
-                    {ws.columns.map((c) => (
-                      <td
-                        key={c.key}
-                        className={`whitespace-nowrap px-4 py-3 ${
-                          c.align === "right" ? "text-right tabular-nums" : ""
-                        }`}
-                      >
-                        {c.kind === "status" ? (
-                          <StatusPill value={String(row[c.key] ?? "—")} />
-                        ) : c.kind === "money" ? (
-                          <span className="font-semibold">{money(row[c.key] ?? 0)}</span>
-                        ) : (
-                          String(row[c.key] ?? "—")
-                        )}
+              <tbody className="divide-y divide-border">
+                <AnimatePresence mode="popLayout">
+                  {visible.map((row, i) => (
+                    <motion.tr
+                      key={String(row["id"] ?? row["code"] ?? row["invoice"] ?? row["ref"] ?? row["name"] ?? i)}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.18 } }}
+                      transition={{ duration: 0.2, ease: "easeOut" }}
+                      className="transition-colors hover:bg-primary-soft/35"
+                    >
+                      {ws.columns.map((c) => (
+                        <td
+                          key={c.key}
+                          className={`whitespace-nowrap px-4 py-3 ${
+                            c.align === "right" ? "text-right tabular-nums" : ""
+                          }`}
+                        >
+                          {c.kind === "status" ? (
+                            <StatusPill value={String(row[c.key] ?? "—")} />
+                          ) : c.kind === "money" ? (
+                            <span className="font-semibold">{money(row[c.key] ?? 0)}</span>
+                          ) : (
+                            String(row[c.key] ?? "—")
+                          )}
+                        </td>
+                      ))}
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => {
+                            deleteRow(ws.id, rows.indexOf(row));
+                            toast.success("Record removed");
+                          }}
+                          className="text-muted-foreground transition-all hover:text-destructive hover:scale-110 active:scale-95 p-1 rounded-md"
+                          aria-label="Delete record"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
                       </td>
-                    ))}
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => {
-                          deleteRow(ws.id, rows.indexOf(row));
-                          toast.success("Record removed");
-                        }}
-                        className="text-muted-foreground transition-colors hover:text-destructive"
-                        aria-label="Delete record"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
+
                 {visible.length === 0 && (
                   <tr>
                     <td
@@ -298,9 +338,10 @@ function ModulePage() {
               </tbody>
             </table>
           </div>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
+      {/* Animated Record Modal */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
@@ -308,10 +349,10 @@ function ModulePage() {
             <DialogDescription>{ws.subtitle}</DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 py-2">
             {ws.fields.map((f) => (
               <div key={f.key} className="space-y-1.5">
-                <Label htmlFor={f.key}>
+                <Label htmlFor={f.key} className="text-xs font-semibold">
                   {f.label}
                   {f.required && <span className="text-destructive"> *</span>}
                 </Label>
