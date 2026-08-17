@@ -12,7 +12,6 @@ import {
 } from "recharts";
 import { ArrowLeft, Download, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
-import { BillingHub } from "@/components/erp/billing/BillingHub";
 import { InventoryHub } from "@/components/erp/inventory/InventoryHub";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { StatusPill } from "@/components/erp/StatusPill";
@@ -88,11 +87,6 @@ function ModulePage() {
       return matchQ && matchS;
     });
   }, [rows, query, filter, ws]);
-
-  // ── Billing module → dedicated BillingHub with sub-module tabs ──
-  if (moduleId === "billing") {
-    return <BillingHub />;
-  }
 
   // ── Inventory module → dedicated InventoryHub with sub-module tabs ──
   if (moduleId === "inventory") {
