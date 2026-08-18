@@ -7,6 +7,8 @@
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "build:gh-pages": "node scripts/build-gh-pages.mjs",
+    "deploy:gh-pages": "node scripts/deploy-gh-pages.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."

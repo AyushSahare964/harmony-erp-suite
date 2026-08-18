@@ -24,6 +24,11 @@ export default defineConfig({
     },
   },
   nitro: {
+    prerender: {
+      crawlLinks: true,
+      routes: ["/", "/login", "/m/dashboard", "/m/patients", "/m/appointments", "/m/opd", "/m/billing", "/m/inventory", "/m/pharmacy", "/m/lab", "/m/boarding", "/m/settings"],
+      failOnError: false,
+    },
     cloudflare: { nodeCompat: true },
     ...( {
       externals: {

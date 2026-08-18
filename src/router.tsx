@@ -5,11 +5,17 @@ import { routeTree } from "./routeTree.gen";
 export const getRouter = () => {
   const queryClient = new QueryClient();
 
+  const basepath =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/harmony-erp-suite")
+      ? "/harmony-erp-suite"
+      : undefined;
+
   const router = createRouter({
     routeTree,
     context: { queryClient },
     scrollRestoration: true,
     defaultPreloadStaleTime: 0,
+    basepath,
   });
 
   return router;
