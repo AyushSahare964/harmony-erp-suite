@@ -142,10 +142,12 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
     try {
       const formattedPhone = ownerPhone ? `+91 ${ownerPhone.slice(0, 5)} ${ownerPhone.slice(5)}` : "+91 98000 00000";
 
+      const matchedPatient = selectedPatientId !== "new" ? existingPatients.find((p) => p.petId === selectedPatientId) : null;
       await admitPatientFn({
         data: {
           petName: petName.trim(),
-          petId: selectedPatientId !== "new" ? selectedPatientId : `PET-${Math.floor(1000 + Math.random() * 9000)}`,
+          petId: selectedPatientId !== "new" ? selectedPatientId : undefined,
+          ownerId: matchedPatient?.ownerId || undefined,
           species: species || "Canine",
           breed: breed.trim() || "Standard Breed",
           ownerName: ownerName.trim(),

@@ -2,6 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { connectDB } from "@/lib/mongodb/client";
 import { ClinicalVisit, type IClinicalVisit } from "@/lib/mongodb/models/ClinicalVisit";
+import { Owner } from "@/lib/mongodb/models/Owner";
+import { Pet } from "@/lib/mongodb/models/Pet";
 import { StockBatch } from "@/lib/mongodb/models/StockBatch";
 import { FinanceTransaction } from "@/lib/mongodb/models/FinanceTransaction";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
@@ -36,14 +38,14 @@ async function maxRxSeq(): Promise<number> {
 // ─── Input Schemas ────────────────────────────────────────────────────────────
 
 const AdmitPatientInputZ = z.object({
-  petId: z.string().min(1),
-  petName: z.string().min(1),
+  petId: z.string().optional(),
+  petName: z.string().min(1, "Patient name is required"),
   species: z.string().default("Canine"),
   breed: z.string().default("Mix"),
-  ownerId: z.string().min(1),
-  ownerName: z.string().min(1),
-  ownerPhone: z.string().min(1),
-  branch: z.string().default("Main Clinic"),
+  ownerId: z.string().optional(),
+  ownerName: z.string().min(1, "Pet parent name is required"),
+  ownerPhone: z.string().min(1, "Contact phone is required"),
+  branch: z.string().default("Central Avenue, Nagpur"),
   billType: z.enum(["GST", "Non-GST"]).default("GST"),
   doctorName: z.string().default("Dr. Rohit Sharma"),
   receptionistName: z.string().default("Front Desk"),
@@ -205,9 +207,49 @@ export const admitPatientFn = createServerFn({ method: "POST" })
     const visitId = await nextSeq("clinical_visit", "V", 4, maxVisitSeq);
     const invSeq = await nextSeq("invoice_no", "INV/2026-27", 4, maxInvoiceSeq);
     const rxSeq = await nextSeq("prescription_no", "RX", 4, maxRxSeq);
+    const ownerId = data.ownerId || (await nextSeq("owner", "OWN", 4));
+    const petId = data.petId || (await nextSeq("pet", "PET", 4));
+
+    // Auto-upsert into CRM collections
+    try {
+      await Owner.findOneAndUpdate(
+        { ownerId },
+        {
+          $setOnInsert: {
+            ownerId,
+            name: data.ownerName,
+            phone: data.ownerPhone,
+            city: "Nagpur",
+            preferredPaymentMode: "UPI",
+            outstandingBalance: 0,
+            status: "Active",
+          },
+        },
+        { upsert: true }
+      );
+      await Pet.findOneAndUpdate(
+        { petId },
+        {
+          $setOnInsert: {
+            petId,
+            ownerId,
+            name: data.petName,
+            species: data.species,
+            breed: data.breed,
+            weightKg: data.vitals?.weightKg,
+            status: "Active",
+          },
+        },
+        { upsert: true }
+      );
+    } catch (crmErr) {
+      console.warn("[CRM Auto-Sync] Warning during auto-upsert:", crmErr);
+    }
 
     const docPayload: any = {
       ...data,
+      ownerId,
+      petId,
       visitId,
       invoiceNo: invSeq,
       prescriptionNo: rxSeq,
