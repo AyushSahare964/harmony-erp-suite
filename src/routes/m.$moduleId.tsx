@@ -161,8 +161,11 @@ function ModulePage() {
   if (
     moduleId === "reports" ||
     moduleId === "documents" ||
+    moduleId === "clinical-records" ||
     moduleId === "clinical-reports" ||
-    moduleId === "medical-records"
+    moduleId === "medical-records" ||
+    moduleId === "records" ||
+    moduleId === "reports-platform"
   ) {
     return <ClinicalReportsHub />;
   }

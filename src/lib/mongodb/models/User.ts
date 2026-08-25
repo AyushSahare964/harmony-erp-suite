@@ -40,7 +40,7 @@ export type UserDocument = IUser & mongoose.Document;
 const userSchema = new Schema<UserDocument>(
   {
     fullName:        { type: String, required: true, trim: true },
-    email:           { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
+    email:           { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash:    { type: String, required: true },
     phone:           { type: String },
     clinicName:      { type: String, required: true, trim: true },
@@ -53,7 +53,7 @@ const userSchema = new Schema<UserDocument>(
     department:      { type: String },
     specialty:       { type: String, enum: ["Canine", "Feline", "Avian", "Exotic", "Surgery", "General Practice", "Administration"] },
     avatarUrl:       { type: String },
-    approvalStatus:  { type: String, required: true, enum: ["approved", "pending", "rejected"], default: "approved", index: true },
+    approvalStatus:  { type: String, required: true, enum: ["approved", "pending", "rejected"], default: "approved" },
     approvedBy:      { type: String },
     approvedAt:      { type: Date },
     rejectionReason: { type: String },
