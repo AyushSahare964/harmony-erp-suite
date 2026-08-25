@@ -43,12 +43,28 @@ interface ErpContextValue {
   resetRows: (moduleId: string) => Promise<void>;
 }
 
-const ErpContext = createContext<ErpContextValue | null>(null);
+const defaultErpContext: ErpContextValue = {
+  roleId: "admin",
+  setRoleId: () => {},
+  role: ROLES.admin,
+  currentUser: null,
+  isAuthenticated: false,
+  isLoadingAuth: false,
+  login: async () => ({ success: false, message: "Not available outside ErpProvider" }),
+  register: async () => ({ success: false, message: "Not available outside ErpProvider" }),
+  logout: async () => {},
+  getRows: (moduleId: string) => WORKSPACES[moduleId]?.rows ?? [],
+  addRow: async () => {},
+  deleteRow: async () => {},
+  resetRows: async () => {},
+};
+
+const ErpContext = createContext<ErpContextValue>(defaultErpContext);
 
 // ─── ErpProvider ─────────────────────────────────────────────────────────────
 
 export function ErpProvider({ children }: { children: ReactNode }) {
-  const [roleId, setRoleIdState] = useState<RoleId>("admin");
+  const [roleId, setRoleIdState] = useState<RoleId>("doctor");
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   // Row cache: moduleId → Row[]
@@ -86,12 +102,13 @@ export function ErpProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(async (payload: RegisterPayload): Promise<AuthResponse> => {
     const res = await AuthService.register(payload);
-    if (res.success && res.user) {
+    if (res.success && res.user && !res.pendingApproval) {
       setCurrentUser(res.user);
       setRoleIdState(res.user.roleId);
     }
     return res;
   }, []);
+
 
   const logout = useCallback(async (): Promise<void> => {
     await AuthService.logout();
@@ -193,7 +210,7 @@ export function ErpProvider({ children }: { children: ReactNode }) {
 
 export function useErp() {
   const ctx = useContext(ErpContext);
-  if (!ctx) throw new Error("useErp must be used inside ErpProvider");
-  return ctx;
+  return ctx ?? defaultErpContext;
 }
+
 

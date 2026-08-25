@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo, Fragment } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown, ChevronRight, Search, Activity, AlertTriangle, Clock,
@@ -158,7 +158,7 @@ export function StockView() {
   }, [activeMeds, getBatches, getStockStatus, getExpiryStatus]);
 
   const lastUpdated = useMemo(() => {
-    if (ledger.length === 0) return "—";
+    if (ledger.length === 0 || !ledger[0]) return "—";
     return ledger[0].createdAt;
   }, [ledger]);
 
@@ -229,73 +229,67 @@ export function StockView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              <AnimatePresence mode="popLayout">
-                {visible.map((med) => {
-                  const batches = getBatches(med.id);
-                  const totalQty = getTotalQty(med.id);
-                  const status = getStockStatus(med.id);
-                  const isExpanded = expanded.has(med.id);
-                  const lastMove = ledger.find((l) => l.medicineId === med.id);
+              {visible.map((med) => {
+                const batches = getBatches(med.id);
+                const totalQty = getTotalQty(med.id);
+                const status = getStockStatus(med.id);
+                const isExpanded = expanded.has(med.id);
+                const lastMove = ledger.find((l) => l.medicineId === med.id);
 
-                  // Find worst-case expiry among batches
-                  const worstBatch = batches.find((b) => {
-                    const s = getExpiryStatus(b.expiryDate);
-                    return s === "expired" || s === "critical";
-                  }) ?? batches.find((b) => getExpiryStatus(b.expiryDate) === "expiring-soon");
+                // Find worst-case expiry among batches
+                const worstBatch = batches.find((b) => {
+                  const s = getExpiryStatus(b.expiryDate);
+                  return s === "expired" || s === "critical";
+                }) ?? batches.find((b) => getExpiryStatus(b.expiryDate) === "expiring-soon");
 
-                  return (
-                    <>
-                      <motion.tr
-                        key={med.id}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.98 }}
-                        className="transition-colors hover:bg-primary-soft/30 cursor-pointer"
-                        onClick={() => toggleExpand(med.id)}
-                      >
-                        <td className="px-4 py-3">
-                          <motion.span
-                            animate={{ rotate: isExpanded ? 90 : 0 }}
-                            transition={{ duration: 0.18 }}
-                            className="inline-flex"
-                          >
-                            <ChevronRight className="size-4 text-muted-foreground" />
-                          </motion.span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div>
-                            <p className="font-semibold">{med.name}</p>
-                            <p className="text-xs text-muted-foreground">{med.category} · {med.unit}</p>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {worstBatch ? (
-                            <ExpiryChip
-                              date={worstBatch.expiryDate}
-                              status={getExpiryStatus(worstBatch.expiryDate)}
-                            />
-                          ) : (
-                            <span className="text-muted-foreground text-xs">{batches.length} batch{batches.length !== 1 ? "es" : ""}</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right tabular-nums font-bold text-lg">
-                          {totalQty}
-                        </td>
-                        <td className="px-4 py-3 text-right text-muted-foreground tabular-nums text-xs">
-                          {batches.length > 0 ? money(batches[0].purchasePrice) : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
-                          {lastMove ? lastMove.createdAt.slice(0, 10) : "—"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <StockBadge status={status} />
-                        </td>
-                      </motion.tr>
-                      {isExpanded && <BatchRows key={`${med.id}-batches`} batches={batches} />}
-                    </>
-                  );
-                })}
-              </AnimatePresence>
+                return (
+                  <React.Fragment key={med.id}>
+                    <tr
+                      className="transition-colors hover:bg-primary-soft/30 cursor-pointer"
+                      onClick={() => toggleExpand(med.id)}
+                    >
+                      <td className="px-4 py-3">
+                        <motion.span
+                          animate={{ rotate: isExpanded ? 90 : 0 }}
+                          transition={{ duration: 0.18 }}
+                          className="inline-flex"
+                        >
+                          <ChevronRight className="size-4 text-muted-foreground" />
+                        </motion.span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="font-semibold">{med.name}</p>
+                          <p className="text-xs text-muted-foreground">{med.category} · {med.unit}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {worstBatch ? (
+                          <ExpiryChip
+                            date={worstBatch.expiryDate}
+                            status={getExpiryStatus(worstBatch.expiryDate)}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground text-xs">{batches.length} batch{batches.length !== 1 ? "es" : ""}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-bold text-lg">
+                        {totalQty}
+                      </td>
+                      <td className="px-4 py-3 text-right text-muted-foreground tabular-nums text-xs">
+                        {batches.length > 0 && batches[0] ? money(batches[0].purchasePrice) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {lastMove ? lastMove.createdAt.slice(0, 10) : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StockBadge status={status} />
+                      </td>
+                    </tr>
+                    {isExpanded && <BatchRows batches={batches} />}
+                  </React.Fragment>
+                );
+              })}
               {visible.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">

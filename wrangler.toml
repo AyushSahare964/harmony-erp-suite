@@ -1,0 +1,10 @@
+name = "harmony-erp-suite"
+main = ".output/server/index.mjs"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+NODE_ENV = "production"
+
+# Secrets are already set via `wrangler secret put` — do NOT add them here.
+# MONGODB_URI, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL

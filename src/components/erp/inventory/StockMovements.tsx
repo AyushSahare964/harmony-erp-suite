@@ -56,13 +56,18 @@ function AddStockPanel() {
     const numQty = Number(qty);
     if (!numQty || numQty <= 0) { toast.error("Quantity must be greater than 0"); return; }
 
-    addStock({
-      medicineId,
+    const selected = activeMeds.find((m) => m.id === medicineId);
+    void addStock({
+      itemCode: medicineId,
+      itemName: selected?.name ?? "",
       batchNo: batchNo.trim(),
+      manufacturingDate: "",
       expiryDate,
-      purchasePrice: Number(purchasePrice) || 0,
-      qty: numQty,
-      supplierId: supplierId.trim() || undefined,
+      purchasePricePerUnit: Number(purchasePrice) || 0,
+      receivedDate: new Date().toISOString().slice(0, 10),
+      receivedQty: numQty,
+      acceptedQty: numQty,
+      ...(supplierId.trim() ? { supplierId: supplierId.trim() } : {}),
       actor: "Dr. Ananya Rao",
     });
     toast.success(`+${numQty} units added to stock`);

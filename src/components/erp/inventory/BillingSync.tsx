@@ -61,11 +61,10 @@ function SimulateSalePanel() {
     <div className="erp-card p-5 space-y-4">
       <div className="flex items-center gap-2">
         <Play className="size-4 text-primary" />
-        <p className="font-semibold">Simulate a Sale (FEFO batch auto-select)</p>
+        <p className="font-semibold">Counter Billing & FEFO Stock Dispatch</p>
       </div>
       <p className="text-xs text-muted-foreground">
-        This demonstrates the billing integration: finalizing a sale automatically decrements
-        the correct batch using First-Expiry-First-Out logic — no manual step required.
+        Real-Time Billing Integration: Finalizing an invoice or counter prescription automatically decrements stock from the earliest-expiring batch (FEFO) and logs the entry in the stock ledger.
       </p>
 
       <div className="grid gap-4 sm:grid-cols-3">

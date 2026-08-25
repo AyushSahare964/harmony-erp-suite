@@ -91,6 +91,12 @@ function AuthPage() {
       if (res.success) {
         toast.success(`Logged in as ${staff.fullName}`);
         navigate({ to: "/" });
+      } else if (res.pendingApproval) {
+        toast.info(res.message || "Your account is pending administrator approval.");
+        try {
+          sessionStorage.setItem("vetos.pending_user", JSON.stringify(res.user || staff));
+        } catch { /* ignore */ }
+        navigate({ to: "/pending-approval" });
       } else {
         toast.error(res.message || "Failed to sign in");
       }
@@ -119,6 +125,12 @@ function AuthPage() {
       if (res.success) {
         toast.success(res.message || "Login successful!");
         navigate({ to: "/" });
+      } else if (res.pendingApproval) {
+        toast.info(res.message || "Your account is awaiting clinic administrator approval.");
+        try {
+          sessionStorage.setItem("vetos.pending_user", JSON.stringify(res.user || { email: loginEmail }));
+        } catch { /* ignore */ }
+        navigate({ to: "/pending-approval" });
       } else {
         toast.error(res.message || "Invalid credentials.");
       }
@@ -150,9 +162,22 @@ function AuthPage() {
     setLoading(true);
     try {
       const res = await register(regData);
-      if (res.success) {
-        toast.success("Operator profile created successfully!");
-        navigate({ to: "/" });
+      if (res.success || res.pendingApproval) {
+        toast.success("Application submitted! Redirecting to preview...");
+        try {
+          sessionStorage.setItem(
+            "vetos.pending_user",
+            JSON.stringify(res.user || {
+              fullName: regData.fullName,
+              email: regData.email,
+              roleName: regData.roleId === "doctor" ? "Doctor / Senior Vet" : regData.roleId,
+              department: regData.department,
+              licenseNumber: regData.licenseNumber,
+              qualification: regData.qualification,
+            })
+          );
+        } catch { /* ignore */ }
+        navigate({ to: "/pending-approval" });
       } else {
         toast.error(res.message || "Registration failed.");
       }
@@ -162,6 +187,7 @@ function AuthPage() {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-slate-100/90 via-slate-50 to-slate-100 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-10">
@@ -416,42 +442,39 @@ function AuthPage() {
                       />
                     </div>
                     <div className="space-y-0.5">
-                      <label className="block text-[0.68rem] font-semibold text-foreground">Role</label>
+                      <label className="block text-[0.68rem] font-semibold text-foreground">Requested Role</label>
                       <select
                         value={regData.roleId}
                         onChange={(e) => setRegData({ ...regData, roleId: e.target.value as RoleId })}
-                        className="h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary"
+                        className="h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary font-medium"
                       >
-                        <option value="admin">Clinic Admin</option>
-                        <option value="reception">Reception & Triage</option>
-                        <option value="accounts">Accounts & Billing</option>
-                        <option value="platform">Platform Administrator</option>
+                        <option value="doctor">🩺 Doctor / Senior Vet</option>
+                        <option value="admin">🛡️ Clinic Admin</option>
+                        <option value="reception">📋 Reception & Triage</option>
+                        <option value="accounts">💳 Accounts & Billing</option>
+                        <option value="platform">⚡ Platform Administrator</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-0.5">
-                      <label className="block text-[0.68rem] font-semibold text-foreground">Specialty</label>
-                      <select
-                        value={regData.specialty}
-                        onChange={(e) => setRegData({ ...regData, specialty: e.target.value as any })}
-                        className="h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary"
-                      >
-                        <option value="General Practice">General Practice</option>
-                        <option value="Canine">Canine</option>
-                        <option value="Feline">Feline</option>
-                        <option value="Avian">Avian / Exotic</option>
-                        <option value="Surgery">Surgery</option>
-                      </select>
+                      <label className="block text-[0.68rem] font-semibold text-foreground">Qualification / Degrees</label>
+                      <input
+                        type="text"
+                        value={regData.qualification || ""}
+                        onChange={(e) => setRegData({ ...regData, qualification: e.target.value })}
+                        placeholder="BVSc & AH, MVSc"
+                        className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-xs outline-none focus:border-primary"
+                      />
                     </div>
                     <div className="space-y-0.5">
-                      <label className="block text-[0.68rem] font-semibold text-foreground">License / VCI ID</label>
+                      <label className="block text-[0.68rem] font-semibold text-foreground">License / VCI Registration No.</label>
                       <input
                         type="text"
                         value={regData.licenseNumber}
                         onChange={(e) => setRegData({ ...regData, licenseNumber: e.target.value })}
-                        placeholder="VCI-2024-881"
+                        placeholder="VCI-KAR-2024-881"
                         className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-xs outline-none focus:border-primary"
                       />
                     </div>

@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { ROLES, ROLE_ORDER, roleModules, type RoleId } from "@/lib/erp/config";
 import { useErp } from "@/lib/erp/store";
 import { getIcon } from "./icon";
+import { getMongoStatusFn, type MongoStatusRow } from "@/lib/mongodb/serverFns/status";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +33,13 @@ import {
 function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
   const { role, currentUser } = useErp();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [mongoStatus, setMongoStatus] = useState<MongoStatusRow | null>(null);
+
+  useEffect(() => {
+    getMongoStatusFn()
+      .then(setMongoStatus)
+      .catch(() => setMongoStatus({ connected: false, readyState: 0, databaseName: "vetos_erp", host: "Atlas", latencyMs: 0, error: "Offline" }));
+  }, []);
 
   const seen = new Set<string>();
   const navItems = roleModules(role).filter((c) => {
@@ -92,6 +100,19 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
             Focus: {currentUser.specialty}
           </p>
         )}
+
+        {/* MongoDB Connection Status */}
+        <div className="mt-3 flex items-center justify-between border-t border-sidebar-border/60 pt-2.5 text-[0.65rem]">
+          <span className="text-muted-foreground font-mono">MongoDB Atlas</span>
+          <span className={`inline-flex items-center gap-1 font-semibold ${
+            mongoStatus?.connected ? "text-success" : "text-warning"
+          }`}>
+            <span className={`size-1.5 rounded-full ${
+              mongoStatus?.connected ? "bg-success animate-pulse" : "bg-warning"
+            }`} />
+            {mongoStatus?.connected ? `Connected (${mongoStatus.latencyMs}ms)` : "Connecting…"}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -218,42 +239,48 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
             </span>
             <ChevronDown className="size-3.5 text-muted-foreground" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel>
-              <div className="flex flex-col space-y-1">
-                <p className="text-xs font-bold leading-none text-navy">
+          <DropdownMenuContent align="end" className="w-72 p-2">
+            <div className="flex items-center gap-3 p-2 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200/80">
+              <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+                {currentUser?.initials || role.initials}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-navy truncate">
                   {currentUser?.fullName || role.person}
                 </p>
-                <p className="text-[0.7rem] leading-none text-muted-foreground truncate">
+                <p className="text-[0.68rem] text-muted-foreground truncate font-mono">
                   {currentUser?.email || `${role.id}@vetos.cloud`}
                 </p>
-                {currentUser?.licenseNumber && (
-                  <p className="text-[0.65rem] text-primary font-medium">
-                    Reg: {currentUser.licenseNumber}
-                  </p>
-                )}
+                <span className="inline-block mt-1 rounded-full bg-primary/10 px-2 py-0.5 text-[0.62rem] font-bold text-primary">
+                  {currentUser?.roleName?.split("/")[0] || role.name}
+                </span>
               </div>
-            </DropdownMenuLabel>
+            </div>
 
-            <DropdownMenuSeparator />
+            <div className="px-2 py-2.5 space-y-1.5 text-[0.72rem] text-slate-600 dark:text-slate-400 border-b border-border my-1">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Department:</span>
+                <span className="font-semibold text-foreground">{currentUser?.department || role.scope}</span>
+              </div>
+              {currentUser?.licenseNumber && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Registration / VCI:</span>
+                  <span className="font-mono font-semibold text-emerald-600">{currentUser.licenseNumber}</span>
+                </div>
+              )}
+              {currentUser?.qualification && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Qualification:</span>
+                  <span className="font-medium text-foreground">{currentUser.qualification}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Clinic:</span>
+                <span className="font-medium text-foreground truncate max-w-[150px]">Harmony Pet Hospital</span>
+              </div>
+            </div>
 
-            <DropdownMenuLabel className="text-[0.7rem] uppercase text-muted-foreground font-bold">
-              Switch Role View
-            </DropdownMenuLabel>
-            {ROLE_ORDER.map((id: RoleId) => (
-              <DropdownMenuItem
-                key={id}
-                onSelect={() => setRoleId(id)}
-                className={cn("text-xs cursor-pointer", id === roleId && "font-semibold text-primary bg-primary-soft/50")}
-              >
-                <span className="flex-1">{ROLES[id].name}</span>
-                <span className="text-[0.65rem] text-muted-foreground">{ROLES[id].initials}</span>
-              </DropdownMenuItem>
-            ))}
-
-            <DropdownMenuSeparator />
-
-            <DropdownMenuItem asChild className="text-xs cursor-pointer">
+            <DropdownMenuItem asChild className="text-xs cursor-pointer rounded-lg py-2 mt-1">
               <Link to="/login" className="flex items-center gap-2">
                 <LogIn className="size-3.5 text-primary" />
                 <span>Switch / Sign In Operator</span>
@@ -262,12 +289,13 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
 
             <DropdownMenuItem 
               onClick={handleLogout}
-              className="text-xs text-destructive cursor-pointer flex items-center gap-2"
+              className="text-xs text-destructive cursor-pointer flex items-center gap-2 rounded-lg py-2"
             >
               <LogOut className="size-3.5" />
               <span>Log out session</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
+
         </DropdownMenu>
       </div>
     </header>

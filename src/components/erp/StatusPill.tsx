@@ -1,18 +1,22 @@
 import { cn } from "@/lib/utils";
 
-const GREEN = ["active", "paid", "connected", "completed", "delivered", "read", "reported", "approved", "present", "in stock", "growing", "shared", "checked-out", "billed", "credit", "scheduled"];
-const AMBER = ["trial", "due", "pending", "waiting", "unpaid", "review", "review due", "low stock", "expiring", "warning", "in process", "in transit", "unbilled", "reserved", "partially paid", "unreconciled", "hold", "late", "draft", "running", "booked", "pending signature", "on leave", "stable", "liability", "open", "invited", "in session", "in consultation", "checked-in", "staying"];
-const RED = ["suspended", "overdue", "failed", "critical", "urgent", "declining", "locked", "dormant", "absent", "disabled", "no-show", "cancelled", "refunded", "unread", "debit"];
+const GREEN = ["active", "paid", "connected", "completed", "delivered", "read", "reported", "approved", "present", "in stock", "growing", "shared", "checked-out", "billed", "credit", "scheduled", "matched", "reconciled", "within budget"];
+const AMBER = ["trial", "due", "pending", "waiting", "unpaid", "review", "review due", "low stock", "expiring", "warning", "in process", "in transit", "unbilled", "reserved", "partially paid", "unreconciled", "hold", "late", "draft", "running", "booked", "pending signature", "on leave", "stable", "liability", "open", "invited", "in session", "in consultation", "checked-in", "staying", "pending clearance", "near limit", "inactive"];
+const RED = ["suspended", "overdue", "failed", "critical", "urgent", "declining", "locked", "dormant", "absent", "disabled", "no-show", "cancelled", "refunded", "unread", "debit", "unmatched", "over budget"];
 
-export function statusTone(value: string): "green" | "amber" | "red" | "gray" {
-  const v = value.toLowerCase().trim();
+
+export function statusTone(value?: string | number | null): "green" | "amber" | "red" | "gray" {
+  if (value == null) return "gray";
+  const v = String(value).toLowerCase().trim();
+  if (!v) return "gray";
   if (GREEN.includes(v)) return "green";
   if (AMBER.includes(v)) return "amber";
   if (RED.includes(v)) return "red";
   return "gray";
 }
 
-export function StatusPill({ value }: { value: string }) {
+export function StatusPill({ value }: { value?: string | number | null }) {
+  const displayValue = value != null && String(value).trim() !== "" ? String(value) : "—";
   const tone = statusTone(value);
   return (
     <span
@@ -33,7 +37,8 @@ export function StatusPill({ value }: { value: string }) {
           tone === "gray" && "bg-muted-foreground",
         )}
       />
-      {value}
+      {displayValue}
     </span>
   );
 }
+

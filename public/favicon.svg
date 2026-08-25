@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="32" fill="url(#grad)" />
+  <!-- Veterinary Paw Print with Medical Cross subtle background -->
+  <path d="M64 28 C67 28 70 31 70 34 L70 54 L90 54 C93 54 96 57 96 60 L96 68 C96 71 93 74 90 74 L70 74 L70 94 C70 97 67 100 64 100 L56 100 C53 100 50 97 50 94 L50 74 L30 74 C27 74 24 71 24 68 L24 60 C24 57 27 54 30 54 L50 54 L50 34 C50 31 53 28 56 28 Z" fill="#ffffff" opacity="0.2" />
+  <!-- Main Paw Pad -->
+  <ellipse cx="60" cy="74" rx="16" ry="13" fill="#ffffff" />
+  <!-- 4 Toes -->
+  <ellipse cx="44" cy="53" rx="6.5" ry="8.5" fill="#ffffff" />
+  <ellipse cx="60" cy="47" rx="7" ry="9" fill="#ffffff" />
+  <ellipse cx="76" cy="53" rx="6.5" ry="8.5" fill="#ffffff" />
+  <ellipse cx="88" cy="67" rx="5.5" ry="7" fill="#ffffff" />
+  <ellipse cx="32" cy="67" rx="5.5" ry="7" fill="#ffffff" />
+</svg>

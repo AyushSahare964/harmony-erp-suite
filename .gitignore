@@ -36,3 +36,11 @@ atlas-credentials.env
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*
+*.zip
+previous erp*
+tail_output.txt
+pnl_ytd_report.csv
+implementation_plan_billing
+

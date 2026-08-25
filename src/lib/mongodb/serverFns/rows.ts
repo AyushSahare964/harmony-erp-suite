@@ -9,6 +9,10 @@ import { connectDB } from "@/lib/mongodb/client";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { WORKSPACES, type Row } from "@/lib/erp/workspaces";
 
+function toPlain<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v)) as T;
+}
+
 // ─── getRowsFn ───────────────────────────────────────────────────────────────
 
 export const getRowsFn = createServerFn({ method: "GET" })
@@ -21,17 +25,24 @@ export const getRowsFn = createServerFn({ method: "GET" })
       .lean();
 
     if (docs.length > 0) {
-      return docs.map((d) => d.data as Row);
+      return toPlain(docs.map((d) => d.data as Row));
     }
 
     // Fall back to static seed data on first access (auto-seeds the module)
     const seed = WORKSPACES[data.moduleId]?.rows ?? [];
     if (seed.length > 0) {
-      await ErpRow.insertMany(
-        seed.map((row) => ({ moduleId: data.moduleId, data: row }))
-      );
+      try {
+        await ErpRow.insertMany(
+          seed.map((row) => ({ moduleId: data.moduleId, data: row })),
+          { ordered: false }
+        );
+      } catch {
+        // E11000 duplicate — already seeded, safe to ignore
+      }
     }
-    return seed;
+    // Re-fetch so we always return what's actually in the DB
+    const seeded = await ErpRow.find({ moduleId: data.moduleId }).sort({ createdAt: -1 }).lean();
+    return toPlain(seeded.length > 0 ? seeded.map((d) => d.data as Row) : seed);
   });
 
 // ─── addRowFn ────────────────────────────────────────────────────────────────

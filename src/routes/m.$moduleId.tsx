@@ -13,7 +13,26 @@ import {
 import { ArrowLeft, Download, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { InventoryHub } from "@/components/erp/inventory/InventoryHub";
+import { AccountingHub } from "@/components/erp/accounting/AccountingHub";
+import { PetOwnerCrmHub } from "@/components/erp/crm/PetOwnerCrmHub";
+import { PatientBillingHub } from "@/components/erp/billing/PatientBillingHub";
+import { AppointmentsQueueHub } from "@/components/erp/appointments/AppointmentsQueueHub";
+import { BoardingSwimmingHub } from "@/components/erp/boarding/BoardingSwimmingHub";
+import { LaboratoryHub } from "@/components/erp/laboratory/LaboratoryHub";
+import { PharmacyRetailHub } from "@/components/erp/pharmacy/PharmacyRetailHub";
+import { FoodNutritionHub } from "@/components/erp/nutrition/FoodNutritionHub";
+import { ClinicalReportsHub } from "@/components/erp/reports/ClinicalReportsHub";
+import { IdentityAccessHub } from "@/components/erp/identity/IdentityAccessHub";
 import { KpiCard } from "@/components/erp/KpiCard";
+
+
+
+
+
+
+
+
+
 import { StatusPill } from "@/components/erp/StatusPill";
 import { getIcon } from "@/components/erp/icon";
 import { getWorkspace, type Row } from "@/lib/erp/workspaces";
@@ -92,6 +111,80 @@ function ModulePage() {
   if (moduleId === "inventory") {
     return <InventoryHub />;
   }
+
+  // ── Accounting module → dedicated AccountingHub with 6-tab hub ──
+  if (moduleId === "accounting") {
+    return <AccountingHub />;
+  }
+
+  // ── Pet & Owner CRM module → dedicated PetOwnerCrmHub with dual views ──
+  if (moduleId === "crm-pets" || moduleId === "crm" || moduleId === "crm-marketing") {
+    return <PetOwnerCrmHub />;
+  }
+
+  // ── Patient Billing & Sales module → dedicated PatientBillingHub ──
+  if (moduleId === "billing" || moduleId === "sales" || moduleId === "invoices") {
+    return <PatientBillingHub />;
+  }
+
+  // ── Appointments & Live Queue module → dedicated AppointmentsQueueHub ──
+  if (moduleId === "appointments" || moduleId === "opd-queue" || moduleId === "queue" || moduleId === "opd") {
+    return <AppointmentsQueueHub />;
+  }
+
+  // ── Pet Boarding & Swimming / Hydrotherapy module → dedicated BoardingSwimmingHub ──
+  if (
+    moduleId === "boarding" ||
+    moduleId === "swimming" ||
+    moduleId === "boarding-swimming" ||
+    moduleId === "hydrotherapy"
+  ) {
+    return <BoardingSwimmingHub />;
+  }
+
+  // ── Laboratory & Diagnostics module → dedicated LaboratoryHub ──
+  if (moduleId === "laboratory" || moduleId === "lab" || moduleId === "diagnostics") {
+    return <LaboratoryHub />;
+  }
+
+  // ── Pharmacy & Retail module → dedicated PharmacyRetailHub ──
+  if (moduleId === "pharmacy" || moduleId === "retail") {
+    return <PharmacyRetailHub />;
+  }
+
+  // ── Food & Nutrition module → dedicated FoodNutritionHub ──
+  if (moduleId === "nutrition" || moduleId === "food" || moduleId === "feeding") {
+    return <FoodNutritionHub />;
+  }
+
+  // ── Clinical Reports & Documents module → dedicated ClinicalReportsHub ──
+  if (
+    moduleId === "reports" ||
+    moduleId === "documents" ||
+    moduleId === "clinical-reports" ||
+    moduleId === "medical-records"
+  ) {
+    return <ClinicalReportsHub />;
+  }
+
+  // ── Identity, Role & Access module → dedicated IdentityAccessHub ──
+  if (
+    moduleId === "identity-global" ||
+    moduleId === "identity" ||
+    moduleId === "users" ||
+    moduleId === "staff" ||
+    moduleId === "access-control" ||
+    moduleId === "roles"
+  ) {
+    return <IdentityAccessHub />;
+  }
+
+
+
+
+
+
+
 
   if (!ws) {
     return (
