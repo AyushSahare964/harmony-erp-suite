@@ -1,0 +1,46 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+dist-gh-pages
+.output
+.vinxi
+.tanstack/**
+.nitro
+*.local
+
+# Wrangler / Cloudflare
+.wrangler/
+.dev.vars
+
+# Environment & secrets — NEVER commit these
+.env
+.env.*
+atlas-credentials.env
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vercel
+.env*
+*.zip
+previous erp*
+tail_output.txt
+pnl_ytd_report.csv
+implementation_plan_billing
+
