@@ -424,3 +424,38 @@ export const seedDemoUsersFn = createServerFn({ method: "POST" })
         : "ℹ️ All staff users already exist.",
     };
   });
+
+// ─── listApprovedDoctorsFn ──────────────────────────────────────────────────
+
+export const listApprovedDoctorsFn = createServerFn({ method: "GET" })
+  .handler(async (): Promise<Array<{ id: string; name: string; specialty?: string; licenseNumber?: string }>> => {
+    await connectDB();
+    try {
+      const doctors = await User.find({
+        roleId: { $in: ["doctor", "admin"] },
+        approvalStatus: "approved",
+        isActive: true,
+      })
+        .sort({ fullName: 1 })
+        .lean();
+
+      if (doctors.length > 0) {
+        return doctors.map((d: any) => ({
+          id: String(d._id),
+          name: d.fullName.startsWith("Dr.") ? d.fullName : `Dr. ${d.fullName}`,
+          specialty: d.specialty || d.qualification || d.department || "Consultant Vet",
+          licenseNumber: d.licenseNumber || undefined,
+        }));
+      }
+    } catch (err) {
+      console.warn("[Auth] Could not fetch approved doctors:", err);
+    }
+
+    // Default fallback if no custom registered doctors in DB yet
+    return [
+      { id: "doc-1", name: "Dr. Rohit Sharma", specialty: "Chief Veterinary Physician & Surgeon" },
+      { id: "doc-2", name: "Dr. Aisha Nair", specialty: "Feline & Soft Tissue Specialist" },
+      { id: "doc-3", name: "Dr. Ananya Rao", specialty: "Senior Surgeon & Orthopedic Vet" },
+      { id: "doc-4", name: "Dr. Ayush Sahare", specialty: "Consultant Veterinary Physician" },
+    ];
+  });

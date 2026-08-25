@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { useErp } from "@/lib/erp/store";
 import { listVisitsFn, admitPatientFn, deleteVisitFn } from "@/lib/mongodb/serverFns/clinical";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
 
 interface Props {
@@ -49,6 +50,7 @@ interface Props {
 export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
   const { currentUser } = useErp();
   const [visits, setVisits] = useState<any[]>([]);
+  const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
   const [loading, setLoading] = useState(false);
 
   // Quick Intake Modal
@@ -79,12 +81,19 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [visitList, patientList] = await Promise.all([
-        listVisitsFn(),
+      const [visitList, patientList, docsList] = await Promise.all([
+        listVisitsFn().catch(() => []),
         listPetsWithOwnersFn().catch(() => []),
+        listApprovedDoctorsFn().catch(() => []),
       ]);
       setVisits(visitList || []);
       setExistingPatients(patientList || []);
+      if (docsList && docsList.length > 0) {
+        setDoctorsList(docsList);
+        if (!docsList.some((d) => d.name === doctorName)) {
+          setDoctorName(docsList[0].name);
+        }
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -575,9 +584,15 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Dr. Rohit Sharma">🩺 Dr. Rohit Sharma (Senior Physician)</SelectItem>
-                    <SelectItem value="Dr. Ayush Sahare">🩺 Dr. Ayush Sahare (Consultant Vet)</SelectItem>
-                    <SelectItem value="Dr. Ananya Rao">🩺 Dr. Ananya Rao (Surgeon)</SelectItem>
+                    {doctorsList.map((d) => (
+                      <SelectItem key={d.id} value={d.name}>
+                        🩺 <span className="font-semibold">{d.name}</span>
+                        {d.specialty && <span className="text-[10px] text-muted-foreground ml-1 font-normal">({d.specialty})</span>}
+                      </SelectItem>
+                    ))}
+                    {doctorsList.length === 0 && (
+                      <SelectItem value="Dr. Rohit Sharma">🩺 Dr. Rohit Sharma (Consultant Vet)</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

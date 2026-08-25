@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -30,6 +31,7 @@ interface Props {
 
 export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
   const [pets, setPets] = useState<any[]>([]);
+  const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
   const [searchPetQuery, setSearchPetQuery] = useState("");
   const [selectedPet, setSelectedPet] = useState<any | null>(null);
 
@@ -46,9 +48,24 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
   useEffect(() => {
     if (open) {
       void loadPets();
+      void loadDoctors();
       setToken(`A-${Math.floor(108 + Math.random() * 90)}`);
     }
   }, [open]);
+
+  const loadDoctors = async () => {
+    try {
+      const docs = await listApprovedDoctorsFn();
+      if (docs && docs.length > 0) {
+        setDoctorsList(docs);
+        if (!docs.some((d) => d.name === doctor)) {
+          setDoctor(docs[0].name);
+        }
+      }
+    } catch (e) {
+      console.warn("[BookModal] Could not load doctors:", e);
+    }
+  };
 
   const loadPets = async () => {
     try {
@@ -240,11 +257,15 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Dr. Rohit Sharma">Dr. Rohit Sharma (Chief Vet)</SelectItem>
-                  <SelectItem value="Dr. Aisha Nair">Dr. Aisha Nair (Feline Specialist)</SelectItem>
-                  <SelectItem value="Dr. Rao">Dr. Rao (Surgeon)</SelectItem>
-                  <SelectItem value="Dr. Hussain">Dr. Hussain (Physician)</SelectItem>
-                  <SelectItem value="Dr. Pillai">Dr. Pillai (Dental &amp; Soft Tissue)</SelectItem>
+                  {doctorsList.map((d) => (
+                    <SelectItem key={d.id} value={d.name}>
+                      <span className="font-semibold">{d.name}</span>
+                      {d.specialty && <span className="text-[10px] text-muted-foreground ml-1 font-normal">({d.specialty})</span>}
+                    </SelectItem>
+                  ))}
+                  {doctorsList.length === 0 && (
+                    <SelectItem value="Dr. Rohit Sharma">Dr. Rohit Sharma (Consultant Vet)</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
