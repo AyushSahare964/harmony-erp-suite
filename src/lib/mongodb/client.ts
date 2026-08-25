@@ -1,17 +1,12 @@
-/**
- * MongoDB Atlas — Singleton Mongoose connection.
- * Runs on the server (inside TanStack Start server functions).
- */
-
 import dns from "node:dns";
 import * as mongooseModule from "mongoose";
 
-// Configure reliable DNS servers (Google + Cloudflare DNS) for Node.js SRV resolution on Windows
-if (typeof dns.setServers === "function") {
+// Only configure custom DNS servers on Windows local dev to resolve local ISP issues
+if (typeof process !== "undefined" && process.platform === "win32" && typeof dns.setServers === "function") {
   try {
     dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
   } catch {
-    // Ignore in environments where setServers is restricted
+    // Ignore on non-Windows or restricted environments
   }
 }
 
@@ -47,12 +42,14 @@ function getMongoUri(): string {
     }
   }
 
-  const uri =
-    process.env["MONGODB_URI"] ||
-    process.env["VITE_MONGODB_URI"] ||
+  let raw =
+    (typeof process !== "undefined" && (process.env["MONGODB_URI"] || process.env["VITE_MONGODB_URI"])) ||
     DEFAULT_URI;
 
-  return uri;
+  // Clean any extraneous whitespace or enclosing quotes
+  raw = raw.trim().replace(/^["']|["']$/g, "").trim();
+
+  return raw || DEFAULT_URI;
 }
 
 export async function connectDB(): Promise<typeof mongoose> {
@@ -69,14 +66,14 @@ export async function connectDB(): Promise<typeof mongoose> {
   // If a connection attempt is already in progress, reuse the existing promise
   if (!cached.promise) {
     const uri = getMongoUri();
+    const isWin = typeof process !== "undefined" && process.platform === "win32";
     const opts: mongooseModule.ConnectOptions = {
-      maxPoolSize: 10,
-      minPoolSize: 1,
-      serverSelectionTimeoutMS: 15000,
-      socketTimeoutMS: 45000,
-      connectTimeoutMS: 15000,
+      maxPoolSize: 5,
+      serverSelectionTimeoutMS: 8000,
+      socketTimeoutMS: 30000,
+      connectTimeoutMS: 8000,
       retryWrites: true,
-      family: 4, // Force IPv4 to prevent IPv6 DNS delays on Windows
+      ...(isWin ? { family: 4 } : {}),
     };
 
     cached.promise = mongoose.connect(uri, opts).then((m) => {

@@ -164,32 +164,51 @@ export const searchOwnersFn = createServerFn({ method: "GET" })
   });
 
 export const listOwnersWithPetsFn = createServerFn({ method: "GET" }).handler(async () => {
-  await ensureCRMSeeded();
-  const owners = await Owner.find({}).sort({ createdAt: -1 }).limit(200).lean();
-  const ownerIds = owners.map((o: any) => o.ownerId);
-  const pets = await Pet.find({ ownerId: { $in: ownerIds } }).lean();
+  try {
+    await ensureCRMSeeded();
+    const owners = await Owner.find({}).sort({ createdAt: -1 }).limit(200).lean();
+    const ownerIds = owners.map((o: any) => o.ownerId);
+    const pets = await Pet.find({ ownerId: { $in: ownerIds } }).lean();
 
-  const result = owners.map((o: any) => ({
-    ...o,
-    pets: pets.filter((p: any) => p.ownerId === o.ownerId),
-  }));
+    const result = owners.map((o: any) => ({
+      ...o,
+      pets: pets.filter((p: any) => p.ownerId === o.ownerId),
+    }));
 
-  return toPlain<any[]>(result);
+    return toPlain<any[]>(result);
+  } catch (err) {
+    console.warn("[CRM] listOwnersWithPets fallback:", err);
+    const result = SEED_OWNERS.map((o) => ({
+      ...o,
+      pets: SEED_PETS.filter((p) => p.ownerId === o.ownerId),
+    }));
+    return toPlain<any[]>(result);
+  }
 });
 
 export const listPetsWithOwnersFn = createServerFn({ method: "GET" }).handler(async () => {
-  await ensureCRMSeeded();
-  const pets = await Pet.find({}).sort({ createdAt: -1 }).limit(200).lean();
-  const ownerIds = [...new Set(pets.map((p: any) => p.ownerId))];
-  const owners = await Owner.find({ ownerId: { $in: ownerIds } }).lean();
-  const ownerMap = new Map(owners.map((o: any) => [o.ownerId, o]));
+  try {
+    await ensureCRMSeeded();
+    const pets = await Pet.find({}).sort({ createdAt: -1 }).limit(200).lean();
+    const ownerIds = [...new Set(pets.map((p: any) => p.ownerId))];
+    const owners = await Owner.find({ ownerId: { $in: ownerIds } }).lean();
+    const ownerMap = new Map(owners.map((o: any) => [o.ownerId, o]));
 
-  const result = pets.map((p: any) => ({
-    ...p,
-    owner: ownerMap.get(p.ownerId) || { name: "Unknown Owner", phone: "N/A", outstandingBalance: 0 },
-  }));
+    const result = pets.map((p: any) => ({
+      ...p,
+      owner: ownerMap.get(p.ownerId) || { name: "Unknown Owner", phone: "N/A", outstandingBalance: 0 },
+    }));
 
-  return toPlain<any[]>(result);
+    return toPlain<any[]>(result);
+  } catch (err) {
+    console.warn("[CRM] listPetsWithOwners fallback:", err);
+    const ownerMap = new Map(SEED_OWNERS.map((o) => [o.ownerId, o]));
+    const result = SEED_PETS.map((p) => ({
+      ...p,
+      owner: ownerMap.get(p.ownerId) || { name: "Unknown Owner", phone: "N/A", outstandingBalance: 0 },
+    }));
+    return toPlain<any[]>(result);
+  }
 });
 
 export const createOwnerFn = createServerFn({ method: "POST" })
