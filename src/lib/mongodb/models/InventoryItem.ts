@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 
 const { Schema, model } = mongoose;
 
-export type MedicineCategory = "Medicine" | "Food" | "Accessory" | "Consumable";
+export type MedicineCategory = "Medicine" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
 export type UnitOfMeasure =
   | "Tablet"
   | "ml"
@@ -112,7 +112,7 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
     brand:          { type: String, default: "" },
     manufacturer:   { type: String, default: "" },
     description:    { type: String, default: "" },
-    category:       { type: String, required: true, enum: ["Medicine", "Food", "Accessory", "Consumable"] },
+    category:       { type: String, required: true, enum: ["Medicine", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"] },
     subGroup:       { type: String, default: "" },
     hasVariants:    { type: Boolean, default: false },
 

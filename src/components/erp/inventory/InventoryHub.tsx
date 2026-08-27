@@ -1,20 +1,21 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Boxes, BookOpen, BarChart2, ArrowLeftRight, Link2, Bell, ArrowLeft,
+  Boxes, BookOpen, BarChart2, ArrowLeftRight, Link2, Bell, ArrowLeft, ShoppingBag,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Shell } from "@/components/erp/Shell";
 
 import { InventoryProvider } from "./useInventoryStore";
 import { MedicineCatalogue } from "./MedicineCatalogue";
+import { FoodAccessoriesCatalogue } from "./FoodAccessoriesCatalogue";
 import { StockView } from "./StockView";
 import { StockMovements } from "./StockMovements";
 import { BillingSync } from "./BillingSync";
 import { AlertsPanel } from "./AlertsPanel";
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
-type TabId = "catalogue" | "stock" | "movements" | "billing" | "alerts";
+type TabId = "catalogue" | "food_accessories" | "stock" | "movements" | "billing" | "alerts";
 
 interface TabDef {
   id: TabId;
@@ -25,11 +26,12 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: "catalogue", label: "Medicine Catalogue", Icon: BookOpen, badge: "12.4" },
-  { id: "stock",     label: "Real-Time Stock",    Icon: BarChart2, badge: "12.5" },
-  { id: "movements", label: "Stock Movements",    Icon: ArrowLeftRight, badge: "12.6" },
-  { id: "billing",   label: "Billing Sync",       Icon: Link2, badge: "12.7" },
-  { id: "alerts",    label: "Alerts",             Icon: Bell, badge: "12.8" },
+  { id: "catalogue",       label: "Medicine Catalogue",      Icon: BookOpen,       badge: "12.4" },
+  { id: "food_accessories",label: "Food & Accessories",      Icon: ShoppingBag,    badge: "12.5" },
+  { id: "stock",           label: "Real-Time Stock",         Icon: BarChart2,      badge: "12.6" },
+  { id: "movements",       label: "Stock Movements",         Icon: ArrowLeftRight, badge: "12.7" },
+  { id: "billing",         label: "Billing Sync",            Icon: Link2,          badge: "12.8" },
+  { id: "alerts",          label: "Alerts",                  Icon: Bell,           badge: "12.9" },
 ];
 
 // ─── Inner hub (needs InventoryProvider in scope) ─────────────────────────────
@@ -115,11 +117,12 @@ function InventoryHubInner() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22, ease: "easeOut" }}
           >
-            {activeTab === "catalogue" && <MedicineCatalogue />}
-            {activeTab === "stock"     && <StockView />}
-            {activeTab === "movements" && <StockMovements />}
-            {activeTab === "billing"   && <BillingSync />}
-            {activeTab === "alerts"    && <AlertsPanel />}
+            {activeTab === "catalogue"        && <MedicineCatalogue />}
+            {activeTab === "food_accessories" && <FoodAccessoriesCatalogue />}
+            {activeTab === "stock"            && <StockView />}
+            {activeTab === "movements"        && <StockMovements />}
+            {activeTab === "billing"          && <BillingSync />}
+            {activeTab === "alerts"           && <AlertsPanel />}
           </motion.div>
         </AnimatePresence>
       </motion.div>

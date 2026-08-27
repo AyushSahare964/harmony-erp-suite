@@ -76,7 +76,7 @@ const InventoryItemInputZ = z.object({
   brand:       z.string().default(""),
   manufacturer:z.string().default(""),
   description: z.string().default(""),
-  category:    z.enum(["Medicine", "Food", "Accessory", "Consumable"]),
+  category:    z.enum(["Medicine", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"]),
   subGroup:    z.string().default(""),
   hasVariants: z.boolean().default(false),
 

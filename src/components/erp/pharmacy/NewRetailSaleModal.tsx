@@ -2,19 +2,13 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Pill,
   Search,
-  Plus,
   Trash2,
   CheckCircle2,
-  User,
-  Dog,
-  Receipt,
-  Sparkles,
   ShoppingBag,
   Bone,
   Tag,
-  DollarSign,
-  Package,
-  Layers,
+  Beef,
+  AlertCircle,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -23,9 +17,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { getItemsFn, type InventoryItemRow } from "@/lib/mongodb/serverFns/inventory";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import { cn } from "@/lib/utils";
+import { useInventory } from "@/components/erp/inventory/useInventoryStore";
+import type { MedicineCategory } from "@/components/erp/inventory/useInventoryStore";
 
 interface CartItem {
   id: string;
@@ -45,9 +40,25 @@ interface Props {
   onSaleCompleted?: (sale: any) => void;
 }
 
+const POS_CATEGORIES: Array<{ key: string; label: string; icon?: React.ReactNode }> = [
+  { key: "All",                label: "All Items" },
+  { key: "Medicine",           label: "Medicine",           icon: <Pill className="size-3" /> },
+  { key: "Animal Food",        label: "Animal Food",        icon: <Beef className="size-3" /> },
+  { key: "Animal Accessories", label: "Animal Accessories", icon: <Tag className="size-3" /> },
+  { key: "Food",               label: "Food",               icon: <Bone className="size-3" /> },
+  { key: "Accessory",          label: "Accessory",          icon: <Tag className="size-3" /> },
+  { key: "Consumable",         label: "Consumable" },
+];
+
 export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
-  const [inventory, setInventory] = useState<InventoryItemRow[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
+  // Inventory store — live stock
+  const {
+    medicines,
+    getTotalQty,
+    getStockStatus,
+    recordSale,
+  } = useInventory();
+
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [searchItemQuery, setSearchItemQuery] = useState("");
 
@@ -66,25 +77,25 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
 
   useEffect(() => {
     if (open) {
-      void loadData();
+      void loadPets();
+      setCart([]);
     }
   }, [open]);
 
-  const loadData = async () => {
-    setLoadingItems(true);
+  const loadPets = async () => {
     try {
-      const [itemsData, petsData] = await Promise.all([
-        getItemsFn(),
-        listPetsWithOwnersFn(),
-      ]);
-      setInventory(itemsData || []);
+      const petsData = await listPetsWithOwnersFn();
       setPets(petsData || []);
     } catch (e) {
       console.error(e);
-    } finally {
-      setLoadingItems(false);
     }
   };
+
+  // Use live inventory from store instead of server fetch
+  const inventory = useMemo(
+    () => medicines.filter((m) => m.status === "Active"),
+    [medicines]
+  );
 
   const filteredItems = useMemo(() => {
     const q = searchItemQuery.toLowerCase().trim();
@@ -93,26 +104,32 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
       const matchQ =
         !q ||
         it.name.toLowerCase().includes(q) ||
-        it.itemCode.toLowerCase().includes(q) ||
+        it.id.toLowerCase().includes(q) ||
         it.genericName.toLowerCase().includes(q) ||
         it.brand?.toLowerCase().includes(q);
       return matchCat && matchQ;
     });
   }, [inventory, activeCategory, searchItemQuery]);
 
-  const addToCart = (item: InventoryItemRow) => {
+  const addToCart = (item: typeof inventory[0]) => {
+    const availableStock = getTotalQty(item.id);
     setCart((prev) => {
-      const existing = prev.find((c) => c.itemCode === item.itemCode);
+      const existing = prev.find((c) => c.itemCode === item.id);
+      const currentQty = existing ? existing.quantity : 0;
+      if (currentQty >= availableStock) {
+        toast.error(`Only ${availableStock} units available in stock for "${item.name}"`);
+        return prev;
+      }
       if (existing) {
         return prev.map((c) =>
-          c.itemCode === item.itemCode ? { ...c, quantity: c.quantity + 1 } : c
+          c.itemCode === item.id ? { ...c, quantity: c.quantity + 1 } : c
         );
       }
       return [
         ...prev,
         {
           id: String(Date.now()),
-          itemCode: item.itemCode,
+          itemCode: item.id,
           name: item.name,
           category: item.category,
           unit: item.unit,
@@ -130,6 +147,15 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
     if (qty <= 0) {
       setCart((prev) => prev.filter((c) => c.id !== id));
       return;
+    }
+    // Validate against live stock
+    const cartItem = cart.find((c) => c.id === id);
+    if (cartItem) {
+      const avail = getTotalQty(cartItem.itemCode);
+      if (qty > avail) {
+        toast.error(`Only ${avail} units in stock for "${cartItem.name}"`);
+        return;
+      }
     }
     setCart((prev) =>
       prev.map((c) => (c.id === id ? { ...c, quantity: qty } : c))
@@ -169,32 +195,53 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
       toast.error("Cart is empty. Please add items from inventory.");
       return;
     }
+    // Final stock validation
+    for (const c of cart) {
+      const avail = getTotalQty(c.itemCode);
+      if (c.quantity > avail) {
+        toast.error(`Insufficient stock: only ${avail} of "${c.name}" available.`);
+        return;
+      }
+    }
 
     setSubmitting(true);
-    const billNo = `RET-${Math.floor(400 + Math.random() * 600)}`;
-    const newSale = {
-      bill: billNo,
-      item: cart.map((c) => `${c.name} (x${c.quantity})`).join(", "),
-      category: cart[0]?.category || "Medicine",
-      items: cart,
-      qty: cart.reduce((acc, c) => acc + c.quantity, 0),
-      amount: totals.grandTotal,
-      subtotal: totals.subtotal,
-      gst: totals.gst,
-      payment: paymentMode,
-      trxRef: trxRef || undefined,
-      customer: customerType === "registered" && selectedPet ? `${selectedPet.owner?.name} (${selectedPet.name})` : customerName,
-      customerPhone: customerType === "registered" && selectedPet ? selectedPet.owner?.phone : customerPhone,
-      date: new Date().toISOString().slice(0, 10),
-      status: "Completed",
-    };
-
-    setTimeout(() => {
-      setSubmitting(false);
+    try {
+      const billNo = `RET-${Math.floor(400 + Math.random() * 600)}`;
+      // Deduct stock via FEFO for each cart line (synchronous)
+      for (const c of cart) {
+        const result = recordSale({ medicineId: c.itemCode, qty: c.quantity, sourceRef: billNo, actor: "POS" });
+        if (!result.ok) {
+          toast.error(result.error || `Failed to deduct stock for ${c.name}`);
+          setSubmitting(false);
+          return;
+        }
+      }
+      const newSale = {
+        bill: billNo,
+        item: cart.map((c) => `${c.name} (x${c.quantity})`).join(", "),
+        category: cart[0]?.category || "Medicine",
+        items: cart,
+        qty: cart.reduce((acc, c) => acc + c.quantity, 0),
+        amount: totals.grandTotal,
+        subtotal: totals.subtotal,
+        gst: totals.gst,
+        payment: paymentMode,
+        trxRef: trxRef || undefined,
+        customer: customerType === "registered" && selectedPet ? `${selectedPet.owner?.name} (${selectedPet.name})` : customerName,
+        customerPhone: customerType === "registered" && selectedPet ? selectedPet.owner?.phone : customerPhone,
+        date: new Date().toISOString().slice(0, 10),
+        status: "Completed",
+      };
       toast.success(`Retail Bill ${billNo} generated & payment of ₹${totals.grandTotal} collected!`);
       onSaleCompleted?.(newSale);
+      setCart([]);
       onClose();
-    }, 250);
+    } catch (err) {
+      console.error(err);
+      toast.error("Checkout failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -224,21 +271,19 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
           <div className="lg:col-span-7 p-5 space-y-4">
             {/* Category Filter Tabs */}
             <div className="flex flex-wrap items-center gap-1.5 border-b border-border pb-2.5">
-              {["All", "Medicine", "Food", "Accessory", "Consumable"].map((cat) => (
+              {POS_CATEGORIES.map((cat) => (
                 <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
+                  key={cat.key}
+                  onClick={() => setActiveCategory(cat.key)}
                   className={cn(
                     "px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1",
-                    activeCategory === cat
+                    activeCategory === cat.key
                       ? "bg-primary text-primary-foreground shadow-xs"
                       : "text-muted-foreground hover:bg-muted"
                   )}
                 >
-                  {cat === "Medicine" && <Pill className="size-3" />}
-                  {cat === "Food" && <Bone className="size-3" />}
-                  {cat === "Accessory" && <Tag className="size-3" />}
-                  {cat === "All" ? "All Items" : cat}
+                  {cat.icon}
+                  {cat.label}
                 </button>
               ))}
             </div>
@@ -256,44 +301,69 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
 
             {/* Inventory Items Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[380px] overflow-y-auto p-1">
-              {filteredItems.map((item) => (
-                <div
-                  key={item.itemCode}
-                  onClick={() => addToCart(item)}
-                  className="rounded-xl border border-border bg-card p-3 hover:border-primary/40 hover:bg-primary-soft/20 cursor-pointer transition-all flex flex-col justify-between space-y-2 shadow-2xs group"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-1">
-                      <span className="font-mono text-[9px] font-bold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                        {item.itemCode}
-                      </span>
-                      <Badge variant="outline" className={cn(
-                        "text-[9px] py-0 font-bold",
-                        item.category === "Accessory" ? "bg-purple-500/10 text-purple-600 border-purple-500/30" :
-                        item.category === "Food" ? "bg-amber-500/10 text-amber-600 border-amber-500/30" :
-                        "bg-primary/10 text-primary border-primary/30"
-                      )}>
-                        {item.category}
-                      </Badge>
-                    </div>
-                    <h5 className="text-xs font-bold text-foreground mt-1 line-clamp-1 group-hover:text-primary transition-colors">
-                      {item.name}
-                    </h5>
-                    {item.brand && (
-                      <p className="text-[10px] text-muted-foreground">{item.brand}</p>
+              {filteredItems.map((item) => {
+                const availQty = getTotalQty(item.id);
+                const stockStatus = getStockStatus(item.id);
+                const isOutOfStock = availQty === 0;
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => !isOutOfStock && addToCart(item)}
+                    className={cn(
+                      "rounded-xl border border-border bg-card p-3 transition-all flex flex-col justify-between space-y-2 shadow-2xs group",
+                      isOutOfStock
+                        ? "opacity-50 cursor-not-allowed"
+                        : "hover:border-primary/40 hover:bg-primary-soft/20 cursor-pointer"
                     )}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-1">
+                        <span className="font-mono text-[9px] font-bold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                          {item.id}
+                        </span>
+                        <Badge variant="outline" className={cn(
+                          "text-[9px] py-0 font-bold",
+                          item.category === "Animal Accessories" ? "bg-violet-500/10 text-violet-700 border-violet-500/30" :
+                          item.category === "Animal Food"        ? "bg-amber-500/10 text-amber-600 border-amber-500/30" :
+                          item.category === "Accessory"          ? "bg-purple-500/10 text-purple-600 border-purple-500/30" :
+                          item.category === "Food"               ? "bg-amber-500/10 text-amber-600 border-amber-500/30" :
+                          "bg-primary/10 text-primary border-primary/30"
+                        )}>
+                          {item.category}
+                        </Badge>
+                      </div>
+                      <h5 className="text-xs font-bold text-foreground mt-1 line-clamp-1 group-hover:text-primary transition-colors">
+                        {item.name}
+                      </h5>
+                      {item.brand && (
+                        <p className="text-[10px] text-muted-foreground">{item.brand}</p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      {/* Stock indicator */}
+                      <div className="flex items-center gap-1">
+                        {isOutOfStock ? (
+                          <span className="flex items-center gap-1 text-[10px] text-destructive font-semibold">
+                            <AlertCircle className="size-3" /> Out of Stock
+                          </span>
+                        ) : stockStatus === "Low" ? (
+                          <span className="text-[10px] text-warning font-semibold">⚠ Low: {availQty} left</span>
+                        ) : (
+                          <span className="text-[10px] text-success font-semibold">✓ In Stock: {availQty}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-border/50 text-xs">
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          Per {item.unit} · GST {item.gstRate}%
+                        </span>
+                        <span className="font-mono font-bold text-sm text-foreground">
+                          ₹{item.defaultSalePrice.toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="flex items-center justify-between pt-1 border-t border-border/50 text-xs">
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      Per {item.unit} · GST {item.gstRate}%
-                    </span>
-                    <span className="font-mono font-bold text-sm text-foreground">
-                      ₹{item.defaultSalePrice.toLocaleString("en-IN")}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
 
               {filteredItems.length === 0 && (
                 <div className="col-span-2 py-12 text-center text-xs text-muted-foreground">

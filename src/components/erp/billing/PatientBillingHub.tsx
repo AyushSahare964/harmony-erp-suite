@@ -46,10 +46,11 @@ import { InvoiceDetailModal } from "./InvoiceDetailModal";
 import { NewSalesInvoiceModal } from "./NewSalesInvoiceModal";
 import { VisitWorkspaceModal } from "@/components/erp/clinical/VisitWorkspaceModal";
 import { cn } from "@/lib/utils";
+import { InventoryProvider } from "@/components/erp/inventory/useInventoryStore";
 
 type CategoryFilter = "all" | "Clinical" | "Pharmacy" | "Boarding" | "Swimming" | "Laboratory" | "Nutrition";
 
-export function PatientBillingHub() {
+function PatientBillingHubInner() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -631,5 +632,13 @@ export function PatientBillingHub() {
         )}
       </div>
     </Shell>
+  );
+}
+
+export function PatientBillingHub() {
+  return (
+    <InventoryProvider>
+      <PatientBillingHubInner />
+    </InventoryProvider>
   );
 }

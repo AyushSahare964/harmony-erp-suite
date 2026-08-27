@@ -91,7 +91,7 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
       if (docsList && docsList.length > 0) {
         setDoctorsList(docsList);
         if (!docsList.some((d) => d.name === doctorName)) {
-          setDoctorName(docsList[0].name);
+          setDoctorName(docsList[0]?.name || "");
         }
       }
     } catch (e) {
@@ -695,7 +695,7 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
       <OwnerPetRegistrationModal
         open={showRegisterModal}
         onClose={() => setShowRegisterModal(false)}
-        mode="new-all"
+        initialMode="new-all"
         onRegistered={() => {
           void loadData();
         }}

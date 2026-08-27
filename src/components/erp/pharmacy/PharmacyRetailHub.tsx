@@ -36,6 +36,7 @@ import { NewRetailSaleModal } from "./NewRetailSaleModal";
 import { RetailReceiptModal } from "./RetailReceiptModal";
 import { listRetailSalesFn, createRetailSaleFn } from "@/lib/mongodb/serverFns/pharmacy";
 import { cn } from "@/lib/utils";
+import { InventoryProvider } from "@/components/erp/inventory/useInventoryStore";
 
 const RETAIL_SALES_SERIES = [
   { name: "Mar", value: 980 },
@@ -46,7 +47,7 @@ const RETAIL_SALES_SERIES = [
   { name: "Aug", value: 1260 },
 ];
 
-export function PharmacyRetailHub() {
+function PharmacyRetailHubInner() {
   const [bills, setBills] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -366,5 +367,14 @@ export function PharmacyRetailHub() {
         />
       </div>
     </Shell>
+  );
+}
+
+// Wrap with InventoryProvider so the POS modal can use live inventory stock
+export function PharmacyRetailHub() {
+  return (
+    <InventoryProvider>
+      <PharmacyRetailHubInner />
+    </InventoryProvider>
   );
 }

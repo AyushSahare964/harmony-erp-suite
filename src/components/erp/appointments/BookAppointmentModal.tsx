@@ -59,7 +59,7 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
       if (docs && docs.length > 0) {
         setDoctorsList(docs);
         if (!docs.some((d) => d.name === doctor)) {
-          setDoctor(docs[0].name);
+          setDoctor(docs[0]?.name || "");
         }
       }
     } catch (e) {

@@ -28,7 +28,7 @@ import { peekItemCodeFn } from "@/lib/mongodb/serverFns/inventory";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CATEGORIES: MedicineCategory[] = ["Medicine", "Food", "Accessory", "Consumable"];
+const CATEGORIES: MedicineCategory[] = ["Medicine", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"];
 const UNITS: UnitOfMeasure[] = ["Tablet", "ml", "Vial", "Box", "Strip", "Kg", "Bottle", "Unit", "Piece", "Gm", "Litre"];
 const VALUATION_METHODS: ValuationMethod[] = ["FEFO", "FIFO", "Moving Average"];
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -132,11 +132,12 @@ function FCheck({ label, checked, onChange }: { label: string; checked: boolean;
 // ─── Main Dialog ──────────────────────────────────────────────────────────────
 
 export function ItemMasterDialog({
-  open, onClose, editing,
+  open, onClose, editing, defaultCategory,
 }: {
   open: boolean;
   onClose: () => void;
-  editing?: Medicine;
+  editing?: Medicine | undefined;
+  defaultCategory?: MedicineCategory | undefined;
 }) {
   const { addMedicine, updateMedicine } = useInventory();
   const [form, setForm] = useState<FormState>(defaultForm(editing));
@@ -149,9 +150,14 @@ export function ItemMasterDialog({
     if (open && !editing) {
       peekItemCodeFn().then(setNextCode).catch(() => setNextCode("M-XXXX"));
     }
-    setForm(defaultForm(editing));
+    const base = defaultForm(editing);
+    // Apply defaultCategory when adding a new item
+    if (!editing && defaultCategory) {
+      base.category = defaultCategory;
+    }
+    setForm(base);
     setActiveTab("identity");
-  }, [open, editing]);
+  }, [open, editing, defaultCategory]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));

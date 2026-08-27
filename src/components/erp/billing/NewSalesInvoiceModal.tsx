@@ -16,6 +16,7 @@ import {
   Building,
   CreditCard,
   Percent,
+  AlertCircle,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -25,10 +26,10 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
-import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
 import { finalizeVisitAndBillFn } from "@/lib/mongodb/serverFns/clinical";
 import { cn } from "@/lib/utils";
 import { useErp } from "@/lib/erp/store";
+import { useInventory } from "@/components/erp/inventory/useInventoryStore";
 
 interface LineItem {
   id: string;
@@ -63,6 +64,13 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated }: Props)
   const activeDoctorName =
     currentUser?.fullName || (currentUser?.roleId === "doctor" ? currentUser.fullName : role?.person || "Dr. Rohit Sharma");
 
+  // Live inventory from store
+  const { medicines, getTotalQty, getStockStatus, recordSale } = useInventory();
+  const inventoryItems = useMemo(
+    () => medicines.filter((m) => m.status === "Active" && m.maintainStock),
+    [medicines]
+  );
+
   // Step in modal: 'select-patient' | 'add-items'
   const [step, setStep] = useState<"patient" | "items">("patient");
 
@@ -71,8 +79,7 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated }: Props)
   const [searchPatientQuery, setSearchPatientQuery] = useState("");
   const [selectedPet, setSelectedPet] = useState<any | null>(null);
 
-  // Live Medicine Inventory
-  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  // Selected Inventory Item for quick add
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<any | null>(null);
   const [inventoryQty, setInventoryQty] = useState(1);
 
@@ -101,18 +108,14 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated }: Props)
 
   useEffect(() => {
     if (open) {
-      void loadPatientsAndInventory();
+      void loadPatients();
     }
   }, [open]);
 
-  const loadPatientsAndInventory = async () => {
+  const loadPatients = async () => {
     try {
-      const [petsData, invData] = await Promise.all([
-        listPetsWithOwnersFn(),
-        getItemsFn(),
-      ]);
+      const petsData = await listPetsWithOwnersFn();
       setPets(petsData || []);
-      setInventoryItems(invData || []);
       if (petsData && petsData.length > 0 && !selectedPet) {
         setSelectedPet(petsData[0]);
       }
@@ -184,16 +187,23 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated }: Props)
 
   const handleAddInventoryMedicine = () => {
     if (!selectedInventoryItem) {
-      toast.error("Please select a medicine from inventory");
+      toast.error("Please select an item from inventory");
+      return;
+    }
+    // Validate stock
+    const avail = getTotalQty(selectedInventoryItem.id);
+    const qty = Number(inventoryQty) || 1;
+    if (qty > avail) {
+      toast.error(`Only ${avail} units in stock for "${selectedInventoryItem.name}"`);
       return;
     }
     const isVaccine = selectedInventoryItem.category === "Vaccine" || selectedInventoryItem.name.toLowerCase().includes("vaccine");
     const newItem: LineItem = {
       id: String(Date.now()),
       lineType: isVaccine ? "Vaccine" : "Pharmacy",
-      itemCode: selectedInventoryItem.itemCode,
+      itemCode: selectedInventoryItem.id,
       name: selectedInventoryItem.name,
-      quantity: Number(inventoryQty) || 1,
+      quantity: qty,
       unitPrice: selectedInventoryItem.defaultSalePrice || 250,
       discountPercent: 0,
       gstRate: billType === "GST" ? (selectedInventoryItem.gstRate || 5) : 0,
@@ -227,10 +237,32 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated }: Props)
       toast.error("Please add at least one line item");
       return;
     }
+    // Validate stock for all inventory line items before finalizing
+    for (const it of items) {
+      if (it.itemCode) {
+        const avail = getTotalQty(it.itemCode);
+        if (it.quantity > avail) {
+          toast.error(`Insufficient stock: only ${avail} of "${it.name}" available.`);
+          return;
+        }
+      }
+    }
 
     setSaving(true);
     try {
       const generatedVisitId = `V-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // Deduct stock via FEFO for all inventory line items (synchronous)
+      for (const it of items) {
+        if (it.itemCode) {
+          const result = recordSale({ medicineId: it.itemCode, qty: it.quantity, sourceRef: generatedVisitId, actor: doctorName });
+          if (!result.ok) {
+            toast.error(result.error || `Stock deduction failed for ${it.name}`);
+            setSaving(false);
+            return;
+          }
+        }
+      }
 
       const payload = {
         visitId: generatedVisitId,
@@ -413,29 +445,30 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated }: Props)
               ))}
             </div>
 
-            {/* Inventory Medicine Quick Adder */}
+            {/* Inventory Item Quick Adder - all categories */}
             {inventoryItems.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50">
                 <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
-                  <Package className="size-3.5" /> From Pharmacy Inventory:
+                  <Package className="size-3.5" /> From Inventory (All Categories):
                 </span>
-                <div className="w-56">
+                <div className="w-64">
                   <Select
-                    value={selectedInventoryItem?.itemCode || ""}
+                    value={selectedInventoryItem?.id || ""}
                     onValueChange={(val) => {
-                      const found = inventoryItems.find((it) => it.itemCode === val);
+                      const found = inventoryItems.find((it) => it.id === val);
                       setSelectedInventoryItem(found || null);
                     }}
                   >
-                    <SelectTrigger className="text-xs h-8 bg-card">
-                      <SelectValue placeholder="Select medicine..." />
-                    </SelectTrigger>
+                    <SelectTrigger className="text-xs h-8 bg-card"><SelectValue placeholder="Select item..." /></SelectTrigger>
                     <SelectContent>
-                      {inventoryItems.map((it) => (
-                        <SelectItem key={it.itemCode} value={it.itemCode}>
-                          {it.name} (₹{it.defaultSalePrice || 250})
-                        </SelectItem>
-                      ))}
+                      {inventoryItems.map((it) => {
+                        const avail = getTotalQty(it.id);
+                        return (
+                          <SelectItem key={it.id} value={it.id} disabled={avail === 0}>
+                            {it.name} — ₹{it.defaultSalePrice} ({avail} in stock)
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>

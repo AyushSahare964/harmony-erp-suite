@@ -207,7 +207,7 @@ export function StockView() {
             <SelectTrigger className="w-[150px]"><SelectValue placeholder="All categories" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All categories</SelectItem>
-              {["Medicine", "Food", "Accessory", "Consumable"].map((c) => (
+              {["Medicine", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"].map((c) => (
                 <SelectItem key={c} value={c}>{c}</SelectItem>
               ))}
             </SelectContent>
