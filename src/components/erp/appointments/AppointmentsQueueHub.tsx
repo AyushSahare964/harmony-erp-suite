@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import { BookAppointmentModal } from "./BookAppointmentModal";
 import { VisitWorkspaceModal } from "@/components/erp/clinical/VisitWorkspaceModal";
 import { listAppointmentsFn, createAppointmentFn, updateAppointmentStatusFn } from "@/lib/mongodb/serverFns/appointments";
+import { getUpcomingFollowUpsFn } from "@/lib/mongodb/serverFns/clinical";
 import { cn } from "@/lib/utils";
 
 const MONTHLY_APPOINTMENTS = [
@@ -63,8 +64,13 @@ export function AppointmentsQueueHub() {
   const [showVisitWorkspace, setShowVisitWorkspace] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<any | null>(null);
 
+  // Follow-ups
+  const [followUps, setFollowUps] = useState<any[]>([]);
+  const [followUpsLoading, setFollowUpsLoading] = useState(false);
+
   useEffect(() => {
     void loadAppointments();
+    void loadFollowUps();
   }, []);
 
   const loadAppointments = async () => {
@@ -80,6 +86,17 @@ export function AppointmentsQueueHub() {
     }
   };
 
+  const loadFollowUps = async () => {
+    setFollowUpsLoading(true);
+    try {
+      const data = await getUpcomingFollowUpsFn({ data: { daysAhead: 14 } });
+      setFollowUps(data || []);
+    } catch (e) {
+      console.warn("Could not load follow-ups:", e);
+    } finally {
+      setFollowUpsLoading(false);
+    }
+  };
   // Filtered rows
   const filteredRows = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -237,7 +254,92 @@ export function AppointmentsQueueHub() {
           />
         </div>
 
-        {/* APPOINTMENTS PER MONTH Chart (Exact Screenshot Match) */}
+        {/* ── Follow-ups Due Widget ─────────────────────────────────────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="erp-card p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">UPCOMING FOLLOW-UPS (Next 14 Days)</p>
+              <p className="text-[11px] text-muted-foreground">Scheduled return visits from clinical screen</p>
+            </div>
+            <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-xs font-bold">
+              {followUps.length} pending
+            </Badge>
+          </div>
+          {followUpsLoading && (
+            <div className="flex items-center gap-2 py-3">
+              <div className="animate-spin size-4 border-2 border-primary border-t-transparent rounded-full" />
+              <span className="text-xs text-muted-foreground">Loading follow-ups...</span>
+            </div>
+          )}
+          {!followUpsLoading && followUps.length === 0 && (
+            <p className="text-xs text-muted-foreground italic py-2">No follow-ups due in the next 14 days.</p>
+          )}
+          {!followUpsLoading && followUps.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground font-bold uppercase tracking-wider text-[10px]">
+                    <th className="pb-2 pr-4">Patient</th>
+                    <th className="pb-2 pr-4">Owner</th>
+                    <th className="pb-2 pr-4">Next Visit</th>
+                    <th className="pb-2 pr-4">Last Diagnosis</th>
+                    <th className="pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {followUps.map((fu) => {
+                    const isToday = fu.nextVisitDate === new Date().toISOString().slice(0, 10);
+                    const isPast = fu.nextVisitDate < new Date().toISOString().slice(0, 10);
+                    return (
+                      <tr key={fu.visitId} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-2 pr-4">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-base">{fu.species === "Feline" ? "🐱" : fu.species === "Avian" ? "🦜" : "🐶"}</span>
+                            <div>
+                              <p className="font-bold text-foreground">{fu.petName}</p>
+                              <p className="text-[10px] font-mono text-muted-foreground">{fu.petId}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-2 pr-4">
+                          <p className="font-medium text-foreground">{fu.ownerName}</p>
+                          <p className="text-[10px] text-muted-foreground">{fu.ownerPhone}</p>
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-[10px] font-bold",
+                            isPast ? "bg-destructive/10 text-destructive" : isToday ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary"
+                          )}>
+                            {isPast ? "⚠ Overdue " : isToday ? "📅 Today " : ""}{fu.nextVisitDate}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4">
+                          <p className="text-[11px] text-muted-foreground max-w-[160px] truncate">{fu.diagnosis || "—"}</p>
+                        </td>
+                        <td className="py-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] font-bold text-primary border-primary/30 hover:bg-primary hover:text-primary-foreground gap-1"
+                            onClick={() => setShowBookModal(true)}
+                          >
+                            <Calendar className="size-3" /> Book
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </motion.div>
+
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}

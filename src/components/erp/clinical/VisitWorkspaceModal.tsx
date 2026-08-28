@@ -18,9 +18,11 @@ import {
   ShieldCheck,
   Download,
   Edit,
+  Copy,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,10 +30,11 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useErp } from "@/lib/erp/store";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
-import { finalizeVisitAndBillFn } from "@/lib/mongodb/serverFns/clinical";
+import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn } from "@/lib/mongodb/serverFns/clinical";
 import { PrescriptionPrintView } from "./PrescriptionPrintView";
 import { InvoicePrintView } from "./InvoicePrintView";
 import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
+import { getPetFn } from "@/lib/mongodb/serverFns/crm";
 
 interface VisitWorkspaceProps {
   open: boolean;
@@ -53,11 +56,23 @@ interface BillLine {
   gstRate: number;
 }
 
+const FALLBACK_CATALOG = [
+  { itemCode: "M-0001", name: "Amoxicillin 250mg", defaultSalePrice: 24, gstRate: 12, lineType: "Pharmacy" },
+  { itemCode: "M-0002", name: "Rabies Vaccine 1ml", defaultSalePrice: 480, gstRate: 5, lineType: "Vaccine" },
+  { itemCode: "M-0003", name: "IV Fluid RL 500ml", defaultSalePrice: 65, gstRate: 12, lineType: "Pharmacy" },
+  { itemCode: "M-0004", name: "Dexamethasone 4mg", defaultSalePrice: 95, gstRate: 12, lineType: "Pharmacy" },
+  { itemCode: "M-0005", name: "Royal Canin Maxi 4kg", defaultSalePrice: 1850, gstRate: 18, lineType: "Pharmacy" },
+  { itemCode: "M-0006", name: "Tick & Flea Collar (L)", defaultSalePrice: 320, gstRate: 18, lineType: "Pharmacy" },
+  { itemCode: "M-0007", name: "Meloxicam Injection 10ml", defaultSalePrice: 150, gstRate: 12, lineType: "Pharmacy" },
+  { itemCode: "M-0008", name: "Cefpet Dry Syrup 30ml", defaultSalePrice: 220, gstRate: 12, lineType: "Pharmacy" },
+];
+
 export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: VisitWorkspaceProps) {
   const { currentUser, role } = useErp();
   const activeDoctorName = visit?.doctorName || currentUser?.fullName || role?.person || "Dr. Rohit Sharma";
 
-  const [catalogItems, setCatalogItems] = useState<any[]>([]);
+  const [catalogItems, setCatalogItems] = useState<any[]>(FALLBACK_CATALOG);
+  const [petDetails, setPetDetails] = useState<any>(null);
 
   const [tab, setTab] = useState<"consultation" | "billing" | "completed">("consultation");
   
@@ -70,8 +85,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   
   // Reminders
   const [nextVisitDate, setNextVisitDate] = useState(visit?.nextVisitDate || "");
-  const [nextVaccineDate, setNextVaccineDate] = useState(visit?.nextVaccineDate || "");
   const [nextDewormingDate, setNextDewormingDate] = useState(visit?.nextDewormingDate || "");
+
+  // Extended Records
+  const [vaccineRecords, setVaccineRecords] = useState<{ id: string; type: string; dateGiven: string; nextDueDate: string; price?: number }[]>([]);
+  const [bloodTests, setBloodTests] = useState<{ id: string, testType: string, status: string }[]>([]);
+  const [foodPurchases, setFoodPurchases] = useState<{ id: string, name: string, quantity: number }[]>([]);
+
+  // Previous History Panel
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [historyVisits, setHistoryVisits] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Line items state
   const [lines, setLines] = useState<BillLine[]>([
@@ -86,10 +110,26 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     },
   ]);
 
-  // Quick Medicine Search
+  // Quick Medicine Search & Filter
   const [selectedMedicine, setSelectedMedicine] = useState<any | null>(null);
+  const [medSearchQuery, setMedSearchQuery] = useState("");
   const [itemQty, setItemQty] = useState(1);
   const [dosageText, setDosageText] = useState("");
+
+  // Separated Animal Food & Accessories State
+  const [foodItems, setFoodItems] = useState<{ id: string; name: string; packSize: string; quantity: number; price: number }[]>([]);
+  const [newFoodName, setNewFoodName] = useState("");
+  const [newFoodPack, setNewFoodPack] = useState("");
+  const [newFoodQty, setNewFoodQty] = useState(1);
+  const [newFoodPrice, setNewFoodPrice] = useState(450);
+
+  const [accessoryItems, setAccessoryItems] = useState<{ id: string; name: string; category: string; quantity: number; price: number }[]>([]);
+  const [newAccName, setNewAccName] = useState("");
+  const [newAccCat, setNewAccCat] = useState("Collars & Leashes");
+  const [newAccQty, setNewAccQty] = useState(1);
+  const [newAccPrice, setNewAccPrice] = useState(250);
+
+  const [newBloodTestType, setNewBloodTestType] = useState("CBC (Complete Blood Count)");
 
   // Payment
   const [billType, setBillType] = useState<"GST" | "Non-GST">(visit?.billType || "GST");
@@ -105,30 +145,280 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   useEffect(() => {
     if (open) {
       void loadCatalog();
+      if (visit?.petId) void loadPetDetails(visit.petId);
+      if (visit?.petId || visit?.petName) void loadPatientHistory();
     }
-  }, [open]);
+  }, [open, visit?.petId, visit?.petName]);
 
   const loadCatalog = async () => {
     try {
       const items = await getItemsFn();
-      setCatalogItems(items);
+      if (items && items.length > 0) {
+        setCatalogItems(items);
+      }
     } catch (e) {
       console.warn("Could not load catalog items:", e);
     }
   };
 
+  const loadPetDetails = async (petId: string) => {
+    try {
+      const pet = await getPetFn({ data: { petId } });
+      setPetDetails(pet);
+    } catch (e) {
+      console.warn("Could not load pet details:", e);
+    }
+  };
+
+  const loadPatientHistory = async () => {
+    if (!visit?.petId && !visit?.petName) return;
+    setHistoryLoading(true);
+    try {
+      const pastVisits = await getPatientHistoryFn({
+        data: {
+          petId: visit?.petId || undefined,
+          petName: visit?.petName || undefined,
+          excludeVisitId: visit?.visitId || undefined,
+        },
+      });
+      setHistoryVisits(pastVisits || []);
+    } catch (e) {
+      console.warn("Could not load patient history:", e);
+      setHistoryVisits([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleCopyPreviousRx = (prevVisit: any) => {
+    if (!prevVisit.items || prevVisit.items.length === 0) {
+      toast.error("No prescribed items found in this previous visit to copy.");
+      return;
+    }
+    const copiedLines: BillLine[] = prevVisit.items.map((item: any, i: number) => ({
+      id: String(Date.now() + i),
+      lineType: item.lineType || "Pharmacy",
+      itemCode: item.itemCode,
+      batchNo: item.batchNo,
+      name: item.name,
+      dosageInstructions: item.dosageInstructions || "",
+      quantity: item.quantity || 1,
+      unitPrice: item.unitPrice || 0,
+      discountPercent: item.discountPercent || 0,
+      gstRate: item.gstRate || 0,
+    }));
+
+    setLines(copiedLines);
+    if (prevVisit.diagnosis && !diagnosis) {
+      setDiagnosis(prevVisit.diagnosis);
+    }
+    setClinicalNotes(
+      (prevNotes: string) =>
+        `[Repeat Prescription copied from ${prevVisit.date} (${prevVisit.visitId})]: ${prevVisit.diagnosis || "Follow-up treatment"}\n` +
+        (prevNotes ? `\n${prevNotes}` : "")
+    );
+
+    toast.success(`Loaded ${copiedLines.length} item(s) from previous Rx (${prevVisit.date}) into current prescription form!`);
+    setShowHistoryPanel(false);
+  };
+
+  const filteredCatalog = useMemo(() => {
+    if (!medSearchQuery.trim()) return catalogItems;
+    const q = medSearchQuery.toLowerCase().trim();
+    return catalogItems.filter(
+      (item: any) =>
+        item.name.toLowerCase().includes(q) ||
+        (item.itemCode && item.itemCode.toLowerCase().includes(q))
+    );
+  }, [catalogItems, medSearchQuery]);
+
+  const handleAddFoodItem = () => {
+    if (!newFoodName.trim()) {
+      toast.error("Please enter food item name");
+      return;
+    }
+    const item = {
+      id: Math.random().toString(),
+      name: newFoodName.trim(),
+      packSize: newFoodPack.trim() || "Standard",
+      quantity: Number(newFoodQty) || 1,
+      price: Number(newFoodPrice) || 0,
+    };
+    setFoodItems((prev) => [...prev, item]);
+    setLines((prev) => [
+      ...prev,
+      {
+        id: item.id,
+        lineType: "Pharmacy",
+        name: `[Food] ${item.name} (${item.packSize})`,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        discountPercent: 0,
+        gstRate: 18,
+      },
+    ]);
+    setNewFoodName("");
+    setNewFoodPack("");
+    setNewFoodQty(1);
+    setNewFoodPrice(450);
+    toast.success(`Added food item: ${item.name}`);
+  };
+
+  const handleRemoveFoodItem = (id: string) => {
+    setFoodItems((prev) => prev.filter((f) => f.id !== id));
+    setLines((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const handleAddAccessoryItem = () => {
+    if (!newAccName.trim()) {
+      toast.error("Please enter accessory name");
+      return;
+    }
+    const item = {
+      id: Math.random().toString(),
+      name: newAccName.trim(),
+      category: newAccCat,
+      quantity: Number(newAccQty) || 1,
+      price: Number(newAccPrice) || 0,
+    };
+    setAccessoryItems((prev) => [...prev, item]);
+    setLines((prev) => [
+      ...prev,
+      {
+        id: item.id,
+        lineType: "Pharmacy",
+        name: `[Accessory] ${item.name} (${item.category})`,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        discountPercent: 0,
+        gstRate: 18,
+      },
+    ]);
+    setNewAccName("");
+    setNewAccQty(1);
+    setNewAccPrice(250);
+    toast.success(`Added accessory: ${item.name}`);
+  };
+
+  const handleRemoveAccessoryItem = (id: string) => {
+    setAccessoryItems((prev) => prev.filter((a) => a.id !== id));
+    setLines((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const handleAddBloodTest = () => {
+    if (!newBloodTestType) return;
+    const test = {
+      id: Math.random().toString(),
+      testType: newBloodTestType,
+      status: "Ordered",
+    };
+    setBloodTests((prev) => [...prev, test]);
+    setLines((prev) => [
+      ...prev,
+      {
+        id: test.id,
+        lineType: "Diagnostic",
+        name: `[Blood Test] ${test.testType}`,
+        quantity: 1,
+        unitPrice: 450,
+        discountPercent: 0,
+        gstRate: 18,
+      },
+    ]);
+    toast.success(`Ordered blood test: ${test.testType}`);
+  };
+
+  const DEFAULT_VACCINE_PRICES: Record<string, number> = {
+    "Anti-rabies": 350,
+    "All-in-1": 450,
+    "Kennel Cough": 400,
+    "Feline Tri-cat": 550,
+  };
+
+  const handleAddVaccineRecord = () => {
+    const id = Math.random().toString();
+    const type = "Anti-rabies";
+    const dateGiven = new Date().toISOString().slice(0, 10);
+    const price = DEFAULT_VACCINE_PRICES[type] || 350;
+
+    const newRecord = {
+      id,
+      type,
+      dateGiven,
+      nextDueDate: "",
+      price,
+    };
+
+    setVaccineRecords((prev) => [...prev, newRecord]);
+
+    // Automatically add vaccine line item to Billing & Settlement lines
+    setLines((prev) => [
+      ...prev,
+      {
+        id,
+        lineType: "Vaccine",
+        name: `Vaccine - ${type} (Rabisin)`,
+        quantity: 1,
+        unitPrice: price,
+        discountPercent: 0,
+        gstRate: 18,
+      },
+    ]);
+
+    toast.success(`Recorded vaccine ${type} (₹${price} added to billing)`);
+  };
+
+  const handleUpdateVaccineType = (id: string, newType: string) => {
+    const price = DEFAULT_VACCINE_PRICES[newType] || 350;
+    setVaccineRecords((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, type: newType, price } : r))
+    );
+    // Update billing line
+    setLines((prev) =>
+      prev.map((l) =>
+        l.id === id
+          ? {
+              ...l,
+              name: `Vaccine - ${newType}`,
+              unitPrice: price,
+            }
+          : l
+      )
+    );
+  };
+
+  const handleRemoveVaccineRecord = (id: string) => {
+    setVaccineRecords((prev) => prev.filter((r) => r.id !== id));
+    setLines((prev) => prev.filter((l) => l.id !== id));
+    toast.success("Vaccine removed from record & billing");
+  };
+
   useEffect(() => {
     if (visit && open) {
+      if (visit.petId) {
+        void loadPetDetails(visit.petId);
+      }
       setWeightKg(visit?.vitals?.weightKg ? String(visit.vitals.weightKg) : "24.5");
       setTempC(visit?.vitals?.tempC ? String(visit.vitals.tempC) : "38.5");
       setComplaint(visit?.vitals?.complaint || "Routine consultation and health review");
       setDiagnosis(visit?.diagnosis || "");
       setClinicalNotes(visit?.clinicalNotes || "");
       setNextVisitDate(visit?.nextVisitDate || "");
-      setNextVaccineDate(visit?.nextVaccineDate || "");
       setNextDewormingDate(visit?.nextDewormingDate || "");
       if (visit.items && visit.items.length > 0) {
         setLines(visit.items.map((it: any, idx: number) => ({ ...it, id: String(idx + 1) })));
+      } else {
+        setLines([
+          {
+            id: "1",
+            lineType: "Consultation",
+            name: "Veterinary Consultation & Physical Examination",
+            quantity: 1,
+            unitPrice: 500,
+            discountPercent: 0,
+            gstRate: 18,
+          },
+        ]);
       }
 
       // If visit is already settled / completed / paid, jump directly to final preview screen!
@@ -136,10 +426,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         visit.status === "PAID" ||
         visit.status === "Settled" ||
         visit.status === "Paid" ||
-        visit.status === "Completed" ||
-        visit.status === "Partially Paid" ||
-        (Number(visit.totalAmount || 0) > 0 && Number(visit.amountPaid || 0) >= Number(visit.totalAmount || 0)) ||
-        Boolean(visit.diagnosis && Number(visit.totalAmount || 0) > 0);
+        visit.status === "Completed";
 
       if (isAlreadyCompleted) {
         setFinalizedVisit(visit);
@@ -151,8 +438,52 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     }
   }, [visit, open]);
 
+  const handleCloneTreatment = async () => {
+    if (!visit?.petId) return;
+    try {
+      const latestVisit = await getLatestVisitFn({ data: { petId: visit.petId, excludeVisitId: visit.visitId } });
+      if (!latestVisit || !latestVisit.items || latestVisit.items.length === 0) {
+        toast.info("No previous treatments found to clone.");
+        return;
+      }
+      const existingLineIds = new Set(lines.map(l => l.itemCode));
+      const clonedItems = latestVisit.items
+        .filter((it: any) => it.lineType === "Medicine" && !existingLineIds.has(it.itemCode))
+        .map((it: any) => ({
+          ...it,
+          id: Math.random().toString(),
+        }));
+      
+      if (clonedItems.length === 0) {
+        toast.info("Previous medicines are already added.");
+        return;
+      }
+      setLines(prev => [...prev, ...clonedItems]);
+      toast.success(`Cloned ${clonedItems.length} previous medicine(s).`);
+    } catch (e) {
+      console.warn("Could not clone treatment:", e);
+      toast.error("Failed to clone treatment.");
+    }
+  };
+
+  const handleViewHistory = async () => {
+    if (!visit?.petId) return;
+    setShowHistoryPanel(true);
+    if (historyVisits.length > 0) return; // already loaded
+    setHistoryLoading(true);
+    try {
+      const data = await getPatientHistoryFn({ data: { petId: visit.petId } });
+      setHistoryVisits(Array.isArray(data) ? data.filter((v: any) => v.visitId !== visit.visitId) : []);
+    } catch (e) {
+      console.warn("Could not load history:", e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   // Consultation Line Helper & Handlers
   const consultationLine = lines.find((l) => l.lineType === "Consultation");
+
 
   const handleSetConsultationFee = (amount: number) => {
     const validAmount = isNaN(amount) ? 0 : Math.max(0, amount);
@@ -286,7 +617,6 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         diagnosis: diagnosis.trim() || "Clinical Examination Completed",
         clinicalNotes: clinicalNotes.trim(),
         nextVisitDate: nextVisitDate || undefined,
-        nextVaccineDate: nextVaccineDate || undefined,
         nextDewormingDate: nextDewormingDate || undefined,
         items: lines.map((l) => ({
           lineType: l.lineType,
@@ -359,8 +689,23 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             </div>
           </div>
 
-          {/* Workflow Tabs */}
-          <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+          {/* Previous Visit History & Workflow Tabs */}
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowHistoryPanel(true);
+                void loadPatientHistory();
+              }}
+              className="h-8.5 gap-1.5 text-xs font-bold border-blue-500/40 text-blue-700 bg-blue-50/60 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/60 shadow-2xs"
+            >
+              <Clock className="size-3.5 text-blue-600" />
+              <span>Previous History ({historyVisits.length})</span>
+            </Button>
+
+            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
             <button
               onClick={() => setTab("consultation")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
@@ -377,8 +722,19 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             >
               <Receipt className="size-3.5" /> 2. Billing &amp; Settlement (₹{billSummary.totalAmount})
             </button>
+            {finalizedVisit && (
+              <button
+                onClick={() => setTab("completed")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                  tab === "completed" ? "bg-emerald-600 text-white shadow-xs" : "text-emerald-600 hover:text-emerald-700 font-bold"
+                }`}
+              >
+                <CheckCircle2 className="size-3.5" /> 3. Finalized Rx &amp; Bill
+              </button>
+            )}
           </div>
         </div>
+      </div>
 
         {/* ── Main Scrollable Body ──────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -386,6 +742,35 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left 2 Cols: Vitals, Diagnosis & Medicine Picker */}
               <div className="lg:col-span-2 space-y-5">
+                {/* Prominent Bold Highlighted Allergies Warning Banner */}
+                {Boolean(
+                  (visit?.allergies && (Array.isArray(visit.allergies) ? visit.allergies.length > 0 : String(visit.allergies).trim().length > 0)) ||
+                  (petDetails?.allergies && (Array.isArray(petDetails.allergies) ? petDetails.allergies.length > 0 : String(petDetails.allergies).trim().length > 0))
+                ) && (
+                  <div className="rounded-2xl p-4 bg-destructive text-destructive-foreground border-2 border-destructive shadow-lg flex items-start gap-3.5 animate-pulse">
+                    <AlertTriangle className="size-6 text-white shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                        <span>⚠ CRITICAL ALLERGY ALERT</span>
+                        <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-mono font-bold">SAFETY WARNING</span>
+                      </h4>
+                      <p className="text-xs font-bold text-white/95 leading-relaxed">
+                        Patient has documented allergies:{" "}
+                        <span className="underline decoration-wavy font-extrabold text-yellow-300 text-sm">
+                          {Array.isArray(visit?.allergies) && visit.allergies.length > 0
+                            ? visit.allergies.join(", ")
+                            : Array.isArray(petDetails?.allergies)
+                            ? petDetails.allergies.join(", ")
+                            : String(visit?.allergies || petDetails?.allergies)}
+                        </span>
+                      </p>
+                      <p className="text-[10px] font-semibold text-white/80">
+                        * Avoid prescribing contra-indicated drugs or administering allergen vaccines to this patient.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Vitals Strip */}
                 <div className="erp-card p-4 bg-muted/20">
                   <p className="section-label mb-2.5">Patient Intake Vitals</p>
@@ -482,22 +867,76 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
                 {/* Live Inventory Medicine & Vaccine Picker */}
                 <div className="erp-card p-4 space-y-3">
-                  <p className="section-label">Prescribe Medicines &amp; Vaccines (Live Inventory)</p>
+                  <div className="flex items-center justify-between border-b border-border pb-2">
+                    <p className="section-label mb-0">Prescribe Medicines &amp; Vaccines (Live Inventory)</p>
+                    <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                      {filteredCatalog.length} items available
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Search Product Catalog</Label>
+                    <div className="space-y-2 relative">
+                      <Label className="text-[11px] text-muted-foreground flex items-center justify-between">
+                        <span>Search Product Catalog</span>
+                        <span className="text-[10px] text-primary font-semibold">Dynamic Auto-search</span>
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          placeholder="🔍 Start typing medicine name (e.g. Amox, Rabies)..."
+                          value={medSearchQuery}
+                          onChange={(e) => setMedSearchQuery(e.target.value)}
+                          className="h-9 text-xs bg-background pr-8 font-medium"
+                        />
+                        {medSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setMedSearchQuery("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            ✕
+                          </button>
+                        )}
+                        {/* Dynamic Instant Search Results Floating Dropdown */}
+                        {medSearchQuery.trim().length > 0 && (
+                          <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-52 overflow-y-auto rounded-xl border border-primary/40 bg-card p-1 shadow-xl">
+                            {filteredCatalog.length === 0 ? (
+                              <p className="p-2 text-[11px] text-muted-foreground italic text-center">No matching medicines found.</p>
+                            ) : (
+                              filteredCatalog.map((m: any) => (
+                                <button
+                                  key={m.itemCode}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedMedicine(m);
+                                    setMedSearchQuery(m.name);
+                                  }}
+                                  className="w-full text-left p-2 hover:bg-primary/10 rounded-lg flex items-center justify-between text-xs transition-colors border-b border-border/30 last:border-0"
+                                >
+                                  <div>
+                                    <p className="font-bold text-foreground">{m.name}</p>
+                                    <span className="text-[10px] font-mono text-muted-foreground">{m.itemCode}</span>
+                                  </div>
+                                  <span className="font-mono font-bold text-primary text-xs">₹{m.defaultSalePrice || 250}</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       <Select
                         value={selectedMedicine?.itemCode || ""}
                         onValueChange={(code) => {
                           const m = catalogItems.find((x: any) => x.itemCode === code);
                           setSelectedMedicine(m || null);
+                          if (m) setMedSearchQuery(m.name);
                         }}
                       >
-                        <SelectTrigger className="text-xs h-9">
-                          <SelectValue placeholder="Select medicine / vaccine..." />
+                        <SelectTrigger className="text-xs h-9 bg-card">
+                          <SelectValue placeholder="Or choose from medicine catalog dropdown..." />
                         </SelectTrigger>
                         <SelectContent className="max-h-56">
-                          {catalogItems.map((m: any) => (
+                          {filteredCatalog.map((m: any) => (
                             <SelectItem key={m.itemCode} value={m.itemCode}>
                               <div className="flex items-center justify-between w-full gap-4">
                                 <span className="font-medium">{m.name}</span>
@@ -511,7 +950,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       </Select>
                     </div>
 
-                    <div>
+                    <div className="space-y-2">
                       <Label className="text-[11px] text-muted-foreground">Quantity &amp; Dosage Instructions</Label>
                       <div className="flex gap-2">
                         <Input
@@ -519,7 +958,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           min={1}
                           value={itemQty}
                           onChange={(e) => setItemQty(Number(e.target.value))}
-                          className="w-16 h-9 text-xs"
+                          className="w-16 h-9 text-xs font-mono text-center"
                         />
                         <Input
                           placeholder="e.g. 1 tab BID x 5 days"
@@ -527,15 +966,64 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           onChange={(e) => setDosageText(e.target.value)}
                           className="flex-1 h-9 text-xs"
                         />
-                        <Button size="sm" onClick={handleAddMedicineFromCatalog} className="h-9 px-3">
-                          <Plus className="size-4" />
+                        <Button size="sm" onClick={handleAddMedicineFromCatalog} className="h-9 px-3.5 font-bold">
+                          <Plus className="size-4" /> Add
                         </Button>
                       </div>
+                      {selectedMedicine && (
+                        <div className="text-[11px] text-primary bg-primary/10 px-2.5 py-1 rounded-md font-medium flex items-center justify-between border border-primary/20">
+                          <span>Selected: <strong className="font-bold">{selectedMedicine.name}</strong></span>
+                          <span className="font-mono font-bold">₹{selectedMedicine.defaultSalePrice || 250}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
+                  {/* Added Prescribed Medicines List (Immediately Below Entry Field) */}
+                  <div className="pt-3 border-t border-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <span>💊 Prescribed Medicines List</span>
+                        <Badge variant="outline" className="text-[10px] font-mono bg-primary/10 text-primary">
+                          {lines.filter((l) => l.lineType === "Pharmacy").length} prescribed
+                        </Badge>
+                      </p>
+                      <span className="text-[10px] text-muted-foreground">Displayed directly below entry field</span>
+                    </div>
+
+                    {lines.filter((l) => l.lineType === "Pharmacy").length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground italic text-center py-2 bg-muted/20 rounded-lg">No medicines added to prescription yet.</p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {lines
+                          .filter((l) => l.lineType === "Pharmacy")
+                          .map((m) => (
+                            <div key={m.id} className="flex items-center justify-between p-2.5 rounded-xl bg-card border border-border/80 text-xs shadow-2xs">
+                              <div>
+                                <p className="font-bold text-foreground">{m.name}</p>
+                                {m.dosageInstructions && (
+                                  <p className="text-[10px] text-primary font-medium mt-0.5">Dosage: {m.dosageInstructions}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[11px] text-muted-foreground font-mono">Qty: {m.quantity} × ₹{m.unitPrice}</span>
+                                <span className="font-mono font-bold text-foreground">₹{m.quantity * m.unitPrice}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveLine(m.id)}
+                                  className="text-muted-foreground hover:text-destructive p-1"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Quick Add Clinical Procedures */}
-                  <div className="pt-2 flex flex-wrap gap-2 items-center">
+                  <div className="pt-2 flex flex-wrap gap-2 items-center border-t border-border/40">
                     <span className="text-[11px] text-muted-foreground font-semibold">Quick Procedures:</span>
                     {[
                       { name: "Deworming Dose", price: 200, cat: "Procedure" as const },
@@ -557,18 +1045,426 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                 {/* Follow-up Scheduling */}
                 <div className="erp-card p-4">
                   <p className="section-label mb-2.5">Clinical Follow-up &amp; Reminder Schedule</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Next Visit Date</Label>
-                      <Input type="date" value={nextVisitDate} onChange={(e) => setNextVisitDate(e.target.value)} className="h-8 text-xs" />
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground flex justify-between">
+                        <span>Next Visit Date</span>
+                        <Select onValueChange={(val) => {
+                          const date = new Date();
+                          if (val === "1") date.setDate(date.getDate() + 1);
+                          else if (val === "2") date.setDate(date.getDate() + 2);
+                          else if (val === "5") date.setDate(date.getDate() + 5);
+                          else if (val === "7") date.setDate(date.getDate() + 7);
+                          else if (val === "30") date.setMonth(date.getMonth() + 1);
+                          setNextVisitDate(date.toISOString().slice(0, 10));
+                        }}>
+                          <SelectTrigger className="h-4 w-20 text-[9px] border-none bg-muted/40 p-0 px-1 shadow-none focus:ring-0">
+                            <SelectValue placeholder="Quick Date" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">Tomorrow</SelectItem>
+                            <SelectItem value="2">Day After</SelectItem>
+                            <SelectItem value="5">After 5 Days</SelectItem>
+                            <SelectItem value="7">After 7 Days</SelectItem>
+                            <SelectItem value="30">After 1 Month</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Label>
+                      <Input type="date" value={nextVisitDate} onChange={(e) => setNextVisitDate(e.target.value)} className="h-8 text-xs font-semibold" />
                     </div>
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Next Vaccine Due</Label>
-                      <Input type="date" value={nextVaccineDate} onChange={(e) => setNextVaccineDate(e.target.value)} className="h-8 text-xs" />
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground flex justify-between">
+                        <span>Next Deworming Due</span>
+                        <Select onValueChange={(val) => {
+                          const date = new Date();
+                          if (val === "15") date.setDate(date.getDate() + 15);
+                          else if (val === "30") date.setMonth(date.getMonth() + 1);
+                          else if (val === "90") date.setMonth(date.getMonth() + 3);
+                          setNextDewormingDate(date.toISOString().slice(0, 10));
+                        }}>
+                          <SelectTrigger className="h-4 w-20 text-[9px] border-none bg-muted/40 p-0 px-1 shadow-none focus:ring-0">
+                            <SelectValue placeholder="Quick Date" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="15">After 15 Days</SelectItem>
+                            <SelectItem value="30">After 30 Days</SelectItem>
+                            <SelectItem value="90">After 3 Months</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Label>
+                      <Input type="date" value={nextDewormingDate} onChange={(e) => setNextDewormingDate(e.target.value)} className="h-8 text-xs font-semibold" />
                     </div>
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Next Deworming Due</Label>
-                      <Input type="date" value={nextDewormingDate} onChange={(e) => setNextDewormingDate(e.target.value)} className="h-8 text-xs" />
+                  </div>
+                </div>
+
+                {/* Vaccines Records Section */}
+                <div className="erp-card p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-border pb-2">
+                    <p className="section-label mb-0">Vaccine Records Entry</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[11px] font-bold border-blue-500/40 text-blue-700 hover:bg-blue-50 dark:text-blue-300 shadow-2xs gap-1"
+                      onClick={handleAddVaccineRecord}
+                    >
+                      <Plus className="size-3.5 text-blue-600" /> Add Vaccine
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {vaccineRecords.length === 0 && (
+                      <p className="text-xs text-muted-foreground italic text-center py-2 bg-muted/20 rounded-lg">
+                        Click "+ Add Vaccine" to record a vaccination &amp; automatically add to billing.
+                      </p>
+                    )}
+                    {vaccineRecords.map((vr) => (
+                      <div key={vr.id} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end border border-border/60 bg-muted/10 p-2.5 rounded-lg text-xs">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground font-semibold">Vaccine Type</Label>
+                          <Select value={vr.type} onValueChange={(v) => handleUpdateVaccineType(vr.id, v)}>
+                            <SelectTrigger className="h-7 text-[11px] bg-card"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Anti-rabies">Anti-rabies (Rabisin) — ₹350</SelectItem>
+                              <SelectItem value="All-in-1">All-in-1 (DHPPi/L 9-in-1) — ₹450</SelectItem>
+                              <SelectItem value="Kennel Cough">Kennel Cough (KC) — ₹400</SelectItem>
+                              <SelectItem value="Feline Tri-cat">Feline Tri-cat — ₹550</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground font-semibold">Date Given</Label>
+                          <Input type="date" value={vr.dateGiven} onChange={(e) => setVaccineRecords(vaccineRecords.map(r => r.id === vr.id ? { ...r, dateGiven: e.target.value } : r))} className="h-7 text-[11px] bg-card font-mono" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground flex justify-between font-semibold">
+                            <span>Next Due</span>
+                            <Select onValueChange={(val) => {
+                              const date = new Date(vr.dateGiven || new Date());
+                              if (val === "30") date.setMonth(date.getMonth() + 1);
+                              else if (val === "365") date.setFullYear(date.getFullYear() + 1);
+                              setVaccineRecords(vaccineRecords.map(r => r.id === vr.id ? { ...r, nextDueDate: date.toISOString().slice(0, 10) } : r));
+                            }}>
+                              <SelectTrigger className="h-4 w-12 text-[8px] border-none bg-muted/40 p-0 px-1 shadow-none focus:ring-0"><SelectValue placeholder="Quick" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="30">1 Mo</SelectItem>
+                                <SelectItem value="365">1 Yr</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Label>
+                          <Input type="date" value={vr.nextDueDate} onChange={(e) => setVaccineRecords(vaccineRecords.map(r => r.id === vr.id ? { ...r, nextDueDate: e.target.value } : r))} className="h-7 text-[11px] bg-card font-mono" />
+                        </div>
+                        <div className="pb-0.5">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveVaccineRecord(vr.id)}>
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Added Vaccine Records List (Immediately Below Entry Field & Synced with Billing) */}
+                  <div className="pt-3 border-t border-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <span>💉 ADDED VACCINES LIST</span>
+                        <Badge variant="outline" className="text-[10px] font-mono bg-blue-50 text-blue-700 border-blue-200 font-bold">
+                          {vaccineRecords.length} RECORDED
+                        </Badge>
+                      </p>
+                      <span className="text-[10px] text-muted-foreground">Displayed directly below entry field</span>
+                    </div>
+
+                    {vaccineRecords.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground italic text-center py-2.5 bg-muted/20 rounded-lg">No vaccines recorded yet.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-52 overflow-y-auto">
+                        {vaccineRecords.map((vr) => (
+                          <div key={vr.id} className="flex items-center justify-between p-3 rounded-xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-xs shadow-2xs">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <p className="font-extrabold text-blue-700 dark:text-blue-300 text-xs flex items-center gap-1.5">
+                                  <CheckCircle2 className="size-4 text-blue-600" /> {vr.type}
+                                </p>
+                                <Badge variant="outline" className="text-[9px] font-mono bg-emerald-50 text-emerald-700 border-emerald-300 font-extrabold">
+                                  ₹{vr.price || DEFAULT_VACCINE_PRICES[vr.type] || 350} (Added to Billing)
+                                </Badge>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground font-mono">
+                                Date Given: <strong className="text-foreground">{vr.dateGiven}</strong>
+                                {vr.nextDueDate ? <> · Next Due: <strong className="text-blue-600 font-bold">{vr.nextDueDate}</strong></> : ""}
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => handleRemoveVaccineRecord(vr.id)}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Blood Tests Redesigned Card */}
+                <div className="erp-card p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-border pb-2">
+                    <p className="section-label mb-0">Blood Tests &amp; Diagnostics</p>
+                    <span className="text-[10px] font-mono font-bold bg-destructive/10 text-destructive px-2 py-0.5 rounded-full">
+                      {bloodTests.length} ordered
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Select value={newBloodTestType} onValueChange={setNewBloodTestType}>
+                      <SelectTrigger className="h-8 text-xs flex-1 bg-card">
+                        <SelectValue placeholder="Select diagnostic test..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CBC (Complete Blood Count)">CBC (Complete Blood Count)</SelectItem>
+                        <SelectItem value="LFT / KFT (Liver & Kidney Panel)">LFT / KFT (Liver &amp; Kidney Panel)</SelectItem>
+                        <SelectItem value="Electrolytes & Blood Gas">Electrolytes &amp; Blood Gas</SelectItem>
+                        <SelectItem value="Thyroid T4 / TSH Panel">Thyroid T4 / TSH Panel</SelectItem>
+                        <SelectItem value="TGH / Blood Smear Examination">TGH / Blood Smear Examination</SelectItem>
+                        <SelectItem value="Parvovirus / Distemper Rapid Snap">Parvovirus / Distemper Rapid Snap</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddBloodTest}
+                      className="h-8 text-xs font-bold border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
+                    >
+                      <Plus className="size-3.5 mr-1" /> Order Test
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2 pt-1 max-h-40 overflow-y-auto">
+                    {bloodTests.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground italic text-center py-2">No diagnostic tests ordered for this visit.</p>
+                    )}
+                    {bloodTests.map((bt) => (
+                      <div key={bt.id} className="flex items-center justify-between p-2.5 rounded-xl border border-border bg-muted/20 text-xs">
+                        <div className="space-y-0.5">
+                          <p className="font-bold text-foreground">{bt.testType}</p>
+                          <span className="text-[10px] font-mono text-muted-foreground">REF: {bt.id.slice(-6).toUpperCase()}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Select value={bt.status} onValueChange={(v) => setBloodTests(bloodTests.map(t => t.id === bt.id ? { ...t, status: v } : t))}>
+                            <SelectTrigger className="h-7 w-28 text-[10px] font-semibold bg-card">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Ordered">⌛ Ordered</SelectItem>
+                              <SelectItem value="Sample Collected">🧪 Sample Collected</SelectItem>
+                              <SelectItem value="Processing">🔬 Processing</SelectItem>
+                              <SelectItem value="Completed">✓ Completed</SelectItem>
+                            </SelectContent>
+                          </Select>
+
+                          <button
+                            type="button"
+                            onClick={() => setBloodTests(bloodTests.filter(t => t.id !== bt.id))}
+                            className="text-muted-foreground hover:text-destructive p-1"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Main Category Card: Animal Food & Accessories ── */}
+                <div className="erp-card p-4 space-y-4">
+                  <div className="flex items-center justify-between border-b border-border pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">📦</span>
+                      <div>
+                        <h3 className="font-bold text-xs uppercase tracking-wider text-foreground">Animal Food &amp; Accessories</h3>
+                        <p className="text-[10px] text-muted-foreground">Select pet nutrition supplies, dietary food, or accessories</p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="text-[10px] font-mono bg-primary/10 text-primary">
+                      {foodItems.length + accessoryItems.length} Total Items
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Subsection 1: Animal Food */}
+                    <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-3">
+                      <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">🥣</span>
+                          <p className="font-bold text-xs text-foreground uppercase tracking-wide">1. Animal Food</p>
+                        </div>
+                        <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                          {foodItems.length} items
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <Input
+                            placeholder="Food Brand / Name (e.g. Royal Canin)"
+                            value={newFoodName}
+                            onChange={(e) => setNewFoodName(e.target.value)}
+                            className="col-span-2 h-7 text-[11px] bg-card"
+                          />
+                          <Input
+                            placeholder="Pack (e.g. 4kg)"
+                            value={newFoodPack}
+                            onChange={(e) => setNewFoodPack(e.target.value)}
+                            className="h-7 text-[11px] bg-card"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 flex items-center gap-1.5">
+                            <Label className="text-[10px] text-muted-foreground">Qty:</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={newFoodQty}
+                              onChange={(e) => setNewFoodQty(Number(e.target.value))}
+                              className="h-7 w-12 text-[11px] font-mono text-center bg-card"
+                            />
+                            <Label className="text-[10px] text-muted-foreground ml-1">Price (₹):</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={newFoodPrice}
+                              onChange={(e) => setNewFoodPrice(Number(e.target.value))}
+                              className="h-7 w-16 text-[11px] font-mono bg-card"
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleAddFoodItem}
+                            className="h-7 text-[10px] font-bold border-primary/30 text-primary hover:bg-primary hover:text-white"
+                          >
+                            <Plus className="size-3 mr-1" /> Add Food
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Food Items List */}
+                      <div className="space-y-1.5 pt-1 max-h-36 overflow-y-auto">
+                        {foodItems.length === 0 && (
+                          <p className="text-[11px] text-muted-foreground italic text-center py-2">No food items added.</p>
+                        )}
+                        {foodItems.map((fi) => (
+                          <div key={fi.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
+                            <div>
+                              <p className="font-semibold text-foreground">{fi.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{fi.packSize} · Qty: {fi.quantity}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-primary">₹{fi.price * fi.quantity}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveFoodItem(fi.id)}
+                                className="text-muted-foreground hover:text-destructive p-0.5"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Subsection 2: Accessories */}
+                    <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-3">
+                      <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">🎾</span>
+                          <p className="font-bold text-xs text-foreground uppercase tracking-wide">2. Accessories</p>
+                        </div>
+                        <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                          {accessoryItems.length} items
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <Input
+                            placeholder="Accessory Name (e.g. Collar)"
+                            value={newAccName}
+                            onChange={(e) => setNewAccName(e.target.value)}
+                            className="col-span-2 h-7 text-[11px] bg-card"
+                          />
+                          <Select value={newAccCat} onValueChange={setNewAccCat}>
+                            <SelectTrigger className="h-7 text-[10px] bg-card">
+                              <SelectValue placeholder="Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Collars & Leashes">Collars &amp; Leashes</SelectItem>
+                              <SelectItem value="Grooming">Grooming Tools</SelectItem>
+                              <SelectItem value="Toys">Toys &amp; Chews</SelectItem>
+                              <SelectItem value="Housing/Cages">Housing / Cages</SelectItem>
+                              <SelectItem value="Other">Other Supplies</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 flex items-center gap-1.5">
+                            <Label className="text-[10px] text-muted-foreground">Qty:</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={newAccQty}
+                              onChange={(e) => setNewAccQty(Number(e.target.value))}
+                              className="h-7 w-12 text-[11px] font-mono text-center bg-card"
+                            />
+                            <Label className="text-[10px] text-muted-foreground ml-1">Price (₹):</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={newAccPrice}
+                              onChange={(e) => setNewAccPrice(Number(e.target.value))}
+                              className="h-7 w-16 text-[11px] font-mono bg-card"
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleAddAccessoryItem}
+                            className="h-7 text-[10px] font-bold border-primary/30 text-primary hover:bg-primary hover:text-white"
+                          >
+                            <Plus className="size-3 mr-1" /> Add Accessory
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Accessories List */}
+                      <div className="space-y-1.5 pt-1 max-h-36 overflow-y-auto">
+                        {accessoryItems.length === 0 && (
+                          <p className="text-[11px] text-muted-foreground italic text-center py-2">No accessories added.</p>
+                        )}
+                        {accessoryItems.map((acc) => (
+                          <div key={acc.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
+                            <div>
+                              <p className="font-semibold text-foreground">{acc.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{acc.category} · Qty: {acc.quantity}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-primary">₹{acc.price * acc.quantity}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAccessoryItem(acc.id)}
+                                className="text-muted-foreground hover:text-destructive p-0.5"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -578,8 +1474,18 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
               <div className="space-y-4">
                 <div className="erp-card p-4 space-y-3">
                   <div className="flex items-center justify-between border-b border-border pb-2">
-                    <p className="font-bold text-sm text-foreground">Prescribed Items ({lines.length})</p>
-                    <span className="font-bold text-primary text-sm font-mono">₹{billSummary.totalAmount}</span>
+                    <div className="flex items-center gap-3">
+                      <p className="font-bold text-sm text-foreground">Prescribed Items ({lines.length})</p>
+                      <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10" onClick={handleCloneTreatment}>
+                        <CheckCircle2 className="size-3 mr-1" /> Clone Previous
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground" onClick={handleViewHistory}>
+                        <FileText className="size-3 mr-1" /> History
+                      </Button>
+                      <span className="font-bold text-primary text-sm font-mono">₹{billSummary.totalAmount}</span>
+                    </div>
                   </div>
 
                   <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
@@ -1197,7 +2103,147 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             onClose={() => setShowInvoicePrint(false)}
           />
         )}
+
+        {/* ── Previous History Slide-In Panel ───────────────────────────── */}
+        <AnimatePresence>
+          {showHistoryPanel && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                key="history-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-black/30 z-10"
+                onClick={() => setShowHistoryPanel(false)}
+              />
+              {/* Panel */}
+              <motion.div
+                key="history-panel"
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", stiffness: 320, damping: 30 }}
+                className="absolute right-0 top-0 bottom-0 w-full max-w-md bg-card border-l border-border z-20 flex flex-col shadow-2xl"
+              >
+                {/* Panel Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                  <div>
+                    <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <Clock className="size-4 text-primary" /> Previous Visit History
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {visit?.petName} · {visit?.petId}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowHistoryPanel(false)}>
+                    ✕
+                  </Button>
+                </div>
+
+                {/* Panel Body */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {historyLoading && (
+                    <div className="flex items-center justify-center h-32">
+                      <div className="animate-spin size-6 border-2 border-primary border-t-transparent rounded-full" />
+                    </div>
+                  )}
+                  {!historyLoading && historyVisits.length === 0 && (
+                    <div className="text-center py-12 text-muted-foreground text-xs space-y-2">
+                      <FileText className="size-10 mx-auto opacity-30 text-primary" />
+                      <p className="font-bold text-foreground">No previous visits found for {visit?.petName || "patient"}.</p>
+                      <p className="text-[11px] text-muted-foreground">This appears to be the initial consultation for this patient record.</p>
+                    </div>
+                  )}
+
+                  {!historyLoading && historyVisits.map((hv: any) => (
+                    <div key={hv.visitId || hv._id} className="rounded-2xl border border-border bg-card p-3.5 space-y-2.5 shadow-2xs hover:border-primary/40 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="outline" className="font-mono text-[10px] bg-primary/5 text-primary border-primary/20 font-bold">
+                            {hv.visitId || "RECORD"}
+                          </Badge>
+                          {hv.prescriptionNo && (
+                            <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-medium">
+                              {hv.prescriptionNo}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs font-bold text-foreground font-mono flex items-center gap-1">
+                          <Calendar className="size-3 text-muted-foreground" /> {hv.date}
+                        </span>
+                      </div>
+
+                      {hv.diagnosis && (
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Diagnosis</p>
+                          <p className="text-xs font-bold text-foreground bg-muted/30 p-2 rounded-lg border border-border/40">
+                            {hv.diagnosis}
+                          </p>
+                        </div>
+                      )}
+
+                      {hv.clinicalNotes && (
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Clinical Notes</p>
+                          <p className="text-[11px] text-muted-foreground italic line-clamp-2">
+                            "{hv.clinicalNotes}"
+                          </p>
+                        </div>
+                      )}
+
+                      {hv.items && hv.items.length > 0 && (
+                        <div className="space-y-1 pt-1 border-t border-border/40">
+                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider flex items-center justify-between">
+                            <span>Prescription Items ({hv.items.length})</span>
+                          </p>
+                          <div className="space-y-1">
+                            {hv.items.map((item: any, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between text-xs p-1.5 rounded-md bg-muted/20 border border-border/30">
+                                <div>
+                                  <p className="font-semibold text-foreground text-[11px]">{item.name}</p>
+                                  {item.dosageInstructions && (
+                                    <p className="text-[10px] text-muted-foreground">{item.dosageInstructions}</p>
+                                  )}
+                                </div>
+                                <span className="font-mono text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                  Qty: {item.quantity}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-2 border-t border-border/60">
+                        <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                          🩺 {hv.doctorName || "Attending Vet"}
+                        </span>
+                        {hv.totalAmount > 0 && (
+                          <span className="text-xs font-mono font-extrabold text-emerald-600">₹{hv.totalAmount}</span>
+                        )}
+                      </div>
+
+                      {/* Re-order / Copy Previous Prescription Button */}
+                      {hv.items && hv.items.length > 0 && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleCopyPreviousRx(hv)}
+                          className="w-full h-8 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-2xs gap-1.5 mt-1"
+                        >
+                          <Copy className="size-3.5" /> Repeat / Copy Previous Prescription
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </DialogContent>
     </Dialog>
+
   );
 }

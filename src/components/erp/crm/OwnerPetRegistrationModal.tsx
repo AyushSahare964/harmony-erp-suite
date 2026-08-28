@@ -195,8 +195,9 @@ export function OwnerPetRegistrationModal({
       toast.error("Pet parent / owner full name is required.");
       return;
     }
-    if (!ownerPhone.trim() || ownerPhone.length !== 10) {
-      toast.error("Please enter a valid 10-digit Indian mobile number (e.g. 98230 44556).");
+    const digits = ownerPhone.replace(/\D/g, "");
+    if (!digits || digits.length < 8) {
+      toast.error("Please enter a valid mobile number (at least 8–10 digits).");
       return;
     }
     setSelectedOwner(null);
@@ -1028,41 +1029,88 @@ export function OwnerPetRegistrationModal({
               <div className="space-y-2 pt-2 border-t border-border/60">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    <ShieldAlert className="size-3.5 text-amber-500" />
-                    Known Drug Allergies / Critical Flags
+                    <ShieldAlert className="size-3.5 text-destructive" />
+                    Does the patient have any known allergies? <span className="text-destructive">*</span>
                   </Label>
-                  <span className="text-[11px] text-muted-foreground">Click common badges to toggle</span>
+                  <span className="text-[11px] text-muted-foreground font-medium">Select Yes/No to set safety alert</span>
                 </div>
 
-                {/* Quick Allergy Chips */}
-                <div className="flex flex-wrap gap-1.5">
-                  {COMMON_ALLERGIES.map((allergy) => {
-                    const isSelected = activePet.allergies?.includes(allergy);
-                    return (
-                      <button
-                        key={allergy}
-                        type="button"
-                        onClick={() => toggleAllergy(allergy)}
-                        className={cn(
-                          "px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
-                          isSelected
-                            ? "bg-destructive text-destructive-foreground border-destructive shadow-xs font-bold"
-                            : "bg-muted/60 text-muted-foreground border-border hover:border-destructive/40 hover:text-foreground"
-                        )}
-                      >
-                        {isSelected && "✓ "}
-                        {allergy}
-                      </button>
-                    );
-                  })}
+                {/* Prominent Yes/No Allergy Toggle */}
+                <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3">
+                  <span className="text-xs font-bold text-foreground flex-1">Does this patient have any drug, food or environmental allergies?</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!activePet.allergies || activePet.allergies.length === 0) {
+                          updateCurrentPet("allergies", [COMMON_ALLERGIES[0] || "Penicillin"]);
+                        }
+                      }}
+                      className={cn(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-2xs",
+                        activePet.allergies && activePet.allergies.length > 0
+                          ? "bg-destructive text-destructive-foreground border-destructive font-extrabold shadow-xs"
+                          : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-destructive"
+                      )}
+                    >
+                      {activePet.allergies && activePet.allergies.length > 0 ? "⚠ Yes (Has Allergies)" : "Yes"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateCurrentPet("allergies", [])}
+                      className={cn(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-2xs",
+                        !activePet.allergies || activePet.allergies.length === 0
+                          ? "bg-emerald-600 text-white border-emerald-600 font-extrabold shadow-xs"
+                          : "bg-card text-muted-foreground border-border hover:border-emerald-500/40 hover:text-emerald-700"
+                      )}
+                    >
+                      No Allergies
+                    </button>
+                  </div>
                 </div>
 
-                <Input
-                  placeholder="Type other custom allergies or notes (e.g. Sensitive stomach, Severe otitis history)..."
-                  value={activePet.medicalNotes || ""}
-                  onChange={(e) => updateCurrentPet("medicalNotes", e.target.value)}
-                  className="text-xs h-9"
-                />
+                {/* Show allergy details input field when Yes is selected */}
+                {activePet.allergies && activePet.allergies.length > 0 && (
+                  <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-bold text-destructive flex items-center gap-1.5">
+                        <AlertTriangle className="size-3.5" /> Enter Specific Allergy Details &amp; Reactions:
+                      </Label>
+                      <Input
+                        placeholder="e.g. Severe swelling from Penicillin G, Anaphylaxis to Egg Protein, Flea Allergy Dermatitis..."
+                        value={activePet.medicalNotes || ""}
+                        onChange={(e) => updateCurrentPet("medicalNotes", e.target.value)}
+                        className="text-xs h-9 bg-card border-destructive/40 font-medium text-foreground placeholder:text-muted-foreground"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-bold text-destructive">Quick Allergy Category Badges (Click to toggle):</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {COMMON_ALLERGIES.map((allergy) => {
+                          const isSelected = activePet.allergies?.includes(allergy);
+                          return (
+                            <button
+                              key={allergy}
+                              type="button"
+                              onClick={() => toggleAllergy(allergy)}
+                              className={cn(
+                                "px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
+                                isSelected
+                                  ? "bg-destructive text-destructive-foreground border-destructive shadow-xs font-bold"
+                                  : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-foreground"
+                              )}
+                            >
+                              {isSelected && "✓ "}
+                              {allergy}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

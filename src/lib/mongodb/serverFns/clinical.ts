@@ -49,6 +49,7 @@ const AdmitPatientInputZ = z.object({
   billType: z.enum(["GST", "Non-GST"]).default("GST"),
   doctorName: z.string().default("Dr. Rohit Sharma"),
   receptionistName: z.string().default("Front Desk"),
+  allergies: z.array(z.string()).optional(),
   vitals: z.object({
     weightKg: z.number().optional(),
     tempC: z.number().optional(),
@@ -239,6 +240,7 @@ export const admitPatientFn = createServerFn({ method: "POST" })
             weightKg: data.vitals?.weightKg,
             status: "Active",
           },
+          ...(data.allergies && data.allergies.length > 0 ? { $set: { allergies: data.allergies } } : {}),
         },
         { upsert: true }
       );
@@ -248,6 +250,7 @@ export const admitPatientFn = createServerFn({ method: "POST" })
 
     const docPayload: any = {
       ...data,
+      allergies: data.allergies || [],
       ownerId,
       petId,
       visitId,
@@ -437,14 +440,49 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
           status: "Verified & Signed",
           isNarrative: true,
           narrative: `Chief Complaint: ${visit.vitals?.complaint || "Routine Clinical Consultation"}\n\nClinical Findings: ${visit.diagnosis || "Examination completed"}\n\nNotes & Advice: ${visit.clinicalNotes || "As prescribed."}\n\nPrescription (${visit.prescriptionNo}):\n${(data.items || []).map((it: any) => `• ${it.name} (Qty: ${it.quantity}) - ${it.dosageInstructions || "As advised"}`).join("\n")}`,
-          impression: visit.diagnosis || "Clinical consultation and treatment completed successfully.",
-          invoiceNo: visit.invoiceNo,
-          prescriptionNo: visit.prescriptionNo,
           totalAmount: visit.totalAmount,
         },
       });
     } catch (e) {
       console.warn("[Clinical Reports Auto-Save] Error creating report record:", e);
+    }
+
+    // 5. Auto-sync Next Visit Date to Appointments Queue
+    if (data.nextVisitDate) {
+      try {
+        const nextToken = Math.floor(100 + Math.random() * 900);
+        await ErpRow.findOneAndUpdate(
+          {
+            moduleId: "appointments",
+            "data.petId": visit.petId,
+            "data.date": data.nextVisitDate,
+          },
+          {
+            $set: {
+              moduleId: "appointments",
+              data: {
+                token: nextToken,
+                petId: visit.petId,
+                pet: visit.petName,
+                species: visit.species || "Canine",
+                breed: visit.breed || "Standard",
+                owner: visit.ownerName,
+                phone: visit.ownerPhone,
+                doctor: visit.doctorName || "Dr. Rohit Sharma",
+                reason: `Follow-up Consultation: ${data.diagnosis || "Post-treatment review"}`,
+                slot: "09:30 AM",
+                date: data.nextVisitDate,
+                status: "Scheduled",
+                priority: "Follow-up",
+                createdAt: new Date().toISOString(),
+              },
+            },
+          },
+          { upsert: true }
+        );
+      } catch (appErr) {
+        console.warn("[Appointment Auto-Sync] Warning during appointment sync:", appErr);
+      }
     }
 
     return toPlain<any>(visit.toObject ? visit.toObject() : visit);
@@ -456,4 +494,85 @@ export const deleteVisitFn = createServerFn({ method: "POST" })
     await connectDB();
     await ClinicalVisit.deleteOne({ visitId: data.visitId });
     return { success: true };
+  });
+
+export const getLatestVisitFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => z.object({ petId: z.string(), excludeVisitId: z.string().optional() }).parse(data))
+  .handler(async ({ data }) => {
+    await connectDB();
+    const query: any = { petId: data.petId, status: "Completed" };
+    if (data.excludeVisitId) {
+      query.visitId = { $ne: data.excludeVisitId };
+    }
+    const visit = await ClinicalVisit.findOne(query).sort({ date: -1, createdAt: -1 }).lean();
+    return toPlain<any>(visit);
+  });
+
+export const getPatientHistoryFn = createServerFn({ method: "GET" })
+  .validator(
+    (data: unknown) =>
+      z.object({
+        petId: z.string().optional(),
+        petName: z.string().optional(),
+        excludeVisitId: z.string().optional(),
+      }).parse(data)
+  )
+  .handler(async ({ data }) => {
+    await connectDB();
+    await ensureVisitsSeeded();
+
+    const clauses: any[] = [];
+    if (data.petId && data.petId.trim()) {
+      clauses.push({ petId: data.petId.trim() });
+    }
+    if (data.petName && data.petName.trim()) {
+      clauses.push({ petName: { $regex: new RegExp(`^${data.petName.trim()}$`, "i") } });
+    }
+
+    if (clauses.length === 0) return [];
+
+    const query: any = { $or: clauses };
+    if (data.excludeVisitId) {
+      query.visitId = { $ne: data.excludeVisitId };
+    }
+
+    const visits = await ClinicalVisit.find(query)
+      .sort({ date: -1, createdAt: -1 })
+      .limit(30)
+      .lean();
+
+    return toPlain<any[]>(visits);
+  });
+
+export const getUpcomingFollowUpsFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => z.object({ daysAhead: z.number().optional() }).parse(data))
+  .handler(async ({ data }) => {
+    await connectDB();
+    const daysAhead = data.daysAhead ?? 14;
+    const today = new Date().toISOString().slice(0, 10);
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + daysAhead);
+    const futureDateStr = futureDate.toISOString().slice(0, 10);
+
+    const visits = await ClinicalVisit.find({
+      nextVisitDate: { $gte: today, $lte: futureDateStr },
+    })
+      .sort({ nextVisitDate: 1 })
+      .limit(50)
+      .lean();
+
+    return toPlain<any[]>(visits.map((v: any) => ({
+      visitId: v.visitId,
+      petId: v.petId,
+      petName: v.petName,
+      ownerId: v.ownerId,
+      ownerName: v.ownerName,
+      ownerPhone: v.ownerPhone,
+      species: v.species,
+      breed: v.breed,
+      nextVisitDate: v.nextVisitDate,
+      nextDewormingDate: v.nextDewormingDate,
+      doctorName: v.doctorName,
+      diagnosis: v.diagnosis,
+    })));
   });

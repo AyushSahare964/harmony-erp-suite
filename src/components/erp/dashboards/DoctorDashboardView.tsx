@@ -105,17 +105,20 @@ export function DoctorDashboardView({
                 className="rounded-xl border border-border bg-card hover:border-primary/40 p-3.5 shadow-2xs space-y-3 transition-all"
               >
                 <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <strong className="text-sm font-bold text-foreground">{v.petName}</strong>
                       {v.petId && (
                         <Badge variant="outline" className="font-mono text-[9px] py-0 bg-primary/10 text-primary border-primary/20">
                           {v.petId}
                         </Badge>
                       )}
+                      {(v.allergies?.length > 0 || String(v.vitals?.complaint || "").toLowerCase().includes("allergy")) && (
+                        <Badge className="bg-destructive text-destructive-foreground font-extrabold text-[9px] py-0 px-1.5 uppercase tracking-wider shadow-xs">
+                          ⚠ ALLERGY ALERT
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-[11px] text-muted-foreground">{v.species} · {v.breed}</p>
-                  </div>
 
                   <span
                     className={cn(

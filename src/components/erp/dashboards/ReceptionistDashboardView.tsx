@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CalendarClock,
@@ -25,6 +25,7 @@ import {
   Mail,
   Activity,
   Check,
+  AlertTriangle,
 } from "lucide-react";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { ModuleFlashcard } from "@/components/erp/Flashcard";
@@ -43,7 +44,7 @@ import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
 
 interface Props {
-  role: any;
+  role?: any;
   onOpenConsultation?: (visit: any) => void;
 }
 
@@ -61,6 +62,28 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
   // Quick Intake Form State
   const [existingPatients, setExistingPatients] = useState<any[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string>("new");
+  const [patientSearchQuery, setPatientSearchQuery] = useState("");
+
+  const filteredPatients = useMemo(() => {
+    if (!patientSearchQuery.trim()) return existingPatients;
+    const q = patientSearchQuery.toLowerCase().trim();
+    return existingPatients.filter((p: any) => {
+      const pName = String(p.name || "").toLowerCase();
+      const pId = String(p.petId || "").toLowerCase();
+      const pSpecies = String(p.species || "").toLowerCase();
+      const pBreed = String(p.breed || "").toLowerCase();
+      const oName = String(p.owner?.name || p.ownerName || "").toLowerCase();
+      const oPhone = String(p.owner?.phone || p.ownerPhone || "").toLowerCase();
+      return (
+        pName.includes(q) ||
+        pId.includes(q) ||
+        pSpecies.includes(q) ||
+        pBreed.includes(q) ||
+        oName.includes(q) ||
+        oPhone.includes(q)
+      );
+    });
+  }, [existingPatients, patientSearchQuery]);
   const [ownerName, setOwnerName] = useState("");
   const [ownerPhone, setOwnerPhone] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
@@ -72,6 +95,8 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
   const [complaint, setComplaint] = useState("Routine consultation & health checkup");
   const [weightKg, setWeightKg] = useState("18.5");
   const [tempC, setTempC] = useState("38.5");
+  const [hasAllergy, setHasAllergy] = useState(false);
+  const [allergyInput, setAllergyInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -111,6 +136,8 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
       setOwnerName("");
       setOwnerPhone("");
       setOwnerEmail("");
+      setHasAllergy(false);
+      setAllergyInput("");
       return;
     }
     const found = existingPatients.find((p) => p.petId === petId);
@@ -124,6 +151,13 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
       const phoneDigits = (found.owner?.phone || found.ownerPhone || "").replace(/\D/g, "").slice(-10);
       setOwnerPhone(phoneDigits);
       setOwnerEmail(found.owner?.email || found.ownerEmail || "");
+      if (found.allergies && (Array.isArray(found.allergies) ? found.allergies.length > 0 : String(found.allergies).trim().length > 0)) {
+        setHasAllergy(true);
+        setAllergyInput(Array.isArray(found.allergies) ? found.allergies.join(", ") : String(found.allergies));
+      } else {
+        setHasAllergy(false);
+        setAllergyInput("");
+      }
     }
   };
 
@@ -152,6 +186,8 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
       const formattedPhone = ownerPhone ? `+91 ${ownerPhone.slice(0, 5)} ${ownerPhone.slice(5)}` : "+91 98000 00000";
 
       const matchedPatient = selectedPatientId !== "new" ? existingPatients.find((p) => p.petId === selectedPatientId) : null;
+      const allergyArray = hasAllergy && allergyInput.trim() ? [allergyInput.trim()] : hasAllergy ? ["Known Drug / Food Allergy"] : [];
+
       await admitPatientFn({
         data: {
           petName: petName.trim(),
@@ -162,6 +198,7 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
           ownerName: ownerName.trim(),
           ownerPhone: formattedPhone,
           doctorName: doctorName || "Dr. Rohit Sharma",
+          allergies: allergyArray,
           vitals: {
             complaint: complaint.trim() || "General Clinical Health Review",
             weightKg: Number(weightKg) || undefined,
@@ -179,6 +216,8 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
       setOwnerEmail("");
       setBreed("");
       setComplaint("Routine consultation & health checkup");
+      setHasAllergy(false);
+      setAllergyInput("");
       setSelectedPatientId("new");
 
       // Refresh list
@@ -411,29 +450,98 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
           </DialogHeader>
 
           <form onSubmit={handleCreateIntake} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
-            {/* Existing Patient Lookup Bar */}
-            <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-3 space-y-1.5">
+            {/* Existing Patient Dynamic Lookup & Search Bar */}
+            <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-3.5 space-y-2.5 shadow-2xs">
               <Label className="text-[11px] font-bold text-blue-700 dark:text-blue-300 flex items-center justify-between">
-                <span>Select Existing Patient or Register New</span>
-                <span className="text-[10px] font-normal text-muted-foreground">
-                  {existingPatients.length} registered patients
+                <span className="flex items-center gap-1.5">
+                  <Search className="size-3.5 text-blue-600" /> Search Existing Patient or Register New
+                </span>
+                <span className="text-[10px] font-semibold text-muted-foreground font-mono">
+                  {filteredPatients.length} of {existingPatients.length} registered
                 </span>
               </Label>
-              <Select value={selectedPatientId} onValueChange={handleSelectExistingPatient}>
-                <SelectTrigger className="h-8.5 text-xs bg-background border-blue-500/20 font-medium">
-                  <SelectValue placeholder="Search or select patient..." />
-                </SelectTrigger>
-                <SelectContent className="max-h-60">
-                  <SelectItem value="new" className="font-bold text-blue-600">
-                    + Register New Walk-in Patient
-                  </SelectItem>
-                  {existingPatients.map((p) => (
-                    <SelectItem key={p.petId} value={p.petId}>
-                      {p.name} ({p.species} · {p.breed}) — Parent: {p.owner?.name || p.ownerName}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {/* 1. Dynamic Text Search Input with Instant Results Overlay */}
+                <div className="relative">
+                  <Input
+                    placeholder="🔍 Search patient or parent name (e.g. Shiro, Mahendra)..."
+                    value={patientSearchQuery}
+                    onChange={(e) => setPatientSearchQuery(e.target.value)}
+                    className="h-8.5 text-xs bg-background border-blue-500/30 font-medium pr-7 focus:ring-blue-500"
+                  />
+                  {patientSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPatientSearchQuery("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      ✕
+                    </button>
+                  )}
+                  {/* Dynamic Instant Search Results Dropdown Overlay */}
+                  {patientSearchQuery.trim().length > 0 && (
+                    <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border border-blue-500/40 bg-card p-1 shadow-xl">
+                      {filteredPatients.length === 0 ? (
+                        <p className="p-2.5 text-[11px] text-muted-foreground italic text-center">
+                          No matching patients or owners found.
+                        </p>
+                      ) : (
+                        filteredPatients.map((p) => (
+                          <button
+                            key={p.petId}
+                            type="button"
+                            onClick={() => {
+                              handleSelectExistingPatient(p.petId);
+                              setPatientSearchQuery(`${p.name} (${p.owner?.name || p.ownerName || "Owner"})`);
+                            }}
+                            className="w-full text-left p-2.5 hover:bg-blue-500/10 rounded-lg flex items-center justify-between text-xs transition-colors border-b border-border/30 last:border-0"
+                          >
+                            <div className="space-y-0.5">
+                              <p className="font-bold text-foreground flex items-center gap-1.5">
+                                <span>🐾 {p.name}</span>
+                                <Badge variant="outline" className="font-mono text-[9px] py-0 bg-blue-50 text-blue-700 border-blue-200">
+                                  {p.petId}
+                                </Badge>
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {p.species} · {p.breed} — Parent: <strong className="text-foreground">{p.owner?.name || p.ownerName || "Walk-in"}</strong>
+                              </p>
+                            </div>
+                            <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded-full">
+                              Select
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Full / Filtered Dropdown Selector */}
+                <Select value={selectedPatientId} onValueChange={(val) => {
+                  handleSelectExistingPatient(val);
+                  if (val === "new") setPatientSearchQuery("");
+                  else {
+                    const p = existingPatients.find(x => x.petId === val);
+                    if (p) setPatientSearchQuery(`${p.name} (${p.owner?.name || p.ownerName || "Owner"})`);
+                  }
+                }}>
+                  <SelectTrigger className="h-8.5 text-xs bg-background border-blue-500/30 font-medium">
+                    <SelectValue placeholder="Or pick from dropdown list..." />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    <SelectItem value="new" className="font-bold text-blue-600">
+                      + Register New Walk-in Patient
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    {filteredPatients.map((p) => (
+                      <SelectItem key={p.petId} value={p.petId}>
+                        {p.name} ({p.species} · {p.breed}) — Parent: {p.owner?.name || p.ownerName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* Section 1: Patient Details */}
@@ -667,6 +775,86 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
                   />
                 </div>
               </div>
+            </div>
+
+            {/* Section 4: Known Patient Drug & Food Allergies */}
+            <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3.5 space-y-3 shadow-2xs">
+              <div className="flex items-center justify-between pb-1 border-b border-destructive/20">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="size-4 text-destructive" />
+                  <h4 className="text-xs font-bold text-destructive uppercase tracking-wide">4. Known Patient Drug &amp; Food Allergies</h4>
+                </div>
+                <Badge variant="outline" className="text-[9px] font-mono text-destructive border-destructive/30">
+                  SAFETY CHECK
+                </Badge>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-foreground flex-1">Does this patient have any known drug, food or vaccine allergies?</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasAllergy(true);
+                      if (!allergyInput.trim()) setAllergyInput("Penicillin, NSAIDs");
+                    }}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-lg text-xs font-extrabold border transition-all shadow-2xs flex items-center gap-1.5",
+                      hasAllergy
+                        ? "bg-destructive text-destructive-foreground border-destructive shadow-xs"
+                        : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-destructive"
+                    )}
+                  >
+                    <span>⚠ Yes (Has Allergies)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasAllergy(false);
+                      setAllergyInput("");
+                    }}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-lg text-xs font-extrabold border transition-all shadow-2xs flex items-center gap-1.5",
+                      !hasAllergy
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                        : "bg-card text-muted-foreground border-border hover:border-emerald-500/40 hover:text-emerald-700"
+                    )}
+                  >
+                    <span>✓ No Allergies</span>
+                  </button>
+                </div>
+              </div>
+
+              {hasAllergy && (
+                <div className="space-y-2 pt-2 border-t border-destructive/20">
+                  <Label className="text-[11px] font-bold text-destructive flex items-center gap-1">
+                    <span>Specific Allergy Details &amp; Critical Warnings:</span>
+                  </Label>
+                  <Input
+                    placeholder="Enter allergy details (e.g. Penicillin G, Egg protein, Flea bites, Sulfa drugs)..."
+                    value={allergyInput}
+                    onChange={(e) => setAllergyInput(e.target.value)}
+                    className="h-9 text-xs bg-card border-destructive/40 font-bold text-destructive placeholder:text-muted-foreground focus:ring-destructive"
+                  />
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <span className="text-[10px] font-semibold text-muted-foreground mr-1">Quick Presets:</span>
+                    {["Penicillin", "NSAIDs (Meloxicam)", "Sulfa Drugs", "Egg Protein", "Flea Allergy", "Booster Vaccines"].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          if (allergyInput.includes(preset)) return;
+                          setAllergyInput(allergyInput ? `${allergyInput}, ${preset}` : preset);
+                        }}
+                        className="text-[10px] px-2 py-0.5 rounded-full border border-destructive/30 bg-destructive/10 text-destructive font-bold hover:bg-destructive hover:text-white transition-colors"
+                      >
+                        + {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Modal Actions */}

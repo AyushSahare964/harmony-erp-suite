@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPrescriptionLine {
-  lineType: "Vaccine" | "Consultation" | "Pharmacy" | "Procedure" | "Diagnostic" | "Service";
+  lineType: "Vaccine" | "Consultation" | "Pharmacy" | "Procedure" | "Diagnostic" | "Service" | "Food" | "Accessory";
   itemCode?: string | undefined;
   batchNo?: string | undefined;
   name: string;
@@ -74,7 +74,7 @@ export interface IClinicalVisit extends Document {
 }
 
 const PrescriptionLineSchema = new Schema<IPrescriptionLine>({
-  lineType: { type: String, required: true, enum: ["Vaccine", "Consultation", "Pharmacy", "Procedure", "Diagnostic", "Service"] },
+  lineType: { type: String, required: true, enum: ["Vaccine", "Consultation", "Pharmacy", "Procedure", "Diagnostic", "Service", "Food", "Accessory"] },
   itemCode: { type: String },
   batchNo: { type: String },
   name: { type: String, required: true },

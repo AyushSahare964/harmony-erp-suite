@@ -231,6 +231,15 @@ export const createPetFn = createServerFn({ method: "POST" })
     return toPlain<any>(newPet.toObject ? newPet.toObject() : newPet);
   });
 
+export const getPetFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => z.object({ petId: z.string() }).parse(data))
+  .handler(async ({ data }: { data: { petId: string } }) => {
+    await connectDB();
+    const pet = await Pet.findOne({ petId: data.petId }).lean();
+    return toPlain<any>(pet);
+  });
+
+
 export const createOwnerWithMultiplePetsFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => CreateOwnerWithMultiplePetsInputZ.parse(data))
   .handler(async ({ data }: { data: z.infer<typeof CreateOwnerWithMultiplePetsInputZ> }) => {
