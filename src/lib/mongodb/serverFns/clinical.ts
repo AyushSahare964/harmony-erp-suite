@@ -7,6 +7,7 @@ import { Pet } from "@/lib/mongodb/models/Pet";
 import { StockBatch } from "@/lib/mongodb/models/StockBatch";
 import { FinanceTransaction } from "@/lib/mongodb/models/FinanceTransaction";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
+import { FoodPurchase } from "@/lib/mongodb/models/FoodPurchase";
 import { nextSeq } from "./counters";
 
 function toPlain<T>(v: any): T {
@@ -323,21 +324,68 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     const balanceDue = Math.max(0, data.totalAmount - data.amountPaid);
     const status = balanceDue === 0 ? "Paid" : "Billed";
 
-    // 1. FEFO Inventory Deduction for pharmacy lines
+    // 1. FEFO Inventory Deduction & Ledger Recording for all items with stock tracking
     for (const item of data.items) {
-      if (item.lineType === "Pharmacy" || item.lineType === "Vaccine") {
+      if (item.itemCode || item.lineType === "Pharmacy" || item.lineType === "Vaccine") {
         try {
           const filter: any = { qty: { $gt: 0 } };
           if (item.batchNo) filter.batchNo = item.batchNo;
           if (item.itemCode) filter.itemCode = item.itemCode;
+          else filter.itemName = item.name;
 
-          const batch = await StockBatch.findOne(filter).sort({ expiryDate: 1 });
+          let batch = await StockBatch.findOne(filter).sort({ expiryDate: 1 });
+          if (!batch && item.itemCode) {
+            batch = await StockBatch.findOne({ itemCode: item.itemCode });
+          }
+
+          const remainingQty = batch ? Math.max(0, batch.qty - item.quantity) : 0;
           if (batch) {
-            batch.qty = Math.max(0, batch.qty - item.quantity);
+            batch.qty = remainingQty;
             await batch.save();
           }
+
+          // Create inventory ledger entry so the inventory usage history accurately reflects this OPD consumption
+          await ErpRow.create({
+            moduleId: "inventory_ledger",
+            data: {
+              id: await nextSeq("ledger_entry", "L", 4),
+              medicineId: item.itemCode || batch?.itemCode || "M-ITEM",
+              medicineName: item.name,
+              batchId: batch?.batchCode || "B-GENERAL",
+              batchNo: batch?.batchNo || item.batchNo || "OPD-RX",
+              movementType: "sale_out",
+              quantity: item.quantity,
+              sourceType: "invoice",
+              sourceRef: visit.invoiceNo || visit.visitId,
+              balanceAfter: remainingQty,
+              actorName: data.doctorName || "Dr. Rohit Sharma",
+              createdAt: new Date().toISOString().replace("T", " ").slice(0, 16),
+              reason: `Clinical OPD Prescribed Usage for ${visit.petName} (${visit.petId || "Patient"})`,
+            },
+          });
+
+          // If food item, record in FoodPurchase history
+          const isFood =
+            item.name.toLowerCase().includes("food") ||
+            item.name.toLowerCase().includes("canin") ||
+            item.name.toLowerCase().includes("pedigree") ||
+            item.name.toLowerCase().includes("diet") ||
+            item.name.toLowerCase().includes("feed");
+
+          if (isFood) {
+            const fpId = await nextSeq("food_purchase", "FP", 4);
+            await FoodPurchase.create({
+              purchaseId: fpId,
+              patientId: visit.petId || "PET-0001",
+              visitId: visit.visitId,
+              itemId: item.itemCode || item.name,
+              quantity: item.quantity,
+              purchaseDate: visit.date || new Date().toISOString().slice(0, 10),
+              estimatedRunoutDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            });
+          }
         } catch (e) {
-          console.warn("[Inventory FEFO] Could not deduct batch for item:", item.name, e);
+          console.warn("[Inventory FEFO] Could not deduct batch or record ledger for item:", item.name, e);
         }
       }
     }
