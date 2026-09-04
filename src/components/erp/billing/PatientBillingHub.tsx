@@ -44,9 +44,11 @@ import { toast } from "sonner";
 import { listInvoicesFn, deleteInvoiceFn } from "@/lib/mongodb/serverFns/billing";
 import { InvoiceDetailModal } from "./InvoiceDetailModal";
 import { NewSalesInvoiceModal } from "./NewSalesInvoiceModal";
+import { PartialPaymentModal } from "./PartialPaymentModal";
 import { VisitWorkspaceModal } from "@/components/erp/clinical/VisitWorkspaceModal";
 import { cn } from "@/lib/utils";
 import { InventoryProvider } from "@/components/erp/inventory/useInventoryStore";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
 
 type CategoryFilter = "all" | "Clinical" | "Pharmacy" | "Boarding" | "Swimming" | "Laboratory" | "Nutrition";
 
@@ -71,6 +73,12 @@ function PatientBillingHubInner() {
   // Edit Visit Modal state
   const [editingVisit, setEditingVisit] = useState<any | null>(null);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
+
+  // Partial Payment Modal state
+  const [showPartialPayment, setShowPartialPayment] = useState(false);
+  const [partialPayOwnerId, setPartialPayOwnerId] = useState("");
+  const [partialPayOwnerName, setPartialPayOwnerName] = useState("");
+  const [partialPayInvoiceNo, setPartialPayInvoiceNo] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     void loadInvoices();
@@ -248,6 +256,14 @@ function PatientBillingHubInner() {
             </Button>
             <Button variant="outline" size="sm" onClick={exportCsv} className="gap-1.5 text-xs font-semibold h-9">
               <Download className="size-3.5" /> Export
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setPartialPayOwnerId(""); setPartialPayOwnerName(""); setPartialPayInvoiceNo(undefined); setShowPartialPayment(true); }}
+              className="gap-1.5 text-xs font-bold h-9 border-amber-500/40 text-amber-700 bg-amber-50/60 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-950/40 shadow-2xs"
+            >
+              <CreditCard className="size-3.5" /> Partial Payment
             </Button>
             <Button
               size="sm"
@@ -514,9 +530,9 @@ function PatientBillingHubInner() {
                         )}
                       </td>
 
-                      {/* Date */}
+                      {/* Date — displayed as DD/MM/YYYY */}
                       <td className="px-4 py-3 font-mono text-muted-foreground">
-                        {inv.date || "2026-08-22"}
+                        {formatDisplayDate(inv.date) || inv.date || "—"}
                       </td>
 
                       {/* Total Amount */}
@@ -545,7 +561,7 @@ function PatientBillingHubInner() {
 
                       {/* Actions */}
                       <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-1.5">
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
                           <Button
                             size="sm"
                             variant="ghost"
@@ -562,6 +578,21 @@ function PatientBillingHubInner() {
                           >
                             <Edit className="size-3.5" /> Edit
                           </Button>
+                          {(inv.balanceDue ?? 0) > 0 && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setPartialPayOwnerId(inv.ownerId || "");
+                                setPartialPayOwnerName(inv.ownerName || "");
+                                setPartialPayInvoiceNo(inv.invoiceNo);
+                                setShowPartialPayment(true);
+                              }}
+                              className="h-7 px-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40 gap-1"
+                            >
+                              <CreditCard className="size-3.5" /> Pay
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -630,6 +661,19 @@ function PatientBillingHubInner() {
             }}
           />
         )}
+
+        {/* Partial / Combined Payment Modal */}
+        <PartialPaymentModal
+          open={showPartialPayment}
+          onClose={() => setShowPartialPayment(false)}
+          prefilledOwnerId={partialPayOwnerId || undefined}
+          prefilledOwnerName={partialPayOwnerName || undefined}
+          prefilledInvoiceNo={partialPayInvoiceNo}
+          onPaymentRecorded={() => {
+            void loadInvoices();
+            setShowPartialPayment(false);
+          }}
+        />
       </div>
     </Shell>
   );

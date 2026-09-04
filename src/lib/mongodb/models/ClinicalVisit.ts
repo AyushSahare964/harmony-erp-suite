@@ -8,7 +8,13 @@ export interface IPrescriptionLine {
   dosageInstructions?: string | undefined;
   quantity: number;
   unitPrice: number;
+  /** @deprecated use discountType + discountValue instead; kept for backward-compat with old records */
   discountPercent: number;
+  // ── Per-line discount audit fields (REQ-DISC-05) ──
+  discountType?: "percentage" | "fixed" | undefined;
+  discountValue?: number | undefined;   // raw user-entered value
+  discountAmount?: number | undefined;  // computed monetary discount (stored for audit)
+  taxableAmount?: number | undefined;   // amount after discount, before tax
   gstRate: number;
   lineTotal: number;
 }
@@ -82,6 +88,11 @@ const PrescriptionLineSchema = new Schema<IPrescriptionLine>({
   quantity: { type: Number, required: true, default: 1 },
   unitPrice: { type: Number, required: true, default: 0 },
   discountPercent: { type: Number, default: 0 },
+  // Per-line discount audit fields
+  discountType: { type: String, enum: ["percentage", "fixed"] },
+  discountValue: { type: Number },
+  discountAmount: { type: Number },
+  taxableAmount: { type: Number },
   gstRate: { type: Number, default: 0 },
   lineTotal: { type: Number, required: true, default: 0 },
 });

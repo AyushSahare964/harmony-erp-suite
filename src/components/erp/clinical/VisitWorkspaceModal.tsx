@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Stethoscope,
@@ -19,6 +19,7 @@ import {
   Download,
   Edit,
   Copy,
+  Tag,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,8 @@ import { PrescriptionPrintView } from "./PrescriptionPrintView";
 import { InvoicePrintView } from "./InvoicePrintView";
 import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
 import { getPetFn } from "@/lib/mongodb/serverFns/crm";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { calcLineItem, calcBillSummary, validateDiscount } from "@/lib/utils/moneyUtils";
 
 interface VisitWorkspaceProps {
   open: boolean;
@@ -45,14 +48,19 @@ interface VisitWorkspaceProps {
 
 interface BillLine {
   id: string;
-  lineType: "Vaccine" | "Consultation" | "Pharmacy" | "Procedure" | "Diagnostic" | "Service";
+  lineType: "Vaccine" | "Consultation" | "Pharmacy" | "Procedure" | "Diagnostic" | "Service" | "Food" | "Accessory";
   itemCode?: string | undefined;
   batchNo?: string | undefined;
   name: string;
   dosageInstructions?: string | undefined;
   quantity: number;
   unitPrice: number;
+  /** @deprecated kept for back-compat with old records; use discountType+discountValue */
   discountPercent: number;
+  // Per-line discount fields (REQ-DISC)
+  discountType?: "percentage" | "fixed" | "%" | "₹" | undefined;
+  discountValue?: number | undefined;      // raw user input
+  discountAmount?: number | undefined;    // computed
   gstRate: number;
 }
 
@@ -116,20 +124,33 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const [itemQty, setItemQty] = useState(1);
   const [dosageText, setDosageText] = useState("");
 
-  // Separated Animal Food & Accessories State
-  const [foodItems, setFoodItems] = useState<{ id: string; name: string; packSize: string; quantity: number; price: number }[]>([]);
+  // Separated Animal Food & Accessories State — includes discount fields (REQ-DISC)
+  const [foodItems, setFoodItems] = useState<{
+    id: string; name: string; packSize: string; quantity: number; price: number;
+    discountType: "percentage" | "fixed"; discountValue: number;
+  }[]>([]);
   const [newFoodName, setNewFoodName] = useState("");
   const [newFoodPack, setNewFoodPack] = useState("");
   const [newFoodQty, setNewFoodQty] = useState(1);
   const [newFoodPrice, setNewFoodPrice] = useState(450);
+  const [newFoodDiscType, setNewFoodDiscType] = useState<"percentage" | "fixed">("percentage");
+  const [newFoodDiscValue, setNewFoodDiscValue] = useState(0);
 
-  const [accessoryItems, setAccessoryItems] = useState<{ id: string; name: string; category: string; quantity: number; price: number }[]>([]);
+  const [accessoryItems, setAccessoryItems] = useState<{
+    id: string; name: string; category: string; quantity: number; price: number;
+    discountType: "percentage" | "fixed"; discountValue: number;
+  }[]>([]);
   const [newAccName, setNewAccName] = useState("");
   const [newAccCat, setNewAccCat] = useState("Collars & Leashes");
   const [newAccQty, setNewAccQty] = useState(1);
   const [newAccPrice, setNewAccPrice] = useState(250);
+  const [newAccDiscType, setNewAccDiscType] = useState<"percentage" | "fixed">("percentage");
+  const [newAccDiscValue, setNewAccDiscValue] = useState(0);
 
   const [newBloodTestType, setNewBloodTestType] = useState("CBC (Complete Blood Count)");
+
+  // REQ-RX-01: track medicines already in lines to exclude from catalog
+  const [isAddingMed, setIsAddingMed] = useState(false);
 
   // Payment
   const [billType, setBillType] = useState<"GST" | "Non-GST">(visit?.billType || "GST");
@@ -222,38 +243,58 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     setShowHistoryPanel(false);
   };
 
+  // REQ-RX-01: set of already-prescribed itemCodes — excludes from catalog dropdown
+  const prescribedCodes = useMemo(
+    () => new Set(lines.map((l) => l.itemCode).filter(Boolean) as string[]),
+    [lines]
+  );
+
   const filteredCatalog = useMemo(() => {
-    if (!medSearchQuery.trim()) return catalogItems;
     const q = medSearchQuery.toLowerCase().trim();
     return catalogItems.filter(
-      (item: any) =>
-        item.name.toLowerCase().includes(q) ||
-        (item.itemCode && item.itemCode.toLowerCase().includes(q))
+      (item: any) => {
+        // Exclude already-prescribed medicines (REQ-RX-01)
+        if (item.itemCode && prescribedCodes.has(item.itemCode)) return false;
+        if (!q) return true;
+        return (
+          item.name.toLowerCase().includes(q) ||
+          (item.itemCode && item.itemCode.toLowerCase().includes(q))
+        );
+      }
     );
-  }, [catalogItems, medSearchQuery]);
+  }, [catalogItems, medSearchQuery, prescribedCodes]);
 
   const handleAddFoodItem = () => {
     if (!newFoodName.trim()) {
       toast.error("Please enter food item name");
       return;
     }
+    // Validate discount
+    const baseAmt = newFoodQty * newFoodPrice;
+    const discErr = validateDiscount(newFoodDiscType, newFoodDiscValue, baseAmt);
+    if (discErr) { toast.error(discErr); return; }
+
     const item = {
       id: Math.random().toString(),
       name: newFoodName.trim(),
       packSize: newFoodPack.trim() || "Standard",
       quantity: Number(newFoodQty) || 1,
       price: Number(newFoodPrice) || 0,
+      discountType: newFoodDiscType,
+      discountValue: newFoodDiscValue,
     };
     setFoodItems((prev) => [...prev, item]);
     setLines((prev) => [
       ...prev,
       {
         id: item.id,
-        lineType: "Pharmacy",
+        lineType: "Food" as const,
         name: `[Food] ${item.name} (${item.packSize})`,
         quantity: item.quantity,
         unitPrice: item.price,
-        discountPercent: 0,
+        discountPercent: newFoodDiscType === "percentage" ? newFoodDiscValue : 0,
+        discountType: newFoodDiscType,
+        discountValue: newFoodDiscValue,
         gstRate: 18,
       },
     ]);
@@ -261,6 +302,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     setNewFoodPack("");
     setNewFoodQty(1);
     setNewFoodPrice(450);
+    setNewFoodDiscValue(0);
     toast.success(`Added food item: ${item.name}`);
   };
 
@@ -274,29 +316,39 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       toast.error("Please enter accessory name");
       return;
     }
+    // Validate discount
+    const baseAmt = newAccQty * newAccPrice;
+    const discErr = validateDiscount(newAccDiscType, newAccDiscValue, baseAmt);
+    if (discErr) { toast.error(discErr); return; }
+
     const item = {
       id: Math.random().toString(),
       name: newAccName.trim(),
       category: newAccCat,
       quantity: Number(newAccQty) || 1,
       price: Number(newAccPrice) || 0,
+      discountType: newAccDiscType,
+      discountValue: newAccDiscValue,
     };
     setAccessoryItems((prev) => [...prev, item]);
     setLines((prev) => [
       ...prev,
       {
         id: item.id,
-        lineType: "Pharmacy",
+        lineType: "Accessory" as const,
         name: `[Accessory] ${item.name} (${item.category})`,
         quantity: item.quantity,
         unitPrice: item.price,
-        discountPercent: 0,
+        discountPercent: newAccDiscType === "percentage" ? newAccDiscValue : 0,
+        discountType: newAccDiscType,
+        discountValue: newAccDiscValue,
         gstRate: 18,
       },
     ]);
     setNewAccName("");
     setNewAccQty(1);
     setNewAccPrice(250);
+    setNewAccDiscValue(0);
     toast.success(`Added accessory: ${item.name}`);
   };
 
@@ -513,65 +565,65 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     );
   };
 
-  // Dynamic Financial Computations
+  // Dynamic Financial Computations — decimal-safe (REQ-DISC-04, moneyUtils)
   const billSummary = useMemo(() => {
-    let subtotal = 0;
-    let totalTaxable = 0;
-    let totalGst = 0;
-
-    for (const l of lines) {
-      const lineGross = l.quantity * l.unitPrice;
-      const lineDisc = (lineGross * l.discountPercent) / 100;
-      const lineNet = lineGross - lineDisc;
-      subtotal += lineNet;
-
-      if (billType === "GST" && l.gstRate > 0) {
-        const gstPart = (lineNet * l.gstRate) / 100;
-        totalGst += gstPart;
-        totalTaxable += lineNet;
-      } else {
-        totalTaxable += lineNet;
-      }
-    }
-
-    const exactTotal = subtotal + (billType === "GST" ? totalGst : 0);
-    const roundedTotal = Math.round(exactTotal);
-    const roundOff = roundedTotal - exactTotal;
-
+    const applyGst = billType === "GST";
+    const result = calcBillSummary(
+      lines.map((l) => ({
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        discountType: l.discountType || "percentage",
+        discountValue: l.discountValue ?? l.discountPercent ?? 0,
+        gstRate: l.gstRate,
+      })),
+      applyGst
+    );
     return {
-      subtotal,
-      taxableAmount: totalTaxable,
-      gstAmount: totalGst,
-      roundOff,
-      totalAmount: roundedTotal,
+      subtotal: result.subtotal,
+      taxableAmount: result.subtotal,
+      gstAmount: result.totalGst,
+      roundOff: result.roundOff,
+      totalAmount: result.roundedTotal,
     };
   }, [lines, billType]);
 
-  const handleAddMedicineFromCatalog = () => {
+  const handleAddMedicineFromCatalog = async () => {
     if (!selectedMedicine) {
       toast.error("Please select a medicine or service from catalog");
       return;
     }
+    // REQ-RX-01: prevent duplicate medicine
+    if (selectedMedicine.itemCode && prescribedCodes.has(selectedMedicine.itemCode)) {
+      toast.error(`${selectedMedicine.name} is already in the prescription.`);
+      return;
+    }
+    if (isAddingMed) return;
+    setIsAddingMed(true);
+    try {
+      const isVaccine = selectedMedicine.category === "Vaccine" || selectedMedicine.name.toLowerCase().includes("vaccine");
 
-    const isVaccine = selectedMedicine.category === "Vaccine" || selectedMedicine.name.toLowerCase().includes("vaccine");
+      const newLine: BillLine = {
+        id: String(Date.now()),
+        lineType: isVaccine ? "Vaccine" : "Pharmacy",
+        itemCode: selectedMedicine.itemCode,
+        name: selectedMedicine.name,
+        dosageInstructions: dosageText.trim() || undefined,
+        quantity: Number(itemQty) || 1,
+        unitPrice: selectedMedicine.defaultSalePrice || 250,
+        discountPercent: 0,
+        discountType: "percentage",
+        discountValue: 0,
+        gstRate: selectedMedicine.gstRate || 5,
+      };
 
-    const newLine: BillLine = {
-      id: String(Date.now()),
-      lineType: isVaccine ? "Vaccine" : "Pharmacy",
-      itemCode: selectedMedicine.itemCode,
-      name: selectedMedicine.name,
-      dosageInstructions: dosageText.trim() || undefined,
-      quantity: Number(itemQty) || 1,
-      unitPrice: selectedMedicine.defaultSalePrice || 250,
-      discountPercent: 0,
-      gstRate: selectedMedicine.gstRate || 5,
-    };
-
-    setLines((prev) => [...prev, newLine]);
-    setSelectedMedicine(null);
-    setItemQty(1);
-    setDosageText("");
-    toast.success(`Added ${selectedMedicine.name} to prescription & bill.`);
+      setLines((prev) => [...prev, newLine]);
+      setSelectedMedicine(null);
+      setItemQty(1);
+      setDosageText("");
+      toast.success(`Added ${selectedMedicine.name} to prescription & bill.`);
+    } finally {
+      setIsAddingMed(false);
+    }
   };
 
   const handleAddServiceLine = (name: string, price: number, cat: BillLine["lineType"]) => {
@@ -618,18 +670,35 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         clinicalNotes: clinicalNotes.trim(),
         nextVisitDate: nextVisitDate || undefined,
         nextDewormingDate: nextDewormingDate || undefined,
-        items: lines.map((l) => ({
-          lineType: l.lineType,
-          itemCode: l.itemCode,
-          batchNo: l.batchNo,
-          name: l.name,
-          dosageInstructions: l.dosageInstructions,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          discountPercent: l.discountPercent,
-          gstRate: l.gstRate,
-          lineTotal: (l.quantity * l.unitPrice) * (1 - l.discountPercent / 100),
-        })),
+        items: lines.map((l) => {
+          const applyGst = billType === "GST";
+          const dType: "percentage" | "fixed" = (l.discountType === "fixed" || l.discountType === "₹") ? "fixed" : "percentage";
+          const discVal = l.discountValue ?? l.discountPercent ?? 0;
+          const calc = calcLineItem({
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            discountType: dType,
+            discountValue: discVal,
+            gstRate: l.gstRate,
+            applyGst,
+          });
+          return {
+            lineType: l.lineType,
+            itemCode: l.itemCode,
+            batchNo: l.batchNo,
+            name: l.name,
+            dosageInstructions: l.dosageInstructions,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            discountPercent: dType === "percentage" ? discVal : 0,
+            discountType: dType,
+            discountValue: discVal,
+            discountAmount: calc.discountAmount,
+            taxableAmount: calc.taxableAmount,
+            gstRate: l.gstRate,
+            lineTotal: calc.lineTotal,
+          };
+        }),
         subtotal: billSummary.subtotal,
         billDiscount: 0,
         taxableAmount: billSummary.taxableAmount,
@@ -1322,8 +1391,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                             className="h-7 text-[11px] bg-card"
                           />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
+                          <div className="flex-1 flex items-center gap-1.5 flex-wrap">
                             <Label className="text-[10px] text-muted-foreground">Qty:</Label>
                             <Input
                               type="number"
@@ -1340,6 +1409,26 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                               onChange={(e) => setNewFoodPrice(Number(e.target.value))}
                               className="h-7 w-16 text-[11px] font-mono bg-card"
                             />
+                            {/* Discount Toggle — REQ-DISC-01 */}
+                            <div className="flex items-center gap-1 ml-1">
+                              <button
+                                type="button"
+                                onClick={() => setNewFoodDiscType(newFoodDiscType === "percentage" ? "fixed" : "percentage")}
+                                className="h-6 px-2 text-[9px] font-bold rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0"
+                                title="Toggle discount type"
+                              >
+                                {newFoodDiscType === "percentage" ? "Disc %" : "Disc ₹"}
+                              </button>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={newFoodDiscType === "percentage" ? 100 : undefined}
+                                value={newFoodDiscValue}
+                                onChange={(e) => setNewFoodDiscValue(Number(e.target.value))}
+                                className="h-6 w-14 text-[10px] font-mono bg-card text-center"
+                                placeholder={newFoodDiscType === "percentage" ? "0%" : "₹0"}
+                              />
+                            </div>
                           </div>
                           <Button
                             size="sm"
@@ -1357,24 +1446,41 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         {foodItems.length === 0 && (
                           <p className="text-[11px] text-muted-foreground italic text-center py-2">No food items added.</p>
                         )}
-                        {foodItems.map((fi) => (
-                          <div key={fi.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
-                            <div>
-                              <p className="font-semibold text-foreground">{fi.name}</p>
-                              <p className="text-[10px] text-muted-foreground">{fi.packSize} · Qty: {fi.quantity}</p>
+                        {foodItems.map((fi) => {
+                          const base = fi.price * fi.quantity;
+                          const disc = fi.discountType === "percentage"
+                            ? (base * fi.discountValue / 100)
+                            : Math.min(fi.discountValue, base);
+                          const net = base - disc;
+                          return (
+                            <div key={fi.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
+                              <div>
+                                <p className="font-semibold text-foreground">{fi.name}</p>
+                                <p className="text-[10px] text-muted-foreground">{fi.packSize} · Qty: {fi.quantity}</p>
+                                {fi.discountValue > 0 && (
+                                  <p className="text-[10px] text-emerald-600">
+                                    Disc: {fi.discountType === "percentage" ? `${fi.discountValue}%` : `₹${fi.discountValue}`} (−₹{disc.toFixed(2)})
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-right">
+                                  {fi.discountValue > 0 && (
+                                    <p className="text-[10px] text-muted-foreground line-through">₹{base}</p>
+                                  )}
+                                  <span className="font-mono font-bold text-primary">₹{net.toFixed(2)}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveFoodItem(fi.id)}
+                                  className="text-muted-foreground hover:text-destructive p-0.5"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-primary">₹{fi.price * fi.quantity}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveFoodItem(fi.id)}
-                                className="text-muted-foreground hover:text-destructive p-0.5"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -1412,7 +1518,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           </Select>
                         </div>
                         <div className="flex items-center gap-2">
-                          <div className="flex-1 flex items-center gap-1.5">
+                          <div className="flex-1 flex items-center gap-1.5 flex-wrap">
                             <Label className="text-[10px] text-muted-foreground">Qty:</Label>
                             <Input
                               type="number"
@@ -1429,6 +1535,26 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                               onChange={(e) => setNewAccPrice(Number(e.target.value))}
                               className="h-7 w-16 text-[11px] font-mono bg-card"
                             />
+                            {/* Discount Toggle — REQ-DISC-01 */}
+                            <div className="flex items-center gap-1 ml-1">
+                              <button
+                                type="button"
+                                onClick={() => setNewAccDiscType(newAccDiscType === "percentage" ? "fixed" : "percentage")}
+                                className="h-6 px-2 text-[9px] font-bold rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0"
+                                title="Toggle discount type"
+                              >
+                                {newAccDiscType === "percentage" ? "Disc %" : "Disc ₹"}
+                              </button>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={newAccDiscType === "percentage" ? 100 : undefined}
+                                value={newAccDiscValue}
+                                onChange={(e) => setNewAccDiscValue(Number(e.target.value))}
+                                className="h-6 w-14 text-[10px] font-mono bg-card text-center"
+                                placeholder={newAccDiscType === "percentage" ? "0%" : "₹0"}
+                              />
+                            </div>
                           </div>
                           <Button
                             size="sm"
@@ -1446,24 +1572,41 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         {accessoryItems.length === 0 && (
                           <p className="text-[11px] text-muted-foreground italic text-center py-2">No accessories added.</p>
                         )}
-                        {accessoryItems.map((acc) => (
-                          <div key={acc.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
-                            <div>
-                              <p className="font-semibold text-foreground">{acc.name}</p>
-                              <p className="text-[10px] text-muted-foreground">{acc.category} · Qty: {acc.quantity}</p>
+                        {accessoryItems.map((acc) => {
+                          const base = acc.price * acc.quantity;
+                          const disc = acc.discountType === "percentage"
+                            ? (base * acc.discountValue / 100)
+                            : Math.min(acc.discountValue, base);
+                          const net = base - disc;
+                          return (
+                            <div key={acc.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
+                              <div>
+                                <p className="font-semibold text-foreground">{acc.name}</p>
+                                <p className="text-[10px] text-muted-foreground">{acc.category} · Qty: {acc.quantity}</p>
+                                {acc.discountValue > 0 && (
+                                  <p className="text-[10px] text-emerald-600">
+                                    Disc: {acc.discountType === "percentage" ? `${acc.discountValue}%` : `₹${acc.discountValue}`} (−₹{disc.toFixed(2)})
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-right">
+                                  {acc.discountValue > 0 && (
+                                    <p className="text-[10px] text-muted-foreground line-through">₹{base}</p>
+                                  )}
+                                  <span className="font-mono font-bold text-primary">₹{net.toFixed(2)}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveAccessoryItem(acc.id)}
+                                  className="text-muted-foreground hover:text-destructive p-0.5"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-primary">₹{acc.price * acc.quantity}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveAccessoryItem(acc.id)}
-                                className="text-muted-foreground hover:text-destructive p-0.5"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1817,7 +1960,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       <div className="text-right text-[11px] space-y-0.5">
                         <p className="font-bold text-xs text-blue-900">{finalizedVisit.doctorName || activeDoctorName}</p>
                         <p className="text-slate-500 text-[10px]">Chief Veterinary Physician &amp; Surgeon</p>
-                        <p className="text-slate-500 font-mono text-[10px]">Date: {finalizedVisit.date || new Date().toISOString().slice(0, 10)}</p>
+                        <p className="text-slate-500 font-mono text-[10px]">Date: {formatDisplayDate(finalizedVisit.date) || finalizedVisit.date || new Date().toISOString().slice(0, 10)}</p>
                       </div>
                     </div>
 
@@ -1968,7 +2111,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           {finalizedVisit.billType === "GST" ? "TAX INVOICE" : "BILL OF SUPPLY"}
                         </span>
                         <p className="font-mono font-bold text-xs text-slate-900">{finalizedVisit.invoiceNo}</p>
-                        <p className="text-slate-500 font-mono text-[10px]">Date: {finalizedVisit.date || new Date().toISOString().slice(0, 10)}</p>
+                        <p className="text-slate-500 font-mono text-[10px]">Date: {formatDisplayDate(finalizedVisit.date) || finalizedVisit.date || new Date().toISOString().slice(0, 10)}</p>
                       </div>
                     </div>
 

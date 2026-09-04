@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { recordInvoicePaymentFn, deleteInvoiceFn } from "@/lib/mongodb/serverFns/billing";
 import { InvoicePrintView } from "@/components/erp/clinical/InvoicePrintView";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -130,7 +131,7 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-3 gap-x-4 text-xs">
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Date:</span>
-                  <strong className="text-foreground">{invoice.date || new Date().toISOString().slice(0, 10)}</strong>
+                  <strong className="text-foreground">{formatDisplayDate(invoice.date) || invoice.date || new Date().toISOString().slice(0, 10)}</strong>
                 </div>
 
                 <div>
@@ -150,17 +151,17 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
 
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Next Visit Date:</span>
-                  <strong className="text-foreground">{invoice.nextVisitDate || "Not scheduled"}</strong>
+                  <strong className="text-foreground">{formatDisplayDate(invoice.nextVisitDate) || invoice.nextVisitDate || "Not scheduled"}</strong>
                 </div>
 
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Next Vaccine Date:</span>
-                  <strong className="text-foreground">{invoice.nextVaccineDate || "Not scheduled"}</strong>
+                  <strong className="text-foreground">{formatDisplayDate(invoice.nextVaccineDate) || invoice.nextVaccineDate || "Not scheduled"}</strong>
                 </div>
 
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Next Deworming Date:</span>
-                  <strong className="text-foreground">{invoice.nextDewormingDate || "Not scheduled"}</strong>
+                  <strong className="text-foreground">{formatDisplayDate(invoice.nextDewormingDate) || invoice.nextDewormingDate || "Not scheduled"}</strong>
                 </div>
 
                 <div>
@@ -206,22 +207,27 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
                               <th className="px-4 py-2.5">NAME</th>
                               <th className="px-4 py-2.5 text-center">QTY</th>
                               <th className="px-4 py-2.5 text-right">PRICE</th>
-                              <th className="px-4 py-2.5 text-right">DISC(%)</th>
+                              <th className="px-4 py-2.5 text-right">DISC</th>
                               <th className="px-4 py-2.5 text-right">TOTAL</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
-                            {items.map((it, idx) => (
-                              <tr key={idx} className="hover:bg-muted/30 transition-colors">
-                                <td className="px-4 py-2.5 font-medium text-foreground capitalize">{it.name}</td>
-                                <td className="px-4 py-2.5 text-center font-mono">{it.quantity}</td>
-                                <td className="px-4 py-2.5 text-right font-mono">₹{Number(it.unitPrice).toFixed(2)}</td>
-                                <td className="px-4 py-2.5 text-right font-mono">{it.discountPercent || 0}%</td>
-                                <td className="px-4 py-2.5 text-right font-mono font-bold">
-                                  ₹{Number(it.lineTotal || it.quantity * it.unitPrice).toFixed(2)}
-                                </td>
-                              </tr>
-                            ))}
+                            {items.map((it, idx) => {
+                              const discStr = it.discountType === "₹" || it.discountType === "fixed"
+                                ? `₹${it.discountValue || it.discountAmount || 0}`
+                                : `${it.discountValue || it.discountPercent || 0}%`;
+                              return (
+                                <tr key={idx} className="hover:bg-muted/30 transition-colors">
+                                  <td className="px-4 py-2.5 font-medium text-foreground capitalize">{it.name}</td>
+                                  <td className="px-4 py-2.5 text-center font-mono">{it.quantity}</td>
+                                  <td className="px-4 py-2.5 text-right font-mono">₹{Number(it.unitPrice).toFixed(2)}</td>
+                                  <td className="px-4 py-2.5 text-right font-mono">{discStr}</td>
+                                  <td className="px-4 py-2.5 text-right font-mono font-bold">
+                                    ₹{Number(it.lineTotal || it.quantity * it.unitPrice).toFixed(2)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>

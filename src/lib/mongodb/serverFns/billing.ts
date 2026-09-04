@@ -442,6 +442,24 @@ const RecordPaymentInputZ = z.object({
   trxRef: z.string().optional(),
 });
 
+const PartialPaymentAllocationZ = z.object({
+  invoiceNo: z.string().min(1),
+  allocatedAmount: z.number().min(0),
+});
+
+export const PartialPaymentInputZ = z.object({
+  ownerId: z.string().min(1),
+  ownerName: z.string().min(1),
+  paymentDate: z.string().min(1),        // ISO YYYY-MM-DD
+  amountReceived: z.number().positive(),
+  mode: z.enum(["UPI", "Cash", "Card", "NetBanking", "Cheque", "Bank Transfer"]),
+  referenceNo: z.string().optional(),
+  idempotencyKey: z.string().min(1),     // client-generated UUID; prevents double-posting
+  allocations: z.array(PartialPaymentAllocationZ).min(1),
+});
+
+export type PartialPaymentInput = z.infer<typeof PartialPaymentInputZ>;
+
 // ─── Server Functions ─────────────────────────────────────────────────────────
 
 export const listInvoicesFn = createServerFn({ method: "GET" })
@@ -467,7 +485,6 @@ export const listInvoicesFn = createServerFn({ method: "GET" })
     if (filter.status && filter.status !== "all") {
       queryObj.status = filter.status;
     }
-
     const invoices = await ClinicalVisit.find(queryObj).sort({ createdAt: -1, date: -1 }).limit(100).lean();
     return toPlain<any[]>(invoices);
   });
@@ -536,6 +553,158 @@ export const deleteInvoiceFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => z.object({ invoiceNo: z.string() }).parse(data))
   .handler(async ({ data }: { data: { invoiceNo: string } }) => {
     await connectDB();
-    await ClinicalVisit.deleteOne({ invoiceNo: data.invoiceNo });
-    return { success: true };
+    await ClinicalVisit.findOneAndDelete({ invoiceNo: data.invoiceNo });
+    return toPlain<any>({ success: true });
+  });
+
+// ─── Outstanding Bills Query ──────────────────────────────────────────────────
+
+export const getOwnerOutstandingBillsFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => z.object({ ownerId: z.string() }).parse(data))
+  .handler(async ({ data }: { data: { ownerId: string } }) => {
+    await connectDB();
+    const bills = await ClinicalVisit.find({
+      ownerId: data.ownerId,
+      balanceDue: { $gt: 0 },
+    })
+      .select("invoiceNo visitId date ownerName petName totalAmount amountPaid balanceDue status lineItems")
+      .lean();
+
+    return toPlain<any[]>(bills);
+  });
+
+// ─── Partial & Combined Bill Payment (REQ-PAY-01 .. REQ-PAY-07) ────────────────
+
+export interface InvoiceAllocation {
+  invoiceNo: string;
+  allocatedAmount: number;
+}
+
+
+
+export const recordPartialPaymentFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => PartialPaymentInputZ.parse(data))
+  .handler(async ({ data }: { data: PartialPaymentInput }) => {
+    await connectDB();
+
+    // 1. Idempotency check: look up existing FinanceTransaction by idempotencyKey
+    const existingPayment = await FinanceTransaction.findOne({
+      type: "payment",
+      "data.idempotencyKey": data.idempotencyKey,
+    });
+    if (existingPayment) {
+      console.info("[Partial Payment] Idempotent replay detected, returning existing result.");
+      return toPlain<{ success: true; paymentNo: string; message: string }>({
+        success: true,
+        paymentNo: (existingPayment.data as any).paymentNo,
+        message: "Payment already recorded (idempotent)",
+      });
+    }
+
+    // 2. Concurrency safety: re-read current balances from DB right now
+    const invoiceNos = data.allocations.map((a) => a.invoiceNo);
+    const visits = await ClinicalVisit.find({ invoiceNo: { $in: invoiceNos } });
+    const visitMap = new Map(visits.map((v) => [v.invoiceNo, v]));
+
+    // 3. Validate allocations
+    let allocationSum = 0;
+    for (const alloc of data.allocations) {
+      const visit = visitMap.get(alloc.invoiceNo);
+      if (!visit) throw new Error(`Invoice ${alloc.invoiceNo} not found`);
+      if (alloc.allocatedAmount < 0) throw new Error(`Allocated amount for ${alloc.invoiceNo} cannot be negative`);
+      const currentOutstanding = Math.max(0, (visit.balanceDue ?? 0));
+      if (alloc.allocatedAmount > currentOutstanding + 0.001) {
+        throw new Error(
+          `Allocated ₹${alloc.allocatedAmount} for ${alloc.invoiceNo} exceeds current outstanding ₹${currentOutstanding.toFixed(2)}`
+        );
+      }
+      allocationSum = Math.round((allocationSum + alloc.allocatedAmount) * 100) / 100;
+    }
+
+    const amountRounded = Math.round(data.amountReceived * 100) / 100;
+    if (Math.abs(allocationSum - amountRounded) > 0.01) {
+      throw new Error(
+        `Sum of allocations (₹${allocationSum}) must equal amount received (₹${amountRounded}). Please reconcile before recording.`
+      );
+    }
+
+    if (amountRounded <= 0) throw new Error("Payment amount must be greater than zero");
+
+    // 4. Atomic: update all bills + create ledger entry
+    const paymentTimestamp = new Date().toISOString();
+    const peNo = await nextSeq("payment_entry", "PE", 4);
+
+    const references: Array<{
+      invoiceNo: string;
+      invoiceDate: string;
+      dueDate: string;
+      invoiceAmount: number;
+      outstanding: number;
+      allocatedAmount: number;
+    }> = [];
+
+    const updatedVisitNos: string[] = [];
+
+    for (const alloc of data.allocations) {
+      if (alloc.allocatedAmount <= 0) continue;
+      const visit = visitMap.get(alloc.invoiceNo);
+      if (!visit) continue;
+
+      const prevPaid = visit.amountPaid ?? 0;
+      const newPaid = Math.round((prevPaid + alloc.allocatedAmount) * 100) / 100;
+      const newBalance = Math.max(0, Math.round(((visit.totalAmount ?? 0) - newPaid) * 100) / 100);
+
+      visit.amountPaid = newPaid;
+      visit.balanceDue = newBalance;
+      visit.status = newBalance === 0 ? "Paid" : "Billed";
+      visit.payments.push({
+        mode: data.mode,
+        amount: alloc.allocatedAmount,
+        trxRef: data.referenceNo || undefined,
+        timestamp: paymentTimestamp,
+      } as any);
+
+      references.push({
+        invoiceNo: visit.invoiceNo,
+        invoiceDate: visit.date,
+        dueDate: visit.date,
+        invoiceAmount: visit.totalAmount ?? 0,
+        outstanding: newBalance,
+        allocatedAmount: alloc.allocatedAmount,
+      });
+
+      updatedVisitNos.push(visit.invoiceNo);
+      await visit.save();
+    }
+
+    // 5. Create ONE ledger entry for the whole payment (REQ-PAY-06)
+    await FinanceTransaction.create({
+      type: "payment",
+      data: {
+        paymentNo: peNo,
+        idempotencyKey: data.idempotencyKey,
+        paymentType: "Receive",
+        paymentDate: data.paymentDate,
+        partyType: "Customer",
+        partyName: data.ownerName,
+        contactName: data.ownerName,
+        modeOfPayment: data.mode,
+        bankAccount: data.mode === "Cash" ? "Cash on Hand" : "HDFC Current",
+        referenceNo: data.referenceNo || peNo,
+        paidAmount: amountRounded,
+        totalAllocated: allocationSum,
+        differenceAmount: 0,
+        narration: `Partial/combined payment received from ${data.ownerName} covering ${updatedVisitNos.join(", ")}`,
+        references,
+        status: "Submitted",
+      },
+    });
+
+    return toPlain<any>({
+      success: true,
+      paymentNo: peNo,
+      updatedInvoices: updatedVisitNos,
+      amountReceived: amountRounded,
+      message: `Payment of ₹${amountRounded} recorded against ${updatedVisitNos.length} invoice(s).`,
+    });
   });

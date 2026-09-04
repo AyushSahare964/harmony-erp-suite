@@ -59,7 +59,7 @@ const AdmitPatientInputZ = z.object({
 });
 
 const PrescriptionLineZ = z.object({
-  lineType: z.enum(["Vaccine", "Consultation", "Pharmacy", "Procedure", "Diagnostic", "Service"]),
+  lineType: z.enum(["Vaccine", "Consultation", "Pharmacy", "Procedure", "Diagnostic", "Service", "Food", "Accessory"]),
   itemCode: z.string().optional(),
   batchNo: z.string().optional(),
   name: z.string().min(1),
@@ -67,6 +67,11 @@ const PrescriptionLineZ = z.object({
   quantity: z.number().positive(),
   unitPrice: z.number().min(0),
   discountPercent: z.number().min(0).max(100).default(0),
+  // Per-line discount audit fields (REQ-DISC)
+  discountType: z.enum(["percentage", "fixed"]).optional(),
+  discountValue: z.number().min(0).optional(),
+  discountAmount: z.number().min(0).optional(),
+  taxableAmount: z.number().min(0).optional(),
   gstRate: z.number().min(0).max(100).default(0),
   lineTotal: z.number().min(0),
 });
@@ -323,9 +328,20 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     const balanceDue = Math.max(0, data.totalAmount - data.amountPaid);
     const status = balanceDue === 0 ? "Paid" : "Billed";
 
-    // 1. FEFO Inventory Deduction for pharmacy lines
+    // 1. Server-side duplicate medicine check (REQ-RX-02)
+    const seenCodes = new Set<string>();
     for (const item of data.items) {
-      if (item.lineType === "Pharmacy" || item.lineType === "Vaccine") {
+      if (item.itemCode) {
+        if (seenCodes.has(item.itemCode)) {
+          throw new Error(`Duplicate medicine entry detected: ${item.name} (${item.itemCode}). Each medicine can only appear once per prescription.`);
+        }
+        seenCodes.add(item.itemCode);
+      }
+    }
+
+    // 2. FEFO Inventory Deduction for pharmacy, vaccine, food, and accessory lines
+    for (const item of data.items) {
+      if (item.lineType === "Pharmacy" || item.lineType === "Vaccine" || item.lineType === "Food" || item.lineType === "Accessory") {
         try {
           const filter: any = { qty: { $gt: 0 } };
           if (item.batchNo) filter.batchNo = item.batchNo;
