@@ -65,14 +65,23 @@ interface BillLine {
 }
 
 const FALLBACK_CATALOG = [
-  { itemCode: "M-0001", name: "Amoxicillin 250mg", defaultSalePrice: 24, gstRate: 12, lineType: "Pharmacy" },
-  { itemCode: "M-0002", name: "Rabies Vaccine 1ml", defaultSalePrice: 480, gstRate: 5, lineType: "Vaccine" },
-  { itemCode: "M-0003", name: "IV Fluid RL 500ml", defaultSalePrice: 65, gstRate: 12, lineType: "Pharmacy" },
-  { itemCode: "M-0004", name: "Dexamethasone 4mg", defaultSalePrice: 95, gstRate: 12, lineType: "Pharmacy" },
-  { itemCode: "M-0005", name: "Royal Canin Maxi 4kg", defaultSalePrice: 1850, gstRate: 18, lineType: "Pharmacy" },
-  { itemCode: "M-0006", name: "Tick & Flea Collar (L)", defaultSalePrice: 320, gstRate: 18, lineType: "Pharmacy" },
-  { itemCode: "M-0007", name: "Meloxicam Injection 10ml", defaultSalePrice: 150, gstRate: 12, lineType: "Pharmacy" },
-  { itemCode: "M-0008", name: "Cefpet Dry Syrup 30ml", defaultSalePrice: 220, gstRate: 12, lineType: "Pharmacy" },
+  { itemCode: "M-0001", name: "Amoxicillin 250mg", defaultSalePrice: 24, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
+  { itemCode: "M-0002", name: "Rabies Vaccine 1ml", defaultSalePrice: 480, gstRate: 5, lineType: "Vaccine", category: "Medicine" },
+  { itemCode: "M-0003", name: "IV Fluid RL 500ml", defaultSalePrice: 65, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
+  { itemCode: "M-0004", name: "Dexamethasone 4mg", defaultSalePrice: 95, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
+  { itemCode: "M-0005", name: "Royal Canin Maxi 4kg", brand: "Royal Canin", defaultSalePrice: 1850, gstRate: 18, lineType: "Pharmacy", category: "Animal Food", unit: "Box" },
+  { itemCode: "M-0006", name: "Tick & Flea Collar (L)", brand: "PawShield", defaultSalePrice: 320, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Collars & Leashes", unit: "Piece" },
+  { itemCode: "M-0007", name: "Meloxicam Injection 10ml", defaultSalePrice: 150, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
+  { itemCode: "M-0008", name: "Cefpet Dry Syrup 30ml", defaultSalePrice: 220, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
+  { itemCode: "M-0010", name: "Grooming Shampoo 500ml", defaultSalePrice: 390, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Grooming", unit: "Bottle" },
+  { itemCode: "M-0011", name: "Ergonomic Padded Dog Harness (L)", brand: "PawShield", defaultSalePrice: 1250, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Collars & Leashes", unit: "Piece" },
+  { itemCode: "M-0012", name: "Nylon Training Leash 6ft (Reflective)", brand: "PawShield", defaultSalePrice: 450, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Collars & Leashes", unit: "Piece" },
+  { itemCode: "M-0013", name: "Hooded Feline Litter Box (Anti-Odour)", brand: "PurrClean", defaultSalePrice: 1850, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Housing/Cages", unit: "Unit" },
+  { itemCode: "M-0014", name: "Orthopedic Memory Foam Pet Bed (XL)", brand: "ComfyPaws", defaultSalePrice: 3200, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Other", unit: "Piece" },
+  { itemCode: "M-0015", name: "Stainless Steel Anti-Skid Feeding Bowl", brand: "DinePaws", defaultSalePrice: 650, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Other", unit: "Unit" },
+  { itemCode: "M-0016", name: "Pedigree Adult Chicken & Vegetables 3kg", brand: "Pedigree", defaultSalePrice: 750, gstRate: 18, lineType: "Pharmacy", category: "Animal Food", unit: "Bag" },
+  { itemCode: "M-0017", name: "Farmina N&D Grain-Free Pumpkin Puppy 2.5kg", brand: "Farmina", defaultSalePrice: 2400, gstRate: 18, lineType: "Pharmacy", category: "Animal Food", unit: "Bag" },
+  { itemCode: "M-0018", name: "Whiskas Ocean Fish Adult Cat Food 1.2kg", brand: "Whiskas", defaultSalePrice: 480, gstRate: 18, lineType: "Pharmacy", category: "Animal Food", unit: "Bag" },
 ];
 
 export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: VisitWorkspaceProps) {
@@ -124,28 +133,39 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const [itemQty, setItemQty] = useState(1);
   const [dosageText, setDosageText] = useState("");
 
-  // Separated Animal Food & Accessories State — includes discount fields (REQ-DISC)
+  // Combined Animal Food & Accessories State — Live Inventory + Discount fields (REQ-DISC)
   const [foodItems, setFoodItems] = useState<{
     id: string; name: string; packSize: string; quantity: number; price: number;
-    discountType: "percentage" | "fixed"; discountValue: number;
+    discountType?: "percentage" | "fixed" | undefined; discountValue?: number | undefined; itemCode?: string | undefined;
   }[]>([]);
+  const [selectedFood, setSelectedFood] = useState<any | null>(null);
+  const [foodSearchQuery, setFoodSearchQuery] = useState("");
   const [newFoodName, setNewFoodName] = useState("");
   const [newFoodPack, setNewFoodPack] = useState("");
   const [newFoodQty, setNewFoodQty] = useState(1);
-  const [newFoodPrice, setNewFoodPrice] = useState(450);
+  const [newFoodPrice, setNewFoodPrice] = useState(1850);
   const [newFoodDiscType, setNewFoodDiscType] = useState<"percentage" | "fixed">("percentage");
   const [newFoodDiscValue, setNewFoodDiscValue] = useState(0);
+  const [isCustomFood, setIsCustomFood] = useState(false);
+  const [customFoodName, setCustomFoodName] = useState("");
+  const [customFoodPack, setCustomFoodPack] = useState("");
 
   const [accessoryItems, setAccessoryItems] = useState<{
     id: string; name: string; category: string; quantity: number; price: number;
-    discountType: "percentage" | "fixed"; discountValue: number;
+    discountType?: "percentage" | "fixed" | undefined; discountValue?: number | undefined; itemCode?: string | undefined;
   }[]>([]);
+  const [selectedAcc, setSelectedAcc] = useState<any | null>(null);
+  const [accSearchQuery, setAccSearchQuery] = useState("");
   const [newAccName, setNewAccName] = useState("");
   const [newAccCat, setNewAccCat] = useState("Collars & Leashes");
   const [newAccQty, setNewAccQty] = useState(1);
-  const [newAccPrice, setNewAccPrice] = useState(250);
+  const [newAccPrice, setNewAccPrice] = useState(320);
   const [newAccDiscType, setNewAccDiscType] = useState<"percentage" | "fixed">("percentage");
   const [newAccDiscValue, setNewAccDiscValue] = useState(0);
+  const [isCustomAcc, setIsCustomAcc] = useState(false);
+  const [customAccName, setCustomAccName] = useState("");
+  const [customAccCat, setCustomAccCat] = useState("Collars & Leashes");
+
 
   const [newBloodTestType, setNewBloodTestType] = useState("CBC (Complete Blood Count)");
 
@@ -264,97 +284,219 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     );
   }, [catalogItems, medSearchQuery, prescribedCodes]);
 
+  // Filtered Food Inventory Items
+  const foodCatalog = useMemo(() => {
+    return catalogItems.filter(
+      (item: any) =>
+        item.category === "Food" ||
+        item.category === "Animal Food" ||
+        item.name.toLowerCase().includes("food") ||
+        item.name.toLowerCase().includes("canin") ||
+        item.name.toLowerCase().includes("pedigree") ||
+        item.name.toLowerCase().includes("farmina") ||
+        item.name.toLowerCase().includes("whiskas") ||
+        item.name.toLowerCase().includes("diet") ||
+        item.name.toLowerCase().includes("treat") ||
+        item.name.toLowerCase().includes("feed") ||
+        item.unit === "Kg" ||
+        item.unit === "Bag"
+    );
+  }, [catalogItems]);
+
+  const filteredFoodCatalog = useMemo(() => {
+    if (!foodSearchQuery.trim()) return foodCatalog;
+    const q = foodSearchQuery.toLowerCase().trim();
+    return foodCatalog.filter(
+      (item: any) =>
+        item.name.toLowerCase().includes(q) ||
+        (item.brand && item.brand.toLowerCase().includes(q)) ||
+        (item.itemCode && item.itemCode.toLowerCase().includes(q))
+    );
+  }, [foodCatalog, foodSearchQuery]);
+
+  // Filtered Accessories Inventory Items
+  const accessoryCatalog = useMemo(() => {
+    return catalogItems.filter(
+      (item: any) =>
+        item.category === "Accessory" ||
+        item.category === "Animal Accessories" ||
+        item.category === "Consumable" ||
+        item.unit === "Piece" ||
+        item.unit === "Unit" ||
+        item.name.toLowerCase().includes("collar") ||
+        item.name.toLowerCase().includes("leash") ||
+        item.name.toLowerCase().includes("harness") ||
+        item.name.toLowerCase().includes("shampoo") ||
+        item.name.toLowerCase().includes("bed") ||
+        item.name.toLowerCase().includes("bowl") ||
+        item.name.toLowerCase().includes("litter") ||
+        item.subGroup === "Gear" ||
+        item.subGroup === "Hygiene" ||
+        item.subGroup === "Comfort" ||
+        item.subGroup === "Feeding"
+    );
+  }, [catalogItems]);
+
+  const filteredAccessoryCatalog = useMemo(() => {
+    if (!accSearchQuery.trim()) return accessoryCatalog;
+    const q = accSearchQuery.toLowerCase().trim();
+    return accessoryCatalog.filter(
+      (item: any) =>
+        item.name.toLowerCase().includes(q) ||
+        (item.subGroup && item.subGroup.toLowerCase().includes(q)) ||
+        (item.brand && item.brand.toLowerCase().includes(q)) ||
+        (item.itemCode && item.itemCode.toLowerCase().includes(q))
+    );
+  }, [accessoryCatalog, accSearchQuery]);
+
   const handleAddFoodItem = () => {
-    if (!newFoodName.trim()) {
-      toast.error("Please enter food item name");
-      return;
+    let name = "";
+    let pack = "Standard";
+    let itemCode: string | undefined = undefined;
+    let price = Number(newFoodPrice) || 0;
+
+    if (isCustomFood) {
+      if (!customFoodName.trim()) {
+        toast.error("Please enter custom food name");
+        return;
+      }
+      name = customFoodName.trim();
+      pack = customFoodPack.trim() || "Standard";
+    } else {
+      if (!selectedFood) {
+        toast.error("Please select a food product from inventory or toggle custom food entry");
+        return;
+      }
+      name = selectedFood.name;
+      pack = selectedFood.unit || selectedFood.genericName || "Pack";
+      itemCode = selectedFood.itemCode;
+      price = Number(newFoodPrice) || selectedFood.defaultSalePrice || 0;
     }
-    // Validate discount
-    const baseAmt = newFoodQty * newFoodPrice;
+
+    const qty = Number(newFoodQty) || 1;
+    const baseAmt = qty * price;
     const discErr = validateDiscount(newFoodDiscType, newFoodDiscValue, baseAmt);
     if (discErr) { toast.error(discErr); return; }
 
+    const id = `food-${Date.now()}`;
     const item = {
-      id: Math.random().toString(),
-      name: newFoodName.trim(),
-      packSize: newFoodPack.trim() || "Standard",
-      quantity: Number(newFoodQty) || 1,
-      price: Number(newFoodPrice) || 0,
+      id,
+      name,
+      packSize: pack,
+      quantity: qty,
+      price,
+      itemCode,
       discountType: newFoodDiscType,
       discountValue: newFoodDiscValue,
     };
+
     setFoodItems((prev) => [...prev, item]);
     setLines((prev) => [
       ...prev,
       {
-        id: item.id,
+        id,
         lineType: "Food" as const,
-        name: `[Food] ${item.name} (${item.packSize})`,
-        quantity: item.quantity,
-        unitPrice: item.price,
+        itemCode,
+        name: `[Food] ${name}`,
+        dosageInstructions: `Dietary nutrition · Pack: ${pack}`,
+        quantity: qty,
+        unitPrice: price,
         discountPercent: newFoodDiscType === "percentage" ? newFoodDiscValue : 0,
         discountType: newFoodDiscType,
         discountValue: newFoodDiscValue,
-        gstRate: 18,
+        gstRate: selectedFood?.gstRate || 18,
       },
     ]);
-    setNewFoodName("");
-    setNewFoodPack("");
+
+    setSelectedFood(null);
+    setFoodSearchQuery("");
+    setCustomFoodName("");
+    setCustomFoodPack("");
     setNewFoodQty(1);
-    setNewFoodPrice(450);
+    setNewFoodPrice(1850);
     setNewFoodDiscValue(0);
-    toast.success(`Added food item: ${item.name}`);
+    toast.success(`Added food item: ${name} (Synced to Prescription & Bill)`);
   };
 
   const handleRemoveFoodItem = (id: string) => {
     setFoodItems((prev) => prev.filter((f) => f.id !== id));
     setLines((prev) => prev.filter((l) => l.id !== id));
+    toast.success("Food item removed from prescription & bill");
   };
 
   const handleAddAccessoryItem = () => {
-    if (!newAccName.trim()) {
-      toast.error("Please enter accessory name");
-      return;
+    let name = "";
+    let category = "Accessory";
+    let itemCode: string | undefined = undefined;
+    let price = Number(newAccPrice) || 0;
+
+    if (isCustomAcc) {
+      if (!customAccName.trim()) {
+        toast.error("Please enter custom accessory name");
+        return;
+      }
+      name = customAccName.trim();
+      category = customAccCat;
+    } else {
+      if (!selectedAcc) {
+        toast.error("Please select an accessory from inventory or toggle custom entry");
+        return;
+      }
+      name = selectedAcc.name;
+      category = selectedAcc.subGroup || selectedAcc.category || "Accessory";
+      itemCode = selectedAcc.itemCode;
+      price = Number(newAccPrice) || selectedAcc.defaultSalePrice || 0;
     }
-    // Validate discount
-    const baseAmt = newAccQty * newAccPrice;
+
+    const qty = Number(newAccQty) || 1;
+    const baseAmt = qty * price;
     const discErr = validateDiscount(newAccDiscType, newAccDiscValue, baseAmt);
     if (discErr) { toast.error(discErr); return; }
 
+    const id = `acc-${Date.now()}`;
     const item = {
-      id: Math.random().toString(),
-      name: newAccName.trim(),
-      category: newAccCat,
-      quantity: Number(newAccQty) || 1,
-      price: Number(newAccPrice) || 0,
+      id,
+      name,
+      category,
+      quantity: qty,
+      price,
+      itemCode,
       discountType: newAccDiscType,
       discountValue: newAccDiscValue,
     };
+
     setAccessoryItems((prev) => [...prev, item]);
     setLines((prev) => [
       ...prev,
       {
-        id: item.id,
+        id,
         lineType: "Accessory" as const,
-        name: `[Accessory] ${item.name} (${item.category})`,
-        quantity: item.quantity,
-        unitPrice: item.price,
+        itemCode,
+        name: `[Accessory] ${name}`,
+        dosageInstructions: `Category: ${category}`,
+        quantity: qty,
+        unitPrice: price,
         discountPercent: newAccDiscType === "percentage" ? newAccDiscValue : 0,
         discountType: newAccDiscType,
         discountValue: newAccDiscValue,
-        gstRate: 18,
+        gstRate: selectedAcc?.gstRate || 18,
       },
     ]);
-    setNewAccName("");
+
+    setSelectedAcc(null);
+    setAccSearchQuery("");
+    setCustomAccName("");
     setNewAccQty(1);
-    setNewAccPrice(250);
+    setNewAccPrice(320);
     setNewAccDiscValue(0);
-    toast.success(`Added accessory: ${item.name}`);
+    toast.success(`Added accessory: ${name} (Synced to Prescription & Bill)`);
   };
+
 
   const handleRemoveAccessoryItem = (id: string) => {
     setAccessoryItems((prev) => prev.filter((a) => a.id !== id));
     setLines((prev) => prev.filter((l) => l.id !== id));
+    toast.success("Accessory removed from prescription & bill");
   };
 
   const handleAddBloodTest = () => {
@@ -1348,17 +1490,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   </div>
                 </div>
 
-                {/* ── Main Category Card: Animal Food & Accessories ── */}
+                {/* ── Main Category Card: Animal Food & Accessories (Live Inventory Linked) ── */}
                 <div className="erp-card p-4 space-y-4">
                   <div className="flex items-center justify-between border-b border-border pb-2.5">
                     <div className="flex items-center gap-2">
                       <span className="text-base">📦</span>
                       <div>
                         <h3 className="font-bold text-xs uppercase tracking-wider text-foreground">Animal Food &amp; Accessories</h3>
-                        <p className="text-[10px] text-muted-foreground">Select pet nutrition supplies, dietary food, or accessories</p>
+                        <p className="text-[10px] text-muted-foreground">Select pet nutrition supplies, dietary food, or accessories from Live Inventory</p>
                       </div>
                     </div>
-                    <Badge variant="outline" className="text-[10px] font-mono bg-primary/10 text-primary">
+                    <Badge variant="outline" className="text-[10px] font-mono bg-primary/10 text-primary shrink-0">
                       {foodItems.length + accessoryItems.length} Total Items
                     </Badge>
                   </div>
@@ -1369,76 +1511,186 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       <div className="flex items-center justify-between border-b border-border/50 pb-2">
                         <div className="flex items-center gap-2">
                           <span className="text-sm">🥣</span>
-                          <p className="font-bold text-xs text-foreground uppercase tracking-wide">1. Animal Food</p>
+                          <div>
+                            <p className="font-bold text-xs text-foreground uppercase tracking-wide">1. Animal Food</p>
+                            <p className="text-[9px] text-muted-foreground">Directly linked to Live Food Inventory</p>
+                          </div>
                         </div>
-                        <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                          {foodItems.length} items
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCustomFood(!isCustomFood);
+                              setSelectedFood(null);
+                            }}
+                            className="text-[10px] text-primary hover:underline font-semibold"
+                          >
+                            {isCustomFood ? "← From Inventory" : "+ Custom Food"}
+                          </button>
+                          <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                            {foodItems.length} items
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-3 gap-2">
+                      {!isCustomFood ? (
+                        <div className="space-y-2">
+                          {/* Live Food Catalog Search Input with Auto-search Floating Dropdown */}
+                          <div className="relative">
+                            <div className="relative">
+                              <Input
+                                placeholder="🔍 Start typing pet food / diet (e.g. Royal Canin)..."
+                                value={foodSearchQuery}
+                                onChange={(e) => {
+                                  setFoodSearchQuery(e.target.value);
+                                  setSelectedFood(null);
+                                }}
+                                className="h-8 text-xs bg-card pr-7"
+                              />
+                              {foodSearchQuery && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFoodSearchQuery("");
+                                    setSelectedFood(null);
+                                  }}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Floating Dropdown */}
+                            {foodSearchQuery.trim().length > 0 && !selectedFood && (
+                              <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto rounded-xl border border-primary/40 bg-card p-1 shadow-xl">
+                                {filteredFoodCatalog.length === 0 ? (
+                                  <p className="p-2 text-[11px] text-muted-foreground italic text-center">
+                                    No food found in inventory. Click "+ Custom Food" to enter custom item.
+                                  </p>
+                                ) : (
+                                  filteredFoodCatalog.map((m: any) => (
+                                    <button
+                                      key={m.itemCode}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedFood(m);
+                                        setFoodSearchQuery(m.name);
+                                        setNewFoodPrice(m.defaultSalePrice || 1850);
+                                      }}
+                                      className="w-full text-left p-1.5 hover:bg-primary/10 rounded-lg flex items-center justify-between text-xs transition-colors border-b border-border/30 last:border-0"
+                                    >
+                                      <div className="min-w-0 pr-2">
+                                        <p className="font-bold text-foreground truncate">{m.name}</p>
+                                        <span className="text-[10px] text-muted-foreground font-mono">
+                                          {m.brand || m.unit || "Pack"} · {m.itemCode}
+                                        </span>
+                                      </div>
+                                      <span className="font-mono font-bold text-primary text-xs shrink-0">
+                                        ₹{m.defaultSalePrice || 1850}
+                                      </span>
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Secondary Select Dropdown */}
+                          <Select
+                            value={selectedFood?.itemCode || ""}
+                            onValueChange={(code) => {
+                              const found = catalogItems.find((x: any) => x.itemCode === code);
+                              if (found) {
+                                setSelectedFood(found);
+                                setFoodSearchQuery(found.name);
+                                setNewFoodPrice(found.defaultSalePrice || 1850);
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs bg-card">
+                              <SelectValue placeholder="Or select food from catalog dropdown..." />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-48">
+                              {foodCatalog.map((f: any) => (
+                                <SelectItem key={f.itemCode} value={f.itemCode}>
+                                  <div className="flex items-center justify-between w-full gap-2">
+                                    <span>{f.name}</span>
+                                    <span className="font-mono text-[10px] text-muted-foreground">
+                                      ₹{f.defaultSalePrice || 1850}
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        /* Custom Free Entry */
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <Input
-                            placeholder="Food Brand / Name (e.g. Royal Canin)"
-                            value={newFoodName}
-                            onChange={(e) => setNewFoodName(e.target.value)}
-                            className="col-span-2 h-7 text-[11px] bg-card"
+                            placeholder="Custom Food Name (e.g. Hill's Science)"
+                            value={customFoodName}
+                            onChange={(e) => setCustomFoodName(e.target.value)}
+                            className="sm:col-span-2 h-8 text-xs bg-card"
                           />
                           <Input
-                            placeholder="Pack (e.g. 4kg)"
-                            value={newFoodPack}
-                            onChange={(e) => setNewFoodPack(e.target.value)}
-                            className="h-7 text-[11px] bg-card"
+                            placeholder="Pack (e.g. 3kg)"
+                            value={customFoodPack}
+                            onChange={(e) => setCustomFoodPack(e.target.value)}
+                            className="h-8 text-xs bg-card"
                           />
                         </div>
-                      <div className="flex items-center gap-2">
-                          <div className="flex-1 flex items-center gap-1.5 flex-wrap">
-                            <Label className="text-[10px] text-muted-foreground">Qty:</Label>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={newFoodQty}
-                              onChange={(e) => setNewFoodQty(Number(e.target.value))}
-                              className="h-7 w-12 text-[11px] font-mono text-center bg-card"
-                            />
-                            <Label className="text-[10px] text-muted-foreground ml-1">Price (₹):</Label>
+                      )}
+
+                      {/* Controls Row: Qty, Price, Discount Toggle and Add Button */}
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Label className="text-[11px] text-muted-foreground shrink-0">Qty:</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={newFoodQty}
+                            onChange={(e) => setNewFoodQty(Number(e.target.value))}
+                            className="h-8 w-12 text-xs font-mono text-center bg-card px-1"
+                          />
+                          <Label className="text-[11px] text-muted-foreground ml-1 shrink-0">Price (₹):</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={newFoodPrice}
+                            onChange={(e) => setNewFoodPrice(Number(e.target.value))}
+                            className="h-8 w-20 text-xs font-mono bg-card px-2"
+                          />
+                          {/* Discount Toggle */}
+                          <div className="flex items-center gap-1 ml-1">
+                            <button
+                              type="button"
+                              onClick={() => setNewFoodDiscType(newFoodDiscType === "percentage" ? "fixed" : "percentage")}
+                              className="h-7 px-2 text-[10px] font-bold rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0"
+                              title="Toggle discount type"
+                            >
+                              {newFoodDiscType === "percentage" ? "Disc %" : "Disc ₹"}
+                            </button>
                             <Input
                               type="number"
                               min={0}
-                              value={newFoodPrice}
-                              onChange={(e) => setNewFoodPrice(Number(e.target.value))}
-                              className="h-7 w-16 text-[11px] font-mono bg-card"
+                              max={newFoodDiscType === "percentage" ? 100 : undefined}
+                              value={newFoodDiscValue}
+                              onChange={(e) => setNewFoodDiscValue(Number(e.target.value))}
+                              className="h-7 w-14 text-xs font-mono bg-card text-center"
+                              placeholder={newFoodDiscType === "percentage" ? "0%" : "₹0"}
                             />
-                            {/* Discount Toggle — REQ-DISC-01 */}
-                            <div className="flex items-center gap-1 ml-1">
-                              <button
-                                type="button"
-                                onClick={() => setNewFoodDiscType(newFoodDiscType === "percentage" ? "fixed" : "percentage")}
-                                className="h-6 px-2 text-[9px] font-bold rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0"
-                                title="Toggle discount type"
-                              >
-                                {newFoodDiscType === "percentage" ? "Disc %" : "Disc ₹"}
-                              </button>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={newFoodDiscType === "percentage" ? 100 : undefined}
-                                value={newFoodDiscValue}
-                                onChange={(e) => setNewFoodDiscValue(Number(e.target.value))}
-                                className="h-6 w-14 text-[10px] font-mono bg-card text-center"
-                                placeholder={newFoodDiscType === "percentage" ? "0%" : "₹0"}
-                              />
-                            </div>
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={handleAddFoodItem}
-                            className="h-7 text-[10px] font-bold border-primary/30 text-primary hover:bg-primary hover:text-white"
-                          >
-                            <Plus className="size-3 mr-1" /> Add Food
-                          </Button>
                         </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleAddFoodItem}
+                          className="h-8 text-xs font-bold border-primary/30 text-primary hover:bg-primary hover:text-white shrink-0 ml-auto"
+                        >
+                          <Plus className="size-3.5 mr-1" /> Add Food
+                        </Button>
                       </div>
 
                       {/* Food Items List */}
@@ -1448,25 +1700,26 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         )}
                         {foodItems.map((fi) => {
                           const base = fi.price * fi.quantity;
+                          const discVal = fi.discountValue || 0;
                           const disc = fi.discountType === "percentage"
-                            ? (base * fi.discountValue / 100)
-                            : Math.min(fi.discountValue, base);
+                            ? (base * discVal / 100)
+                            : Math.min(discVal, base);
                           const net = base - disc;
                           return (
                             <div key={fi.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
-                              <div>
-                                <p className="font-semibold text-foreground">{fi.name}</p>
-                                <p className="text-[10px] text-muted-foreground">{fi.packSize} · Qty: {fi.quantity}</p>
-                                {fi.discountValue > 0 && (
-                                  <p className="text-[10px] text-emerald-600">
-                                    Disc: {fi.discountType === "percentage" ? `${fi.discountValue}%` : `₹${fi.discountValue}`} (−₹{disc.toFixed(2)})
+                              <div className="min-w-0 pr-2">
+                                <p className="font-semibold text-foreground truncate">{fi.name}</p>
+                                <p className="text-[10px] text-muted-foreground">{fi.packSize} · Qty: {fi.quantity} {fi.itemCode && `· ${fi.itemCode}`}</p>
+                                {discVal > 0 && (
+                                  <p className="text-[10px] text-emerald-600 font-medium">
+                                    Disc: {fi.discountType === "percentage" ? `${discVal}%` : `₹${discVal}`} (−₹{disc.toFixed(2)})
                                   </p>
                                 )}
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 shrink-0">
                                 <div className="text-right">
-                                  {fi.discountValue > 0 && (
-                                    <p className="text-[10px] text-muted-foreground line-through">₹{base}</p>
+                                  {discVal > 0 && (
+                                    <p className="text-[10px] text-muted-foreground line-through">₹{base.toFixed(2)}</p>
                                   )}
                                   <span className="font-mono font-bold text-primary">₹{net.toFixed(2)}</span>
                                 </div>
@@ -1481,7 +1734,9 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                             </div>
                           );
                         })}
+
                       </div>
+
                     </div>
 
                     {/* Subsection 2: Accessories */}
@@ -1489,23 +1744,131 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       <div className="flex items-center justify-between border-b border-border/50 pb-2">
                         <div className="flex items-center gap-2">
                           <span className="text-sm">🎾</span>
-                          <p className="font-bold text-xs text-foreground uppercase tracking-wide">2. Accessories</p>
+                          <div>
+                            <p className="font-bold text-xs text-foreground uppercase tracking-wide">2. Accessories</p>
+                            <p className="text-[9px] text-muted-foreground">Directly linked to Live Accessories Inventory</p>
+                          </div>
                         </div>
-                        <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                          {accessoryItems.length} items
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCustomAcc(!isCustomAcc);
+                              setSelectedAcc(null);
+                            }}
+                            className="text-[10px] text-primary hover:underline font-semibold"
+                          >
+                            {isCustomAcc ? "← From Inventory" : "+ Custom Item"}
+                          </button>
+                          <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                            {accessoryItems.length} items
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-3 gap-2">
+                      {!isCustomAcc ? (
+                        <div className="space-y-2">
+                          {/* Live Accessories Catalog Search Input with Auto-search Floating Dropdown */}
+                          <div className="relative">
+                            <div className="relative">
+                              <Input
+                                placeholder="🔍 Start typing accessory (e.g. Collar, Leash, Harness)..."
+                                value={accSearchQuery}
+                                onChange={(e) => {
+                                  setAccSearchQuery(e.target.value);
+                                  setSelectedAcc(null);
+                                }}
+                                className="h-8 text-xs bg-card pr-7"
+                              />
+                              {accSearchQuery && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAccSearchQuery("");
+                                    setSelectedAcc(null);
+                                  }}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Floating Dropdown */}
+                            {accSearchQuery.trim().length > 0 && !selectedAcc && (
+                              <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto rounded-xl border border-primary/40 bg-card p-1 shadow-xl">
+                                {filteredAccessoryCatalog.length === 0 ? (
+                                  <p className="p-2 text-[11px] text-muted-foreground italic text-center">
+                                    No accessory found. Click "+ Custom Item" to enter custom accessory.
+                                  </p>
+                                ) : (
+                                  filteredAccessoryCatalog.map((m: any) => (
+                                    <button
+                                      key={m.itemCode}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedAcc(m);
+                                        setAccSearchQuery(m.name);
+                                        setNewAccPrice(m.defaultSalePrice || 320);
+                                      }}
+                                      className="w-full text-left p-1.5 hover:bg-primary/10 rounded-lg flex items-center justify-between text-xs transition-colors border-b border-border/30 last:border-0"
+                                    >
+                                      <div className="min-w-0 pr-2">
+                                        <p className="font-bold text-foreground truncate">{m.name}</p>
+                                        <span className="text-[10px] text-muted-foreground font-mono">
+                                          {m.subGroup || m.category || "Accessory"} · {m.itemCode}
+                                        </span>
+                                      </div>
+                                      <span className="font-mono font-bold text-primary text-xs shrink-0">
+                                        ₹{m.defaultSalePrice || 320}
+                                      </span>
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Secondary Select Dropdown */}
+                          <Select
+                            value={selectedAcc?.itemCode || ""}
+                            onValueChange={(code) => {
+                              const found = catalogItems.find((x: any) => x.itemCode === code);
+                              if (found) {
+                                setSelectedAcc(found);
+                                setAccSearchQuery(found.name);
+                                setNewAccPrice(found.defaultSalePrice || 320);
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs bg-card">
+                              <SelectValue placeholder="Or select accessory from catalog dropdown..." />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-48">
+                              {accessoryCatalog.map((a: any) => (
+                                <SelectItem key={a.itemCode} value={a.itemCode}>
+                                  <div className="flex items-center justify-between w-full gap-2">
+                                    <span>{a.name}</span>
+                                    <span className="font-mono text-[10px] text-muted-foreground">
+                                      ₹{a.defaultSalePrice || 320}
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        /* Custom Free Entry */
+                        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
                           <Input
-                            placeholder="Accessory Name (e.g. Collar)"
-                            value={newAccName}
-                            onChange={(e) => setNewAccName(e.target.value)}
-                            className="col-span-2 h-7 text-[11px] bg-card"
+                            placeholder="Custom Accessory Name (e.g. Velvet Collar)"
+                            value={customAccName}
+                            onChange={(e) => setCustomAccName(e.target.value)}
+                            className="sm:col-span-3 h-8 text-xs bg-card"
                           />
-                          <Select value={newAccCat} onValueChange={setNewAccCat}>
-                            <SelectTrigger className="h-7 text-[10px] bg-card">
+                          <Select value={customAccCat} onValueChange={setCustomAccCat}>
+                            <SelectTrigger className="sm:col-span-2 h-8 text-xs bg-card">
                               <SelectValue placeholder="Category" />
                             </SelectTrigger>
                             <SelectContent>
@@ -1517,54 +1880,56 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 flex items-center gap-1.5 flex-wrap">
-                            <Label className="text-[10px] text-muted-foreground">Qty:</Label>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={newAccQty}
-                              onChange={(e) => setNewAccQty(Number(e.target.value))}
-                              className="h-7 w-12 text-[11px] font-mono text-center bg-card"
-                            />
-                            <Label className="text-[10px] text-muted-foreground ml-1">Price (₹):</Label>
+                      )}
+
+                      {/* Controls Row: Qty, Price, Discount Toggle and Add Button */}
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Label className="text-[11px] text-muted-foreground shrink-0">Qty:</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={newAccQty}
+                            onChange={(e) => setNewAccQty(Number(e.target.value))}
+                            className="h-8 w-12 text-xs font-mono text-center bg-card px-1"
+                          />
+                          <Label className="text-[11px] text-muted-foreground ml-1 shrink-0">Price (₹):</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={newAccPrice}
+                            onChange={(e) => setNewAccPrice(Number(e.target.value))}
+                            className="h-8 w-20 text-xs font-mono bg-card px-2"
+                          />
+                          {/* Discount Toggle */}
+                          <div className="flex items-center gap-1 ml-1">
+                            <button
+                              type="button"
+                              onClick={() => setNewAccDiscType(newAccDiscType === "percentage" ? "fixed" : "percentage")}
+                              className="h-7 px-2 text-[10px] font-bold rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0"
+                              title="Toggle discount type"
+                            >
+                              {newAccDiscType === "percentage" ? "Disc %" : "Disc ₹"}
+                            </button>
                             <Input
                               type="number"
                               min={0}
-                              value={newAccPrice}
-                              onChange={(e) => setNewAccPrice(Number(e.target.value))}
-                              className="h-7 w-16 text-[11px] font-mono bg-card"
+                              max={newAccDiscType === "percentage" ? 100 : undefined}
+                              value={newAccDiscValue}
+                              onChange={(e) => setNewAccDiscValue(Number(e.target.value))}
+                              className="h-7 w-14 text-xs font-mono bg-card text-center"
+                              placeholder={newAccDiscType === "percentage" ? "0%" : "₹0"}
                             />
-                            {/* Discount Toggle — REQ-DISC-01 */}
-                            <div className="flex items-center gap-1 ml-1">
-                              <button
-                                type="button"
-                                onClick={() => setNewAccDiscType(newAccDiscType === "percentage" ? "fixed" : "percentage")}
-                                className="h-6 px-2 text-[9px] font-bold rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0"
-                                title="Toggle discount type"
-                              >
-                                {newAccDiscType === "percentage" ? "Disc %" : "Disc ₹"}
-                              </button>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={newAccDiscType === "percentage" ? 100 : undefined}
-                                value={newAccDiscValue}
-                                onChange={(e) => setNewAccDiscValue(Number(e.target.value))}
-                                className="h-6 w-14 text-[10px] font-mono bg-card text-center"
-                                placeholder={newAccDiscType === "percentage" ? "0%" : "₹0"}
-                              />
-                            </div>
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={handleAddAccessoryItem}
-                            className="h-7 text-[10px] font-bold border-primary/30 text-primary hover:bg-primary hover:text-white"
-                          >
-                            <Plus className="size-3 mr-1" /> Add Accessory
-                          </Button>
                         </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleAddAccessoryItem}
+                          className="h-8 text-xs font-bold border-primary/30 text-primary hover:bg-primary hover:text-white shrink-0 ml-auto"
+                        >
+                          <Plus className="size-3.5 mr-1" /> Add Accessory
+                        </Button>
                       </div>
 
                       {/* Accessories List */}
@@ -1574,25 +1939,26 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         )}
                         {accessoryItems.map((acc) => {
                           const base = acc.price * acc.quantity;
+                          const discVal = acc.discountValue || 0;
                           const disc = acc.discountType === "percentage"
-                            ? (base * acc.discountValue / 100)
-                            : Math.min(acc.discountValue, base);
+                            ? (base * discVal / 100)
+                            : Math.min(discVal, base);
                           const net = base - disc;
                           return (
                             <div key={acc.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
-                              <div>
-                                <p className="font-semibold text-foreground">{acc.name}</p>
-                                <p className="text-[10px] text-muted-foreground">{acc.category} · Qty: {acc.quantity}</p>
-                                {acc.discountValue > 0 && (
-                                  <p className="text-[10px] text-emerald-600">
-                                    Disc: {acc.discountType === "percentage" ? `${acc.discountValue}%` : `₹${acc.discountValue}`} (−₹{disc.toFixed(2)})
+                              <div className="min-w-0 pr-2">
+                                <p className="font-semibold text-foreground truncate">{acc.name}</p>
+                                <p className="text-[10px] text-muted-foreground">{acc.category} · Qty: {acc.quantity} {acc.itemCode && `· ${acc.itemCode}`}</p>
+                                {discVal > 0 && (
+                                  <p className="text-[10px] text-emerald-600 font-medium">
+                                    Disc: {acc.discountType === "percentage" ? `${discVal}%` : `₹${discVal}`} (−₹{disc.toFixed(2)})
                                   </p>
                                 )}
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 shrink-0">
                                 <div className="text-right">
-                                  {acc.discountValue > 0 && (
-                                    <p className="text-[10px] text-muted-foreground line-through">₹{base}</p>
+                                  {discVal > 0 && (
+                                    <p className="text-[10px] text-muted-foreground line-through">₹{base.toFixed(2)}</p>
                                   )}
                                   <span className="font-mono font-bold text-primary">₹{net.toFixed(2)}</span>
                                 </div>
@@ -1608,6 +1974,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           );
                         })}
                       </div>
+
                     </div>
                   </div>
                 </div>
@@ -1616,18 +1983,18 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
               {/* Right Col: Live Prescription / Items Summary */}
               <div className="space-y-4">
                 <div className="erp-card p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b border-border pb-2">
-                    <div className="flex items-center gap-3">
+                  <div className="border-b border-border pb-2.5 space-y-2">
+                    <div className="flex items-center justify-between">
                       <p className="font-bold text-sm text-foreground">Prescribed Items ({lines.length})</p>
-                      <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10" onClick={handleCloneTreatment}>
+                      <span className="font-extrabold text-primary text-base font-mono">₹{billSummary.totalAmount}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10 flex-1 justify-center" onClick={handleCloneTreatment}>
                         <CheckCircle2 className="size-3 mr-1" /> Clone Previous
                       </Button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground" onClick={handleViewHistory}>
+                      <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground border border-border/40 flex-1 justify-center" onClick={handleViewHistory}>
                         <FileText className="size-3 mr-1" /> History
                       </Button>
-                      <span className="font-bold text-primary text-sm font-mono">₹{billSummary.totalAmount}</span>
                     </div>
                   </div>
 
@@ -1635,13 +2002,13 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                     {lines.map((l) => (
                       <div key={l.id} className="rounded-lg border border-border/60 bg-muted/20 p-2.5 text-xs space-y-2">
                         <div className="flex items-start justify-between gap-1">
-                          <div className="flex-1">
-                            <span className="font-semibold text-foreground">{l.name}</span>
-                            <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
+                          <div className="flex-1 min-w-0">
+                            <span className="font-semibold text-foreground block truncate">{l.name}</span>
+                            <span className="inline-block mt-0.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
                               {l.lineType}
                             </span>
                           </div>
-                          <button onClick={() => handleRemoveLine(l.id)} className="text-muted-foreground hover:text-destructive shrink-0">
+                          <button onClick={() => handleRemoveLine(l.id)} className="text-muted-foreground hover:text-destructive shrink-0 p-1">
                             <Trash2 className="size-3.5" />
                           </button>
                         </div>
@@ -1653,9 +2020,9 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         )}
 
                         {/* Editable Fee & Quantity Controls */}
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1.5 border-t border-border/30 gap-2">
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1.5 border-t border-border/30 gap-2 flex-wrap sm:flex-nowrap">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] text-muted-foreground">Fee/Price:</span>
+                            <span className="text-[11px] text-muted-foreground shrink-0">Fee/Price:</span>
                             <div className="relative w-20">
                               <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-bold">₹</span>
                               <Input
@@ -1675,7 +2042,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                               className="h-6 w-12 text-xs font-mono text-center px-1 bg-card border-border"
                             />
                           </div>
-                          <span className="font-bold text-foreground font-mono text-xs">₹{l.quantity * l.unitPrice}</span>
+                          <span className="font-bold text-foreground font-mono text-xs ml-auto">₹{l.quantity * l.unitPrice}</span>
                         </div>
                       </div>
                     ))}
