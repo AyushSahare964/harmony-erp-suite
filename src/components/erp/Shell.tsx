@@ -11,9 +11,11 @@ import {
   LogIn, 
   Shield, 
   Sparkles,
-  Building2
+  Building2,
+  PawPrint,
+  Phone,
 } from "lucide-react";
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -21,6 +23,7 @@ import { ROLES, ROLE_ORDER, roleModules, type RoleId } from "@/lib/erp/config";
 import { useErp } from "@/lib/erp/store";
 import { getIcon } from "./icon";
 import { getMongoStatusFn, type MongoStatusRow } from "@/lib/mongodb/serverFns/status";
+import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -176,6 +179,129 @@ function NavRow({ module, icon, label, active, onNavigate }: NavRowProps) {
   );
 }
 
+function GlobalSearch() {
+  const [query, setQuery] = useState("");
+  const [pets, setPets] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+
+  // Load all pets once on first focus
+  const load = async () => {
+    if (loaded) return;
+    try {
+      const data = await listPetsWithOwnersFn();
+      setPets(data ?? []);
+      setLoaded(true);
+    } catch (_) { /* silent */ }
+  };
+
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase().trim();
+    return pets.filter(p =>
+      p.name?.toLowerCase().includes(q) ||
+      p.petId?.toLowerCase().includes(q) ||
+      p.breed?.toLowerCase().includes(q) ||
+      p.species?.toLowerCase().includes(q) ||
+      p.owner?.name?.toLowerCase().includes(q) ||
+      p.owner?.phone?.includes(q)
+    ).slice(0, 8);
+  }, [pets, query]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const showDropdown = focused && query.trim().length > 0;
+
+  return (
+    <div ref={ref} className="relative mx-auto hidden w-full max-w-md md:block">
+      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground z-10" />
+      <input
+        type="search"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        onFocus={() => { setFocused(true); void load(); }}
+        placeholder="Search patients, owners, pet IDs…"
+        className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm outline-none transition-all placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/10"
+      />
+      <AnimatePresence>
+        {showDropdown && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute left-0 right-0 top-full mt-2 z-50 rounded-xl border border-border bg-card shadow-xl overflow-hidden"
+          >
+            {results.length === 0 ? (
+              <div className="px-4 py-3 text-xs text-muted-foreground italic">No matching patients found.</div>
+            ) : (
+              <div className="divide-y divide-border/50 max-h-80 overflow-y-auto">
+                {results.map(p => (
+                  <div key={p.petId} className="px-4 py-3 hover:bg-muted/40 transition-colors">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary text-sm font-bold">
+                          {p.species === "Feline" ? "C" : "D"}
+                        </span>
+                        <div>
+                          <p className="text-xs font-bold text-foreground leading-tight">{p.name}</p>
+                          <p className="text-[10px] text-muted-foreground">{p.breed} · {p.species}</p>
+                        </div>
+                      </div>
+                      <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.petId}</span>
+                    </div>
+                    {p.owner && (
+                      <div className="mt-1.5 text-[10px] text-muted-foreground flex items-center gap-1">
+                        <PawPrint className="size-2.5 text-muted-foreground" />
+                        <span className="font-medium text-foreground">{p.owner.name}</span>
+                        {p.owner.phone && (
+                          <><span className="mx-0.5">·</span><Phone className="size-2.5" /><span>{p.owner.phone}</span></>
+                        )}
+                      </div>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {[
+                        { label: "Patient Record", module: "crm-pets" },
+                        { label: "Billing", module: "billing" },
+                        { label: "Lab", module: "lab_orders" },
+                        { label: "Boarding", module: "boarding" },
+                      ].map(lnk => (
+                        <button
+                          key={lnk.module}
+                          type="button"
+                          onClick={() => {
+                            setFocused(false);
+                            setQuery("");
+                            void navigate({ to: "/m/$moduleId", params: { moduleId: lnk.module }, search: { petId: p.petId, petName: p.name } as any });
+                          }}
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors cursor-pointer"
+                        >
+                          {lnk.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
   const navigate = useNavigate();
   const { role, roleId, setRoleId, currentUser, logout } = useErp();
@@ -202,14 +328,7 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
         {title}
       </motion.h2>
 
-      <div className="relative mx-auto hidden w-full max-w-md md:block">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="search"
-          placeholder="Search pets, owners, invoices, records…"
-          className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm outline-none transition-all placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/10"
-        />
-      </div>
+      <GlobalSearch />
 
       <div className="ml-auto flex items-center gap-2">
         <motion.button 

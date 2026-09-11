@@ -241,3 +241,138 @@ export function calculateQuickDate(
     default: return toISODate(base);
   }
 }
+
+// ─── IST-aware helpers for Accounting & Finance ─────────────────────────────
+// The server (Vercel) runs in UTC. Without IST conversion, entries between
+// 00:00–05:30 IST land on the wrong calendar date. Use these on both client
+// and server wherever "today" or "this month" is computed.
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/** Returns today's ISO date (YYYY-MM-DD) in Asia/Kolkata timezone. */
+export function todayIST(): string {
+  const now = new Date();
+  const istMs = now.getTime() + IST_OFFSET_MS;
+  const istDate = new Date(istMs);
+  const y = istDate.getUTCFullYear();
+  const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(istDate.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** Returns {from, to} for the Indian fiscal year (Apr–Mar) containing the given ISO date. */
+export function fiscalYearRange(isoDate?: string): { from: string; to: string } {
+  const iso = isoDate ?? todayIST();
+  const [y, m] = iso.split("-").map(Number) as [number, number];
+  const fyStart = m >= 4 ? y : y - 1;
+  return { from: `${fyStart}-04-01`, to: `${fyStart + 1}-03-31` };
+}
+
+/** Returns {from, to} for the previous Indian fiscal year. */
+export function prevFiscalYearRange(isoDate?: string): { from: string; to: string } {
+  const iso = isoDate ?? todayIST();
+  const [y, m] = iso.split("-").map(Number) as [number, number];
+  const fyStart = m >= 4 ? y - 1 : y - 2;
+  return { from: `${fyStart}-04-01`, to: `${fyStart + 1}-03-31` };
+}
+
+/** Indian FY quarter start (Apr/Jul/Oct/Jan) for the given ISO date. */
+function quarterStart(isoDate: string): string {
+  const [y, m] = isoDate.split("-").map(Number) as [number, number];
+  const fyMonth = ((m - 4 + 12) % 12); // months since April (0=Apr, 1=May…)
+  const qStartFyMonth = Math.floor(fyMonth / 3) * 3; // 0, 3, 6, 9
+  const calMonth = (qStartFyMonth + 4 - 1) % 12 + 1;
+  const calYear = calMonth < 4 ? y + 1 : y;
+  return `${calYear}-${String(calMonth).padStart(2, "0")}-01`;
+}
+
+export type DatePreset =
+  | "TODAY" | "YESTERDAY" | "THIS_WEEK" | "LAST_7" | "THIS_MONTH"
+  | "LAST_MONTH" | "LAST_30" | "THIS_QUARTER" | "THIS_FY" | "LAST_FY" | "CUSTOM";
+
+export interface DateRange { from: string; to: string; preset: DatePreset; }
+
+/**
+ * Compute {from, to} for each preset. All values are IST-correct ISO dates.
+ */
+export function presetDateRange(preset: DatePreset): { from: string; to: string } {
+  const today = todayIST();
+
+  switch (preset) {
+    case "TODAY":
+      return { from: today, to: today };
+
+    case "YESTERDAY": {
+      const d = addDaysToISO(today, -1);
+      return { from: d, to: d };
+    }
+
+    case "THIS_WEEK": {
+      // Monday of current week
+      const dt = new Date(today + "T00:00:00");
+      const day = dt.getDay(); // 0=Sun
+      const diff = day === 0 ? -6 : 1 - day;
+      const mon = addDaysToISO(today, diff);
+      return { from: mon, to: today };
+    }
+
+    case "LAST_7":
+      return { from: addDaysToISO(today, -6), to: today };
+
+    case "THIS_MONTH": {
+      const [y, m] = today.split("-").map(Number) as [number, number];
+      const from = `${y}-${String(m).padStart(2, "0")}-01`;
+      return { from, to: today };
+    }
+
+    case "LAST_MONTH": {
+      const [y, m] = today.split("-").map(Number) as [number, number];
+      const lm = m === 1 ? 12 : m - 1;
+      const ly = m === 1 ? y - 1 : y;
+      const from = `${ly}-${String(lm).padStart(2, "0")}-01`;
+      // Last day of that month
+      const lastDay = new Date(ly, lm, 0).getDate();
+      const to = `${ly}-${String(lm).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+      return { from, to };
+    }
+
+    case "LAST_30":
+      return { from: addDaysToISO(today, -29), to: today };
+
+    case "THIS_QUARTER":
+      return { from: quarterStart(today), to: today };
+
+    case "THIS_FY":
+      return { from: fiscalYearRange(today).from, to: today };
+
+    case "LAST_FY":
+      return prevFiscalYearRange(today);
+
+    case "CUSTOM":
+    default:
+      return { from: today, to: today };
+  }
+}
+
+/**
+ * Given a from/to range, returns the equal-length previous period for comparison.
+ * e.g. MTD 01/09–11/09 → previous: 01/08–11/08
+ */
+export function compareRange(from: string, to: string): { from: string; to: string } {
+  const f = new Date(from + "T00:00:00");
+  const t = new Date(to + "T00:00:00");
+  const spanDays = Math.round((t.getTime() - f.getTime()) / 86400000);
+  const prevTo = addDaysToISO(from, -1);
+  const prevFrom = addDaysToISO(from, -(spanDays + 1));
+  return { from: prevFrom, to: prevTo };
+}
+
+/** Format a voucher number with Indian FY, e.g. PB/2026-27/0001 */
+export function fmtVoucherNo(prefix: string, seq: number, isoDate?: string): string {
+  const iso = isoDate ?? todayIST();
+  const { from } = fiscalYearRange(iso);
+  const fyStart = parseInt(from.slice(0, 4), 10);
+  const fyShort = `${fyStart}-${String(fyStart + 1).slice(2)}`;
+  return `${prefix}/${fyShort}/${String(seq).padStart(4, "0")}`;
+}
+

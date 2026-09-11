@@ -188,6 +188,14 @@
   color: var(--color-muted-foreground);
 }
 
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Animations for Continuous Marquee Pet Slidebar */
 @keyframes marquee-vertical {
   0% {

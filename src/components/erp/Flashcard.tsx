@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
-import { ArrowDownRight, ArrowUpRight, ChevronRight } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ArrowDownRight, ArrowUpRight, ChevronRight, SearchCode } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { Flashcard as FlashcardData } from "@/lib/erp/config";
@@ -23,6 +23,7 @@ export function ModuleFlashcard({ card, index = 0 }: { card: FlashcardData; inde
   const Icon = getIcon(card.icon);
   const accent = card.accent ?? "blue";
   const TrendIcon = card.trendTone === "down" ? ArrowDownRight : ArrowUpRight;
+  const navigate = useNavigate();
 
   return (
     <motion.div
@@ -31,7 +32,7 @@ export function ModuleFlashcard({ card, index = 0 }: { card: FlashcardData; inde
       transition={{ duration: 0.35, delay: index * 0.04, ease: [0.22, 1, 0.36, 1] }}
       whileHover={{ y: -4, transition: { duration: 0.2, ease: "easeOut" } }}
       whileTap={{ scale: 0.985 }}
-      className="h-full"
+      className="h-full relative"
     >
       <Link
         to="/m/$moduleId"
@@ -79,6 +80,22 @@ export function ModuleFlashcard({ card, index = 0 }: { card: FlashcardData; inde
           <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1 group-hover:text-primary" />
         </div>
       </Link>
+
+      {/* Trace Product button — shown only on the inventory flashcard */}
+      {card.module === "inventory" && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void navigate({ to: "/m/$moduleId", params: { moduleId: "inventory" }, search: { trace: "1" } as any });
+          }}
+          className="absolute bottom-4 right-4 z-10 flex items-center gap-1 rounded-full border border-primary/30 bg-card px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/10 transition-colors shadow-xs"
+          title="Trace Product — track a medicine through bills, batches and suppliers"
+        >
+          <SearchCode className="size-3" /> Trace
+        </button>
+      )}
     </motion.div>
   );
 }

@@ -365,6 +365,8 @@ function APTable({ data, onPayment }: { data: APRow[]; onPayment: () => void }) 
   );
 }
 
+import { listPurchaseBillsFn } from "@/lib/mongodb/serverFns/purchaseBills";
+
 // ─── Main Component ────────────────────────────────────────────────────────────
 export function ReceivablesPayables() {
   const [view, setView] = useState<"ar" | "ap">("ar");
@@ -373,6 +375,7 @@ export function ReceivablesPayables() {
   const [templates, setTemplates] = useState<JETemplate[]>(INITIAL_TEMPLATES);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
   const [newTpl, setNewTpl] = useState({ name: "", accounts: "", narration: "" });
+  const [apRows, setApRows] = useState<APRow[]>(INITIAL_AP);
 
   const fetchPayments = useCallback(async () => {
     try {
@@ -385,6 +388,41 @@ export function ReceivablesPayables() {
 
   useEffect(() => {
     void fetchPayments();
+
+    listPurchaseBillsFn({ data: { status: "ALL" } })
+      .then((bills) => {
+        const active = bills.filter((b) => b.status !== "VOID");
+        if (active.length > 0) {
+          const today = new Date();
+          const mapped: APRow[] = active.map((b) => {
+            const out = Math.max(0, b.grandTotal - b.amountPaid);
+            const billD = new Date(b.billDate);
+            const diffDays = Math.floor((today.getTime() - billD.getTime()) / (1000 * 3600 * 24));
+            let bucket: Bucket = "0–30";
+            if (diffDays > 90) bucket = "90+";
+            else if (diffDays > 60) bucket = "61–90";
+            else if (diffDays > 30) bucket = "31–60";
+
+            let status: APStatus = "Unpaid";
+            if (b.status === "PAID") status = "Unpaid";
+            else if (b.status === "PARTIAL") status = "Partially paid";
+            else if (diffDays > 30) status = "Overdue";
+
+            return {
+              supplier: b.supplierName,
+              bill: b.internalRef || b.billNumber,
+              date: b.billDate,
+              due: b.dueDate || b.billDate,
+              amount: b.grandTotal,
+              outstanding: out,
+              bucket,
+              status,
+            };
+          });
+          setApRows(mapped);
+        }
+      })
+      .catch((err) => console.error("Error loading bills in AP:", err));
   }, [fetchPayments]);
 
   const addTemplate = () => {
@@ -423,7 +461,7 @@ export function ReceivablesPayables() {
         <motion.div key={view} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }}>
           {view === "ar"
             ? <ARTable data={INITIAL_AR} onPayment={() => setPaymentOpen(true)} />
-            : <APTable data={INITIAL_AP} onPayment={() => setPaymentOpen(true)} />
+            : <APTable data={apRows} onPayment={() => setPaymentOpen(true)} />
           }
         </motion.div>
       </AnimatePresence>

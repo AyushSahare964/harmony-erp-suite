@@ -13,7 +13,13 @@
     "deploy:vercel": "cross-env NODE_ENV=production vite build --mode production && vercel deploy --prebuilt --prod",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:local": "cross-env BASE_URL=http://localhost:8080 playwright test",
+    "test:e2e:report": "playwright show-report",
+    "test:codegen": "playwright codegen https://harmony-erp-suite-g28j.vercel.app"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -80,6 +86,7 @@
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@lovable.dev/vite-tanstack-config": "^2.14.0",
+    "@playwright/test": "^1.62.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.16.5",
     "@types/react": "^19.2.0",

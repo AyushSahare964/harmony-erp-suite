@@ -115,6 +115,18 @@ export function PetOwnerCrmHub() {
       ]);
       setPets(petsData || []);
       setOwners(ownersData || []);
+
+      // Auto-open patient record if petId was passed via URL search param
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const deepPetId = params.get("petId");
+        if (deepPetId) {
+          const match = (petsData || []).find((p: any) => p.petId === deepPetId);
+          if (match) {
+            setSelectedPetDetail(match);
+          }
+        }
+      } catch (_) { /* ignore URL parse errors */ }
     } catch (err) {
       console.error(err);
       toast.error("Could not load CRM records");

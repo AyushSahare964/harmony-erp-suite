@@ -1,10 +1,9 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   CalendarClock,
   Calendar,
   Syringe,
   Pill,
-  FlaskConical,
   Clock,
   Check,
   Plus,
@@ -44,9 +43,9 @@ export interface FollowUpState {
     CONSULTATION: FollowUpEntry;
     VACCINE: FollowUpEntry;
     DEWORMING: FollowUpEntry;
-    BLOOD_TEST: FollowUpEntry;
+    BLOOD_TEST?: FollowUpEntry;
   };
-  bloodTests: FollowUpBloodTestItem[];
+  bloodTests?: FollowUpBloodTestItem[];
 }
 
 export interface FollowUpSectionProps {
@@ -61,17 +60,6 @@ export interface FollowUpSectionProps {
   isLocked?: boolean | undefined;
 }
 
-const COMMON_LAB_TESTS = [
-  "Complete Blood Count (CBC)",
-  "Kidney Function Profile (BUN / Creatinine)",
-  "Liver Function Biochemistry (ALT / ALP)",
-  "Electrolytes Panel (Na / K / Cl)",
-  "Blood Glucose STAT",
-  "Pre-Operative Coagulation Panel",
-  "Urinalysis & Sediment Microscopic",
-  "Skin Scraping Cytology & Fungal DTM",
-];
-
 export function FollowUpSection({
   id = "sec-followup",
   visitDate,
@@ -83,9 +71,6 @@ export function FollowUpSection({
   isDirty = false,
   isLocked = false,
 }: FollowUpSectionProps) {
-  const [testSearch, setTestSearch] = useState("");
-  const [testDropdownOpen, setTestDropdownOpen] = useState(false);
-
   const baseDate = visitDate || new Date().toISOString().slice(0, 10);
 
   const handleToggleRequired = (req: boolean) => {
@@ -128,58 +113,12 @@ export function FollowUpSection({
     });
   };
 
-  const handleAddBloodTest = (testName: string) => {
-    if (isLocked) return;
-    const alreadyExists = followUp.bloodTests.some((t) => t.testName === testName);
-    if (alreadyExists) return;
-
-    const newTest: FollowUpBloodTestItem = {
-      id: `rx-lab-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      testName,
-      status: "Ordered",
-    };
-
-    onChange({
-      ...followUp,
-      entries: {
-        ...followUp.entries,
-        BLOOD_TEST: {
-          ...followUp.entries.BLOOD_TEST,
-          enabled: true,
-          dueDate: followUp.entries.BLOOD_TEST.dueDate || baseDate,
-        },
-      },
-      bloodTests: [...followUp.bloodTests, newTest],
-    });
-    setTestSearch("");
-    setTestDropdownOpen(false);
-  };
-
-  const handleRemoveBloodTest = (testId: string) => {
-    if (isLocked) return;
-    const test = followUp.bloodTests.find((t) => t.id === testId);
-    if (test?.status && test.status !== "Ordered") {
-      alert(`Cannot remove test "${test.testName}": sample is already collected in the Laboratory.`);
-      return;
-    }
-    onChange({
-      ...followUp,
-      bloodTests: followUp.bloodTests.filter((t) => t.id !== testId),
-    });
-  };
-
-  const filteredTests = COMMON_LAB_TESTS.filter(
-    (t) =>
-      !followUp.bloodTests.some((existing) => existing.testName === t) &&
-      t.toLowerCase().includes(testSearch.toLowerCase())
-  );
-
   return (
     <SectionCard
       id={id}
       icon={<CalendarClock className="size-4" />}
-      title="Clinical Follow-up & Reminders"
-      subtitle="Schedule follow-up treatment, vaccine boosters, deworming, and laboratory tests"
+      title="6. Clinical Follow-up & Reminders"
+      subtitle="Schedule follow-up treatment, consultation review, vaccine boosters, and deworming"
       status={status}
       lastSavedAt={lastSavedAt}
       isDirty={isDirty}
@@ -193,7 +132,7 @@ export function FollowUpSection({
           <div className="space-y-0.5">
             <Label className="text-xs font-bold text-foreground">Follow-up Required?</Label>
             <p className="text-[11px] text-muted-foreground">
-              Enable to schedule post-treatment review, vaccinations, deworming, or lab tests
+              Enable to schedule post-treatment review, vaccinations, or deworming
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -486,162 +425,6 @@ export function FollowUpSection({
                       className="h-7 text-xs font-mono w-34 bg-background"
                     />
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* 5. Blood Test Follow-up & Lab Order Sync */}
-            <div className="p-3 rounded-lg border border-border bg-card space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    disabled={isLocked}
-                    checked={followUp.entries.BLOOD_TEST.enabled}
-                    onCheckedChange={(checked) =>
-                      handleUpdateEntry("BLOOD_TEST", { enabled: checked })
-                    }
-                  />
-                  <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    <FlaskConical className="size-3.5 text-primary" />
-                    <span>5. Follow-up Blood Tests (Synced to Laboratory)</span>
-                  </Label>
-                </div>
-                {followUp.entries.BLOOD_TEST.enabled && (
-                  <span className="font-mono text-xs font-bold text-primary">
-                    Scheduled: {formatDisplayDate(followUp.entries.BLOOD_TEST.dueDate) || "Not selected"}
-                  </span>
-                )}
-              </div>
-
-              {followUp.entries.BLOOD_TEST.enabled && (
-                <div className="space-y-3 pl-7 pt-1">
-                  {/* Quick date row */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">
-                      Schedule date:
-                    </span>
-                    {["TODAY", "7D", "1M"].map((code) => (
-                      <button
-                        key={code}
-                        type="button"
-                        disabled={isLocked}
-                        onClick={() => handleSelectQuickDate("BLOOD_TEST", code)}
-                        className={cn(
-                          "px-2 py-0.5 rounded text-xs font-bold border transition-all",
-                          followUp.entries.BLOOD_TEST.quickOption === code
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-muted text-foreground border-border hover:bg-muted/80"
-                        )}
-                      >
-                        {code === "TODAY" ? "Today" : code === "7D" ? "7 days" : "1 month"}
-                      </button>
-                    ))}
-                    <div className="flex items-center gap-1 ml-auto">
-                      <Input
-                        type="date"
-                        disabled={isLocked}
-                        value={followUp.entries.BLOOD_TEST.dueDate || ""}
-                        onChange={(e) =>
-                          handleUpdateEntry("BLOOD_TEST", {
-                            dueDate: e.target.value,
-                            quickOption: "CUSTOM",
-                          })
-                        }
-                        className="h-7 text-xs font-mono w-34 bg-background"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Active Blood Tests Chips */}
-                  {followUp.bloodTests.length > 0 && (
-                    <div className="space-y-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        Selected Laboratory Orders ({followUp.bloodTests.length}):
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {followUp.bloodTests.map((t) => (
-                          <span
-                            key={t.id}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-primary/10 text-primary border border-primary/20"
-                          >
-                            <span>{t.testName}</span>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "text-[9px] py-0 px-1 font-mono font-bold",
-                                t.status === "Sample Collected"
-                                  ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
-                                  : t.status === "Completed"
-                                  ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
-                                  : "bg-blue-500/10 text-blue-600 border-blue-500/30"
-                              )}
-                            >
-                              Lab: {t.status || "Ordered"}
-                            </Badge>
-                            {!isLocked && t.status === "Ordered" && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveBloodTest(t.id)}
-                                className="hover:text-destructive hover:bg-destructive/10 rounded p-0.5 transition-colors"
-                                title="Remove test"
-                              >
-                                <X className="size-3" />
-                              </button>
-                            )}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Add Test Search Dropdown */}
-                  {!isLocked && (
-                    <div className="relative">
-                      <Input
-                        type="text"
-                        value={testSearch}
-                        onChange={(e) => {
-                          setTestSearch(e.target.value);
-                          setTestDropdownOpen(true);
-                        }}
-                        onFocus={() => setTestDropdownOpen(true)}
-                        placeholder="Search or pick laboratory blood test to order..."
-                        className="h-8 text-xs bg-background"
-                      />
-
-                      {testDropdownOpen && (
-                        <div className="absolute z-30 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
-                          {filteredTests.length === 0 ? (
-                            <div className="p-2 text-xs text-muted-foreground text-center">
-                              No matching tests found.
-                            </div>
-                          ) : (
-                            filteredTests.map((testName) => (
-                              <button
-                                key={testName}
-                                type="button"
-                                onClick={() => handleAddBloodTest(testName)}
-                                className="w-full text-left px-2.5 py-1.5 rounded-md text-xs hover:bg-muted text-foreground flex items-center justify-between transition-colors"
-                              >
-                                <span>{testName}</span>
-                                <Plus className="size-3 text-primary" />
-                              </button>
-                            ))
-                          )}
-                          <div className="p-1 border-t border-border/40 text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setTestDropdownOpen(false)}
-                              className="h-6 text-[11px] px-2"
-                            >
-                              Close
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
             </div>

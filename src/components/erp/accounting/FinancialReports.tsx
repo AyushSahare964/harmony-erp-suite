@@ -26,6 +26,10 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { getAccountsFn, type GLAccountRow } from "@/lib/mongodb/serverFns/finance";
+import { listExpensesFn, type ExpenseRow } from "@/lib/mongodb/serverFns/expenses";
+import { listPurchaseBillsFn, type PurchaseBillRow } from "@/lib/mongodb/serverFns/purchaseBills";
+import { listSupplierPaymentsFn, type SupplierPaymentRow } from "@/lib/mongodb/serverFns/supplierPayments";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
 
 function money(v: number) {
   const abs = Math.abs(v);
@@ -39,7 +43,14 @@ function fullMoney(v: number) {
   return `${sign}₹${Math.abs(v).toLocaleString("en-IN")}`;
 }
 
-type ReportType = "pnl" | "balance_sheet" | "cash_flow" | "trial_balance";
+type ReportType =
+  | "pnl"
+  | "balance_sheet"
+  | "cash_flow"
+  | "trial_balance"
+  | "expense_register"
+  | "purchase_register"
+  | "payment_register";
 type PeriodType = "mtd" | "q1" | "q2" | "ytd";
 
 export function FinancialReports() {
@@ -47,6 +58,9 @@ export function FinancialReports() {
   const [period, setPeriod] = useState<PeriodType>("ytd");
   const [costCenter, setCostCenter] = useState("all");
   const [accounts, setAccounts] = useState<GLAccountRow[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
+  const [purchaseBills, setPurchaseBills] = useState<PurchaseBillRow[]>([]);
+  const [supplierPayments, setSupplierPayments] = useState<SupplierPaymentRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchAccounts = async () => {
@@ -66,6 +80,22 @@ export function FinancialReports() {
   useEffect(() => {
     void fetchAccounts();
   }, []);
+
+  useEffect(() => {
+    if (reportType === "expense_register") {
+      listExpensesFn({ data: { status: "ALL" } })
+        .then(setExpenses)
+        .catch((err) => console.error("Failed to load expenses report:", err));
+    } else if (reportType === "purchase_register") {
+      listPurchaseBillsFn({ data: { status: "ALL" } })
+        .then(setPurchaseBills)
+        .catch((err) => console.error("Failed to load purchase bills report:", err));
+    } else if (reportType === "payment_register") {
+      listSupplierPaymentsFn({ data: { status: "ALL" } })
+        .then(setSupplierPayments)
+        .catch((err) => console.error("Failed to load supplier payments report:", err));
+    }
+  }, [reportType]);
 
   // Compute breakdown dynamically from accounts
   const financialData = useMemo(() => {
@@ -184,6 +214,9 @@ export function FinancialReports() {
               { id: "balance_sheet", label: "Balance Sheet" },
               { id: "cash_flow", label: "Cash Flow Statement" },
               { id: "trial_balance", label: "Trial Balance" },
+              { id: "expense_register", label: "Expense Register" },
+              { id: "purchase_register", label: "Purchase Register" },
+              { id: "payment_register", label: "Payment Out Register" },
             ].map((t) => (
               <button
                 key={t.id}
@@ -584,6 +617,270 @@ export function FinancialReports() {
                       <td className="px-5 py-3 text-right text-foreground">₹41,90,000</td>
                     </tr>
                   </tfoot>
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── 5. EXPENSE REGISTER ─────────────────────────────────────────── */}
+        {reportType === "expense_register" && (
+          <motion.div
+            key="expense_register"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="space-y-6"
+          >
+            <div className="erp-card overflow-hidden">
+              <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-muted/20">
+                <div>
+                  <h3 className="font-bold text-base text-foreground">Expense Register</h3>
+                  <p className="text-xs text-muted-foreground">Detailed log of clinic expenditures, nature, and payment modes</p>
+                </div>
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {expenses.length} Records
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30 text-left text-xs font-semibold text-muted-foreground uppercase">
+                      <th className="px-5 py-3">Date</th>
+                      <th className="px-5 py-3">Voucher #</th>
+                      <th className="px-5 py-3">Category</th>
+                      <th className="px-5 py-3">Nature</th>
+                      <th className="px-5 py-3">Beneficiary / Ref</th>
+                      <th className="px-5 py-3">Payment Modes</th>
+                      <th className="px-5 py-3 text-right">Amount (INR)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {expenses.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-5 py-8 text-center text-xs text-muted-foreground">
+                          No expense entries recorded in database.
+                        </td>
+                      </tr>
+                    ) : (
+                      expenses.map((e) => (
+                        <tr key={e._id} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-5 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                            {formatDisplayDate(e.expenseDate)}
+                          </td>
+                          <td className="px-5 py-2.5 font-mono text-xs font-semibold text-primary">
+                            {e.voucherNo}
+                          </td>
+                          <td className="px-5 py-2.5 font-medium">{e.categoryName}</td>
+                          <td className="px-5 py-2.5 text-xs">
+                            <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-bold uppercase">
+                              {e.categoryNature}
+                            </span>
+                          </td>
+                          <td className="px-5 py-2.5 text-xs text-muted-foreground">
+                            {e.paidTo || "—"} {e.billRefNo ? `(${e.billRefNo})` : ""}
+                          </td>
+                          <td className="px-5 py-2.5 text-xs">
+                            {e.paymentLines.map((l) => l.mode).join(", ")}
+                          </td>
+                          <td className="px-5 py-2.5 text-right font-bold tabular-nums">
+                            {fullMoney(e.totalAmount)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {expenses.length > 0 && (
+                    <tfoot>
+                      <tr className="border-t-2 border-border bg-muted/40 font-bold text-sm">
+                        <td colSpan={6} className="px-5 py-3 text-foreground uppercase">Total Registered Expenses</td>
+                        <td className="px-5 py-3 text-right text-rose-600">
+                          {fullMoney(expenses.filter((e) => e.status !== "VOID").reduce((s, e) => s + e.totalAmount, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── 6. PURCHASE REGISTER ────────────────────────────────────────── */}
+        {reportType === "purchase_register" && (
+          <motion.div
+            key="purchase_register"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="space-y-6"
+          >
+            <div className="erp-card overflow-hidden">
+              <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-muted/20">
+                <div>
+                  <h3 className="font-bold text-base text-foreground">Purchase Register (GSTR-2 Parity)</h3>
+                  <p className="text-xs text-muted-foreground">Supplier medicine invoices with tax breakdowns (CGST / SGST / IGST)</p>
+                </div>
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {purchaseBills.length} Inward Bills
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30 text-left text-xs font-semibold text-muted-foreground uppercase">
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Internal Ref</th>
+                      <th className="px-4 py-3">Supplier Invoice #</th>
+                      <th className="px-4 py-3">Supplier Name</th>
+                      <th className="px-4 py-3 text-right">Taxable (₹)</th>
+                      <th className="px-4 py-3 text-right">CGST (₹)</th>
+                      <th className="px-4 py-3 text-right">SGST (₹)</th>
+                      <th className="px-4 py-3 text-right">IGST (₹)</th>
+                      <th className="px-4 py-3 text-right">Grand Total (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {purchaseBills.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                          No supplier purchase bills recorded.
+                        </td>
+                      </tr>
+                    ) : (
+                      purchaseBills.map((b) => (
+                        <tr key={b._id} className="hover:bg-muted/20 transition-colors text-xs">
+                          <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">
+                            {formatDisplayDate(b.billDate)}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono font-medium text-primary">
+                            {b.internalRef}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-muted-foreground">
+                            {b.billNumber}
+                          </td>
+                          <td className="px-4 py-2.5 font-medium">{b.supplierName}</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums">{fullMoney(b.taxableTotal)}</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                            {b.cgstTotal > 0 ? fullMoney(b.cgstTotal) : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                            {b.sgstTotal > 0 ? fullMoney(b.sgstTotal) : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                            {b.igstTotal > 0 ? fullMoney(b.igstTotal) : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-bold text-foreground tabular-nums">
+                            {fullMoney(b.grandTotal)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {purchaseBills.length > 0 && (
+                    <tfoot>
+                      <tr className="border-t-2 border-border bg-muted/40 font-bold text-sm">
+                        <td colSpan={4} className="px-4 py-3 text-foreground uppercase">Total Inward Purchases</td>
+                        <td className="px-4 py-3 text-right">
+                          {fullMoney(purchaseBills.reduce((s, b) => s + b.taxableTotal, 0))}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {fullMoney(purchaseBills.reduce((s, b) => s + b.cgstTotal, 0))}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {fullMoney(purchaseBills.reduce((s, b) => s + b.sgstTotal, 0))}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {fullMoney(purchaseBills.reduce((s, b) => s + b.igstTotal, 0))}
+                        </td>
+                        <td className="px-4 py-3 text-right text-blue-600">
+                          {fullMoney(purchaseBills.reduce((s, b) => s + b.grandTotal, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── 7. PAYMENT OUT REGISTER ──────────────────────────────────────── */}
+        {reportType === "payment_register" && (
+          <motion.div
+            key="payment_register"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="space-y-6"
+          >
+            <div className="erp-card overflow-hidden">
+              <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-muted/20">
+                <div>
+                  <h3 className="font-bold text-base text-foreground">Payment Out Register</h3>
+                  <p className="text-xs text-muted-foreground">Disbursements to suppliers and vendors with bill settlement audit</p>
+                </div>
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {supplierPayments.length} Payment Vouchers
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30 text-left text-xs font-semibold text-muted-foreground uppercase">
+                      <th className="px-5 py-3">Payment Date</th>
+                      <th className="px-5 py-3">Voucher #</th>
+                      <th className="px-5 py-3">Supplier Name</th>
+                      <th className="px-5 py-3">Mode &amp; Account</th>
+                      <th className="px-5 py-3">Bills Settled</th>
+                      <th className="px-5 py-3 text-right">Amount (INR)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {supplierPayments.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-5 py-8 text-center text-xs text-muted-foreground">
+                          No supplier payment disbursements recorded.
+                        </td>
+                      </tr>
+                    ) : (
+                      supplierPayments.map((p) => (
+                        <tr key={p._id} className="hover:bg-muted/20 transition-colors text-xs">
+                          <td className="px-5 py-2.5 text-muted-foreground whitespace-nowrap">
+                            {formatDisplayDate(p.paymentDate)}
+                          </td>
+                          <td className="px-5 py-2.5 font-mono font-medium text-primary">
+                            {p.voucherNo}
+                          </td>
+                          <td className="px-5 py-2.5 font-medium">{p.supplierName}</td>
+                          <td className="px-5 py-2.5">
+                            {p.paymentLines.map((l) => `${l.mode}: ₹${l.amount.toLocaleString("en-IN")}`).join(", ")}
+                          </td>
+                          <td className="px-5 py-2.5 text-muted-foreground">
+                            {p.allocations.length === 0
+                              ? "On Account / Advance"
+                              : p.allocations.map((a) => a.billRef).join(", ")}
+                          </td>
+                          <td className="px-5 py-2.5 text-right font-bold text-foreground tabular-nums">
+                            {fullMoney(p.totalAmount)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {supplierPayments.length > 0 && (
+                    <tfoot>
+                      <tr className="border-t-2 border-border bg-muted/40 font-bold text-sm">
+                        <td colSpan={5} className="px-5 py-3 text-foreground uppercase">Total Disbursements</td>
+                        <td className="px-5 py-3 text-right text-purple-600">
+                          {fullMoney(supplierPayments.filter((p) => p.status !== "VOID").reduce((s, p) => s + p.totalAmount, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </div>

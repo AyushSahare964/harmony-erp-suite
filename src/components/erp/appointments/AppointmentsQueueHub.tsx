@@ -43,7 +43,7 @@ import { toast } from "sonner";
 import { BookAppointmentModal } from "./BookAppointmentModal";
 import { VisitWorkspaceModal } from "@/components/erp/clinical/VisitWorkspaceModal";
 import { listAppointmentsFn, createAppointmentFn, updateAppointmentStatusFn } from "@/lib/mongodb/serverFns/appointments";
-import { getUpcomingFollowUpsFn } from "@/lib/mongodb/serverFns/clinical";
+import { getUpcomingFollowUpsFn, admitPatientFn } from "@/lib/mongodb/serverFns/clinical";
 import { cn } from "@/lib/utils";
 
 const MONTHLY_APPOINTMENTS = [
@@ -125,6 +125,7 @@ export function AppointmentsQueueHub() {
   // Modals state
   const [showBookModal, setShowBookModal] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<any | null>(null);
+  const [selectedFollowUp, setSelectedFollowUp] = useState<any | null>(null);
   const [showVisitWorkspace, setShowVisitWorkspace] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<any | null>(null);
 
@@ -207,48 +208,124 @@ export function AppointmentsQueueHub() {
     });
   }, [appointments, query, statusFilter, doctorFilter, categoryFilter, dateFilter, specificDate]);
 
-  const inQueueCount = appointments.filter((a) => a.status === "Waiting" || a.status === "In consultation").length;
-  const noShowsCount = appointments.filter((a) => a.status === "No-show").length;
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  const handleStartConsultation = (app: any) => {
-    const visitDraft = {
-      visitId: `V-${Math.floor(1000 + Math.random() * 9000)}`,
-      invoiceNo: `INV-${Math.floor(900 + Math.random() * 90)}`,
-      prescriptionNo: `RX-${Math.floor(900 + Math.random() * 90)}`,
-      date: new Date().toISOString().slice(0, 10),
-      branch: "Main Clinic",
-      billType: "GST",
-      petId: app.petId || "PET-0001",
-      petName: app.pet,
-      species: app.species || "Canine",
-      breed: app.breed || "Mix",
-      ownerId: app.ownerId || "OWN-0001",
-      ownerName: app.owner,
-      ownerPhone: app.ownerPhone || "N/A",
-      doctorName: app.doctor,
-      status: "Admitted",
-      vitals: {
-        weightKg: 25.0,
-        tempC: 38.5,
-        complaint: `${app.type} — Token ${app.token}`,
-      },
-      items: [],
-      subtotal: 0,
-      totalAmount: 0,
-      amountPaid: 0,
-    };
+  const inQueueCount = useMemo(() => {
+    return appointments.filter((a) => a.status === "Waiting" || a.status === "In consultation").length;
+  }, [appointments]);
 
-    // Update appointment status to in consultation
-    setAppointments((prev) =>
-      prev.map((a) => (a.token === app.token ? { ...a, status: "In consultation" } : a))
-    );
+  const todaysAppointmentsCount = useMemo(() => {
+    const todayList = appointments.filter((a) => {
+      const d = (a.appointment_date || a.date || "").split("T")[0];
+      return d === todayStr;
+    });
+    return todayList.length > 0 ? todayList.length : appointments.length;
+  }, [appointments, todayStr]);
 
-    setSelectedVisit(visitDraft);
-    setShowVisitWorkspace(true);
+  const remainingTodayCount = useMemo(() => {
+    const remaining = appointments.filter((a) => {
+      const d = (a.appointment_date || a.date || "").split("T")[0];
+      return (d === todayStr || !d) && a.status !== "Completed" && a.status !== "Cancelled";
+    }).length;
+    return remaining > 0 ? remaining : inQueueCount;
+  }, [appointments, todayStr, inQueueCount]);
+
+  const noShowsCount = useMemo(() => {
+    return appointments.filter((a) => a.status === "No-show").length;
+  }, [appointments]);
+
+  const avgWaitMin = useMemo(() => {
+    return Math.max(8, inQueueCount * 4);
+  }, [inQueueCount]);
+
+  const handleStartConsultation = async (app: any) => {
+    try {
+      toast.loading(`Admitting ${app.pet || "patient"} to OPD...`, { id: "admit-opd" });
+      const created = await admitPatientFn({
+        data: {
+          petName: app.pet || "Patient",
+          petId: app.petId,
+          species: app.species || "Canine",
+          breed: app.breed || "Mix",
+          ownerName: app.owner || "Client",
+          ownerPhone: app.ownerPhone || "N/A",
+          doctorName: app.doctor || "Dr. Rohit Sharma",
+          receptionistName: "Front Desk",
+          vitals: {
+            weightKg: 25.0,
+            tempC: 38.5,
+            complaint: `${app.type || "Consultation"} — Token ${app.token}`,
+          },
+        },
+      });
+
+      setAppointments((prev) =>
+        prev.map((a) => (a.token === app.token ? { ...a, status: "In consultation" } : a))
+      );
+      void updateAppointmentStatusFn({ data: { token: app.token, status: "In consultation" } });
+
+      toast.success(`Patient admitted: ${created.visitId}`, { id: "admit-opd" });
+      setSelectedVisit(created);
+      setShowVisitWorkspace(true);
+    } catch (err: any) {
+      console.warn("Could not admit patient on server, using session fallback:", err);
+      toast.dismiss("admit-opd");
+      const visitDraft = {
+        visitId: `V-${Math.floor(1000 + Math.random() * 9000)}`,
+        invoiceNo: `INV-${Math.floor(900 + Math.random() * 90)}`,
+        prescriptionNo: `RX-${Math.floor(900 + Math.random() * 90)}`,
+        date: new Date().toISOString().slice(0, 10),
+        branch: "Main Clinic",
+        billType: "GST",
+        petId: app.petId || "PET-0001",
+        petName: app.pet,
+        species: app.species || "Canine",
+        breed: app.breed || "Mix",
+        ownerId: app.ownerId || "OWN-0001",
+        ownerName: app.owner,
+        ownerPhone: app.ownerPhone || "N/A",
+        doctorName: app.doctor,
+        status: "Admitted",
+        vitals: {
+          weightKg: 25.0,
+          tempC: 38.5,
+          complaint: `${app.type} — Token ${app.token}`,
+        },
+        items: [],
+        subtotal: 0,
+        totalAmount: 0,
+        amountPaid: 0,
+      };
+
+      setAppointments((prev) =>
+        prev.map((a) => (a.token === app.token ? { ...a, status: "In consultation" } : a))
+      );
+
+      setSelectedVisit(visitDraft);
+      setShowVisitWorkspace(true);
+    }
   };
 
   const handleCallToken = (app: any) => {
-    toast.info(`📢 Calling Token ${app.token} for ${app.pet} (${app.owner}) to Room 1`);
+    toast.info(`📢 Calling Token ${app.token} for ${app.pet} (${app.owner}) to Doctor's Room 1`, {
+      duration: 5000,
+    });
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        const utterance = new SpeechSynthesisUtterance(
+          `Token ${app.token}, ${app.pet}, please proceed to room one`
+        );
+        utterance.rate = 0.95;
+        window.speechSynthesis.speak(utterance);
+      } catch {}
+    }
+  };
+
+  const handleBookFollowUp = (fu: any) => {
+    setSelectedFollowUp(fu);
+    setEditingAppointment(null);
+    setShowBookModal(true);
   };
 
   const handleUpdateStatus = (token: any, newStatus: string) => {
@@ -263,10 +340,14 @@ export function AppointmentsQueueHub() {
 
   const handleBookedNew = (newApp: any) => {
     setAppointments((prev) => [newApp, ...prev]);
+    if (selectedFollowUp) {
+      void loadFollowUps();
+    }
   };
 
   const handleEditAppointment = (app: any) => {
     setEditingAppointment(app);
+    setSelectedFollowUp(null);
     setShowBookModal(true);
   };
 
@@ -329,26 +410,30 @@ export function AppointmentsQueueHub() {
             </Button>
             <Button
               size="sm"
-              onClick={() => setShowBookModal(true)}
-              className="gap-1.5 text-xs font-bold h-9 bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs"
+              onClick={() => {
+                setEditingAppointment(null);
+                setSelectedFollowUp(null);
+                setShowBookModal(true);
+              }}
+              className="gap-1.5 text-xs font-bold h-9 bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer"
             >
-              <Plus className="size-4" /> + Book Appointment
+              <Plus className="size-4" /> Book Appointment
             </Button>
           </div>
         </div>
 
-        {/* Top 4 KPI Cards (Exact Screenshot Match) */}
+        {/* Top 4 KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
             kpi={{ label: "IN QUEUE NOW", value: String(inQueueCount || 7), trend: "+2 vs yesterday", trendTone: "up" }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "TODAY'S APPOINTMENTS", value: "42", trend: "16 remaining", trendTone: "flat" }}
+            kpi={{ label: "TODAY'S APPOINTMENTS", value: String(todaysAppointmentsCount), trend: `${remainingTodayCount} remaining`, trendTone: "flat" }}
             index={1}
           />
           <KpiCard
-            kpi={{ label: "AVG. WAIT", value: "12 min", trend: "-3 min", trendTone: "up" }}
+            kpi={{ label: "AVG. WAIT", value: `${avgWaitMin} min`, trend: "-3 min", trendTone: "up" }}
             index={2}
           />
           <KpiCard
@@ -428,8 +513,8 @@ export function AppointmentsQueueHub() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 text-[10px] font-bold text-primary border-primary/30 hover:bg-primary hover:text-primary-foreground gap-1"
-                            onClick={() => setShowBookModal(true)}
+                            className="h-7 text-[10px] font-bold text-primary border-primary/30 hover:bg-primary hover:text-primary-foreground gap-1 cursor-pointer"
+                            onClick={() => handleBookFollowUp(fu)}
                           >
                             <Calendar className="size-3" /> Book
                           </Button>
@@ -717,8 +802,10 @@ export function AppointmentsQueueHub() {
           onClose={() => {
             setShowBookModal(false);
             setEditingAppointment(null);
+            setSelectedFollowUp(null);
           }}
           appointmentToEdit={editingAppointment}
+          initialFollowUp={selectedFollowUp}
           onBooked={handleBookedNew}
           onUpdated={handleUpdatedAppointment}
         />

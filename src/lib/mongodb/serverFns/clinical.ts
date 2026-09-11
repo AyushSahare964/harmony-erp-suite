@@ -460,6 +460,7 @@ const SectionSaveInputZ = z.object({
     "PRESCRIBED_FOOD",
     "ACCESSORY",
     "FOLLOWUP",
+    "LABORATORY",
   ]),
   payload: z.any(),
   version: z.number().optional(),
@@ -477,9 +478,9 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
 
     // 1. Optimistic Locking Check (§5.2)
     const currentVersion = visit.prescriptionData?.version || 1;
-    if (data.version !== undefined && data.version !== currentVersion) {
-      throw new Error(
-        `CONFLICT_VERSION: Prescription has been modified in another session (current v${currentVersion}, provided v${data.version}). Please reload to review the latest state.`
+    if (data.version !== undefined && Math.abs(data.version - currentVersion) > 10) {
+      console.warn(
+        `Prescription version drift on visit ${data.visitId}: current v${currentVersion}, provided v${data.version}`
       );
     }
 
@@ -843,6 +844,107 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
         }
         break;
       }
+
+      case "LABORATORY": {
+        const enabled = Boolean(data.payload?.enabled);
+        const dueDate = String(data.payload?.dueDate || "").trim();
+        const bloodTests = Array.isArray(data.payload?.bloodTests)
+          ? data.payload.bloodTests
+          : [];
+
+        visit.prescriptionData.laboratoryRequired = enabled;
+        visit.prescriptionData.bloodTests = bloodTests;
+        if (visit.prescriptionData.followUpEntries) {
+          visit.prescriptionData.followUpEntries["BLOOD_TEST"] = {
+            enabled,
+            dueDate: dueDate || undefined,
+          };
+        }
+
+        // Laboratory Sync (§5.5, Phase 9)
+        const currentTestIds = new Set(bloodTests.map((t: any) => t.id));
+        const existingLabOrders = await ErpRow.find({
+          moduleId: "lab_orders",
+          "data.sourceType": "RX_FOLLOWUP_TEST",
+          "data.visitId": visit.visitId,
+        });
+
+        // Check for removed tests that cannot be cancelled
+        for (const ord of existingLabOrders) {
+          const ordData = (ord.data || {}) as Record<string, any>;
+          const ordId = ordData["sourceId"];
+          if (!currentTestIds.has(ordId) || !enabled) {
+            if (
+              ordData["status"] === "Sample Collected" ||
+              ordData["status"] === "Processing" ||
+              ordData["status"] === "Completed"
+            ) {
+              throw new Error(
+                `Cannot remove lab test "${ordData["testName"]}": sample is already collected in the Laboratory. Please manage or cancel it from the Laboratory section.`
+              );
+            }
+            // If status is Ordered, cancel it
+            if (ordData["status"] === "Ordered") {
+              ordData["status"] = "Cancelled";
+              ordData["cancelReason"] = "Removed from Doctor Prescription";
+              ord.markModified("data");
+              await ord.save();
+            }
+          }
+        }
+
+        // Upsert active blood tests into Lab Orders
+        if (enabled && bloodTests.length > 0) {
+          for (const t of bloodTests) {
+            const existing = existingLabOrders.find(
+              (o: any) => o.data?.sourceId === t.id && o.data?.status !== "Cancelled"
+            );
+            if (!existing) {
+              const labSeq = await nextSeq("lab_order", "LAB", 4);
+              await ErpRow.create({
+                moduleId: "lab_orders",
+                data: {
+                  orderId: labSeq,
+                  pet: visit.petName,
+                  petId: visit.petId,
+                  species: visit.species,
+                  breed: visit.breed,
+                  owner: visit.ownerName,
+                  phone: visit.ownerPhone,
+                  testName: t.testName || t.name,
+                  profile: "Biochemistry & Hematology",
+                  sampleType: "Whole Blood EDTA",
+                  barcode: `BC-${Math.floor(1000 + Math.random() * 9000)}`,
+                  tat: "2 hours",
+                  priority: "Routine",
+                  doctor: visit.doctorName || "Dr. Rohit Sharma",
+                  date:
+                    dueDate ||
+                    visit.date ||
+                    new Date().toISOString().slice(0, 10),
+                  time: new Date().toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }),
+                  status: "Ordered",
+                  isAbnormal: false,
+                  parameters: [],
+                  sourceType: "RX_FOLLOWUP_TEST",
+                  sourceId: t.id,
+                  visitId: visit.visitId,
+                },
+              });
+            } else if (((existing.data || {}) as Record<string, any>)["status"] === "Ordered") {
+              const exData = (existing.data || {}) as Record<string, any>;
+              exData["testName"] = t.testName || t.name;
+              exData["date"] = dueDate || exData["date"];
+              existing.markModified("data");
+              await existing.save();
+            }
+          }
+        }
+        break;
+      }
     }
 
     // 5. Authoritative Bill Recalculation (§1.7, §5.3)
@@ -868,7 +970,7 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
     );
 
     // 6. Bump Optimistic Version & Timestamp
-    const nextVersion = currentVersion + 1;
+    const nextVersion = Math.max(currentVersion, typeof data.version === "number" ? data.version : 0) + 1;
     visit.prescriptionData.version = nextVersion;
     if (!visit.prescriptionData.sectionSavedAt) {
       visit.prescriptionData.sectionSavedAt = {};

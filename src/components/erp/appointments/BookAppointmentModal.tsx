@@ -30,9 +30,10 @@ interface Props {
   onBooked?: (appointment: any) => void;
   appointmentToEdit?: any | null;
   onUpdated?: (appointment: any) => void;
+  initialFollowUp?: any | null;
 }
 
-export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdit, onUpdated }: Props) {
+export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdit, onUpdated, initialFollowUp }: Props) {
   const [pets, setPets] = useState<any[]>([]);
   const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
   const [searchPetQuery, setSearchPetQuery] = useState("");
@@ -74,6 +75,26 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
           },
           ownerId: appointmentToEdit.ownerId,
         });
+      } else if (initialFollowUp) {
+        setToken(`A-${Math.floor(108 + Math.random() * 90)}`);
+        setDate(initialFollowUp.nextVisitDate || new Date().toISOString().slice(0, 10));
+        setCategory("call");
+        setTimeSlot("10:30 AM");
+        setDoctor(initialFollowUp.doctorName || "Dr. Rohit Sharma");
+        setVisitType("Follow-up");
+        setPriority("Normal");
+        setComplaint(`Follow-up review for: ${initialFollowUp.diagnosis || "Scheduled clinical return"}`);
+        setSelectedPet({
+          name: initialFollowUp.petName,
+          petId: initialFollowUp.petId,
+          species: initialFollowUp.species || "Canine",
+          breed: initialFollowUp.breed || "Mix",
+          owner: {
+            name: initialFollowUp.ownerName,
+            phone: initialFollowUp.ownerPhone || "N/A",
+          },
+          ownerId: initialFollowUp.ownerId,
+        });
       } else {
         setToken(`A-${Math.floor(108 + Math.random() * 90)}`);
         setDate(new Date().toISOString().slice(0, 10));
@@ -82,7 +103,7 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
         setComplaint("");
       }
     }
-  }, [open, appointmentToEdit]);
+  }, [open, appointmentToEdit, initialFollowUp]);
 
   const loadDoctors = async () => {
     try {

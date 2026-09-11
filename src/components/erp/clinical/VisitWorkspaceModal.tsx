@@ -33,6 +33,7 @@ import { useErp } from "@/lib/erp/store";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
 import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn, savePrescriptionFn } from "@/lib/mongodb/serverFns/clinical";
 import { PrescriptionWorkflow } from "./prescription/PrescriptionWorkflow";
+import { SectionJumpBar, DEFAULT_RX_JUMP_SECTIONS, type SectionJumpItem } from "./prescription/SectionJumpBar";
 import type { IPrescriptionData } from "@/lib/mongodb/models/ClinicalVisit";
 import { PrescriptionPrintView } from "./PrescriptionPrintView";
 import { InvoicePrintView } from "./InvoicePrintView";
@@ -97,6 +98,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const [petDetails, setPetDetails] = useState<any>(null);
 
   const [tab, setTab] = useState<"consultation" | "billing" | "completed">("consultation");
+  const [rxJumpSections, setRxJumpSections] = useState<SectionJumpItem[]>(DEFAULT_RX_JUMP_SECTIONS);
   
   // Vitals & Clinical Form
   const [weightKg, setWeightKg] = useState(visit?.vitals?.weightKg ? String(visit.vitals.weightKg) : "24.5");
@@ -1111,6 +1113,14 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         </div>
       </div>
 
+        {/* ── Section Jump Bar: Directly below the header with zero space between them ── */}
+        {tab === "consultation" && (
+          <SectionJumpBar
+            sections={rxJumpSections.length > 0 ? rxJumpSections : DEFAULT_RX_JUMP_SECTIONS}
+            className="border-b border-border bg-card px-6 py-2"
+          />
+        )}
+
         {/* ── Main Scrollable Body ──────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {tab === "consultation" && (
@@ -1146,6 +1156,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
               {/* ── Prescription Workflow Module (Sections + Live Summary Panel) ── */}
               <PrescriptionWorkflow
+                key={visit?.visitId}
                 visit={visit}
                 petDetails={petDetails}
                 catalogItems={catalogItems}
@@ -1153,6 +1164,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                 onProceedToBilling={handleProceedToBilling}
                 onOpenPrint={() => setShowRxPrint(true)}
                 doctorName={activeDoctorName}
+                onJumpSectionsChange={setRxJumpSections}
                 onSyncLines={(newLines) => {
                   setLines(newLines.map((l: any, idx: number) => ({
                     ...l,

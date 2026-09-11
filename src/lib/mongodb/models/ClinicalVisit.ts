@@ -151,6 +151,7 @@ export interface IPrescriptionData {
   consultationFee?: number | undefined;
   consultationFeePreset?: string | undefined;
   followupRequired?: boolean | undefined;
+  laboratoryRequired?: boolean | undefined;
   followUpEntries?: Record<string, any> | undefined;
   bloodTests?: Array<{ id: string; labTestId?: string; testName: string; status?: string }> | undefined;
 }

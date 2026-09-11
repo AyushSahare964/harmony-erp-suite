@@ -9,6 +9,10 @@ import {
   ReceiptText,
   PieChart,
   ArrowLeft,
+  FileSpreadsheet,
+  Receipt,
+  CreditCard,
+  ShoppingBag,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Shell } from "@/components/erp/Shell";
@@ -20,10 +24,22 @@ import { BankingReconciliation } from "./BankingReconciliation";
 import { TaxationCompliance } from "./TaxationCompliance";
 import { BudgetingCostCenters } from "./BudgetingCostCenters";
 import { FinancialReports } from "./FinancialReports";
-import { FileSpreadsheet } from "lucide-react";
+import { SupplierBillsTab } from "./SupplierBillsTab";
+import { PaymentOutTab } from "./PaymentOutTab";
+import { ExpensesTab } from "./ExpensesTab";
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
-type TabId = "dashboard" | "coa" | "ar" | "banking" | "tax" | "budget" | "reports";
+type TabId =
+  | "dashboard"
+  | "coa"
+  | "ar"
+  | "banking"
+  | "tax"
+  | "budget"
+  | "supplier-bills"
+  | "payment-out"
+  | "expenses"
+  | "reports";
 
 interface TabDef {
   id: TabId;
@@ -33,21 +49,32 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: "dashboard", label: "Financial Dashboard",      Icon: LayoutDashboard, badge: "18.1" },
-  { id: "coa",       label: "Chart of Accounts & GL",  Icon: ListTree,         badge: "18.2" },
-  { id: "ar",        label: "Receivables & Payables",  Icon: HandCoins,        badge: "18.3" },
-  { id: "banking",   label: "Banking & Reconciliation", Icon: Landmark,         badge: "18.4" },
-  { id: "tax",       label: "Taxation & Compliance",   Icon: ReceiptText,      badge: "18.5" },
-  { id: "budget",    label: "Budgeting & Cost Centers", Icon: PieChart,         badge: "18.6" },
-  { id: "reports",   label: "Financial Statements",    Icon: FileSpreadsheet,   badge: "18.7" },
+  { id: "dashboard",      label: "Financial Dashboard",       Icon: LayoutDashboard, badge: "18.1" },
+  { id: "coa",            label: "Chart of Accounts & GL",   Icon: ListTree,        badge: "18.2" },
+  { id: "ar",             label: "Receivables & Payables",   Icon: HandCoins,       badge: "18.3" },
+  { id: "banking",        label: "Banking & Reconciliation",  Icon: Landmark,        badge: "18.4" },
+  { id: "tax",            label: "Taxation & Compliance",    Icon: ReceiptText,     badge: "18.5" },
+  { id: "budget",         label: "Budgeting & Cost Centers",  Icon: PieChart,        badge: "18.6" },
+  { id: "supplier-bills", label: "Supplier Bills",           Icon: ShoppingBag,     badge: "18.7" },
+  { id: "payment-out",    label: "Payment Out",              Icon: CreditCard,      badge: "18.8" },
+  { id: "expenses",       label: "Expenses",                 Icon: Receipt,         badge: "18.9" },
+  { id: "reports",        label: "Financial Statements",     Icon: FileSpreadsheet, badge: "18.10" },
 ];
 
 // ─── AccountingHub ────────────────────────────────────────────────────────────
 export function AccountingHub() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  const [targetSupplierId, setTargetSupplierId] = useState<string | undefined>(undefined);
+  const [targetBillId, setTargetBillId] = useState<string | undefined>(undefined);
 
   const goToTab = (id: string) => {
     if (TABS.find((t) => t.id === id)) setActiveTab(id as TabId);
+  };
+
+  const handlePayBill = (supplierId: string, billId: string) => {
+    setTargetSupplierId(supplierId);
+    setTargetBillId(billId);
+    setActiveTab("payment-out");
   };
 
   return (
@@ -71,7 +98,7 @@ export function AccountingHub() {
             <div>
               <h1 className="page-title">Accounting &amp; Finance</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Ledgers · Receivables &amp; Payables · Bank Reconciliation · GST/TDS · Budgets
+                Ledgers · Supplier Bills · Expenses · Payments · Bank Reconciliation · GST/TDS
               </p>
             </div>
           </div>
@@ -89,7 +116,14 @@ export function AccountingHub() {
             <button
               key={tab.id}
               id={`acc-tab-${tab.id}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                // If navigating manually, clear target supplier/bill
+                if (tab.id !== "payment-out") {
+                  setTargetSupplierId(undefined);
+                  setTargetBillId(undefined);
+                }
+                setActiveTab(tab.id);
+              }}
               className={`relative flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
                 activeTab === tab.id
                   ? "bg-card text-foreground shadow-xs"
@@ -127,13 +161,22 @@ export function AccountingHub() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22, ease: "easeOut" }}
           >
-            {activeTab === "dashboard" && <FinancialDashboard onGoToTab={goToTab} />}
-            {activeTab === "coa"       && <ChartOfAccounts />}
-            {activeTab === "ar"        && <ReceivablesPayables />}
-            {activeTab === "banking"   && <BankingReconciliation />}
-            {activeTab === "tax"       && <TaxationCompliance />}
-            {activeTab === "budget"    && <BudgetingCostCenters />}
-            {activeTab === "reports"   && <FinancialReports />}
+            {activeTab === "dashboard"      && <FinancialDashboard onGoToTab={goToTab} />}
+            {activeTab === "coa"            && <ChartOfAccounts />}
+            {activeTab === "ar"             && <ReceivablesPayables />}
+            {activeTab === "banking"        && <BankingReconciliation />}
+            {activeTab === "tax"            && <TaxationCompliance />}
+            {activeTab === "budget"         && <BudgetingCostCenters />}
+            {activeTab === "supplier-bills" && <SupplierBillsTab onPayBill={handlePayBill} />}
+            {activeTab === "payment-out"    && (
+              <PaymentOutTab
+                key={`${targetSupplierId || ""}-${targetBillId || ""}`}
+                initialSupplierId={targetSupplierId}
+                initialBillId={targetBillId}
+              />
+            )}
+            {activeTab === "expenses"       && <ExpensesTab />}
+            {activeTab === "reports"        && <FinancialReports />}
           </motion.div>
         </AnimatePresence>
       </motion.div>

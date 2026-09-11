@@ -91,9 +91,51 @@ function Dashboard() {
     setShowAdmitPickerModal(true);
   };
 
+  const handleAdmitPetDirectly = (pet: any) => {
+    const existingActiveVisit = visits.find(
+      (v) =>
+        v.petId === pet.petId &&
+        v.status !== "Paid" &&
+        v.status !== "Settled" &&
+        v.status !== "Completed"
+    );
+    if (existingActiveVisit) {
+      handleStartConsultation(existingActiveVisit);
+      return;
+    }
+
+    const newVisitDraft = {
+      visitId: `V-${Math.floor(1000 + Math.random() * 9000)}`,
+      prescriptionNo: `RX-${Math.floor(1000 + Math.random() * 9000)}`,
+      date: new Date().toISOString().slice(0, 10),
+      branch: "Main Clinic",
+      billType: "GST",
+      petId: pet.petId,
+      petName: pet.name,
+      species: pet.species,
+      breed: pet.breed,
+      ownerId: pet.owner?.ownerId || pet.ownerId,
+      ownerName: pet.owner?.name || "Client",
+      ownerPhone: pet.owner?.phone || "N/A",
+      doctorName: activeDoctorName,
+      vitals: {
+        weightKg: pet.weightKg || 25,
+        tempC: 38.5,
+        complaint: pet.allergies?.length ? `History: ${pet.allergies.join(", ")}` : "OPD Consultation",
+      },
+      status: "Admitted",
+      items: [],
+      subtotal: 0,
+      totalAmount: 0,
+      amountPaid: 0,
+    };
+    setSelectedVisit(newVisitDraft);
+    setShowVisitModal(true);
+  };
+
   return (
     <Shell title="Home Dashboard">
-      <div className="mx-auto max-w-[1500px] space-y-7">
+      <div className="mx-auto max-w-[1680px] space-y-7">
         {/* Top Header & Role Switcher */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <motion.div
@@ -152,6 +194,7 @@ function Dashboard() {
                   setRegisterMode("new-all");
                   setShowRegisterModal(true);
                 }}
+                onAdmitPet={handleAdmitPetDirectly}
               />
             )}
 
@@ -179,6 +222,7 @@ function Dashboard() {
                   setRegisterMode("new-all");
                   setShowRegisterModal(true);
                 }}
+                onAdmitPet={handleAdmitPetDirectly}
               />
             )}
           </motion.div>

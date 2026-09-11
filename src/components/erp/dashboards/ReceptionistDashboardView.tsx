@@ -26,6 +26,7 @@ import {
   Activity,
   Check,
   AlertTriangle,
+  Calendar,
 } from "lucide-react";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { ModuleFlashcard } from "@/components/erp/Flashcard";
@@ -37,6 +38,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
 import { useErp } from "@/lib/erp/store";
 import { listVisitsFn, admitPatientFn, deleteVisitFn } from "@/lib/mongodb/serverFns/clinical";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
@@ -369,6 +371,12 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
               </div>
 
               <div className="rounded-lg bg-muted/40 p-2.5 text-xs space-y-1 text-muted-foreground">
+                <p className="flex items-center gap-1.5">
+                  <strong className="text-foreground flex items-center gap-1">
+                    <Calendar className="size-3 text-muted-foreground" /> Date:
+                  </strong>{" "}
+                  <span>{formatDisplayDate(v.date || v.createdAt || v.prescriptionData?.dateOfVisit) || v.date || "—"}</span>
+                </p>
                 <p><strong className="text-foreground">Parent:</strong> {v.ownerName} ({v.ownerPhone})</p>
                 <p className="line-clamp-1"><strong className="text-foreground">Chief Complaint:</strong> {v.vitals?.complaint || "Routine Checkup"}</p>
                 <p className="text-blue-700 dark:text-blue-300 font-semibold">Assigned Dr: {v.doctorName || "Dr. Rohit Sharma"}</p>

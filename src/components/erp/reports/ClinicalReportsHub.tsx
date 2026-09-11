@@ -63,9 +63,11 @@ import { LaboratoryAnalyticsTab } from "./analytics/LaboratoryAnalyticsTab";
 import { InventoryAnalyticsTab } from "./analytics/InventoryAnalyticsTab";
 import { ClinicalAnalyticsTab } from "./analytics/ClinicalAnalyticsTab";
 import { CrossModuleDrilldownTab } from "./analytics/CrossModuleDrilldownTab";
+import { QuotationsRegisterView } from "./QuotationsRegisterView";
+import { QuotationModal } from "@/components/erp/billing/QuotationModal";
 
 type HubMode = "analytics" | "medical-records";
-type ReportsTab = "all-reports" | "patient-dossier" | "upload-documents";
+type ReportsTab = "all-reports" | "patient-dossier" | "upload-documents" | "quotations";
 
 const ANALYTICS_TABS: { id: AnalyticsTabId; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -504,6 +506,18 @@ export function ClinicalReportsHub() {
               >
                 <UploadCloud className="size-4" /> Document Ingestion &amp; Uploads
               </button>
+
+              <button
+                onClick={() => setActiveTab("quotations")}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all",
+                  activeTab === "quotations"
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                <FileText className="size-4" /> Medical Quotations &amp; Estimates
+              </button>
             </div>
 
             {/* ── SUB-TAB 1: ALL REPORTS MASTER ARCHIVE ──────────────────────── */}
@@ -704,6 +718,19 @@ export function ClinicalReportsHub() {
                 />
               </motion.div>
             )}
+
+            {/* ── SUB-TAB 4: MEDICAL QUOTATIONS & COST ESTIMATES ─────────────── */}
+            {activeTab === "quotations" && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                <QuotationsRegisterView
+                  onNewQuotation={() => setShowQuotationModal(true)}
+                  onViewQuotation={(q) => {
+                    // Open clean printable quotation preview
+                    window.print();
+                  }}
+                />
+              </motion.div>
+            )}
           </div>
         )}
 
@@ -721,6 +748,11 @@ export function ClinicalReportsHub() {
           open={showUploadModal}
           onClose={() => setShowUploadModal(false)}
           onUploaded={(newDoc) => setReports((prev) => [newDoc, ...prev])}
+        />
+
+        <QuotationModal
+          open={showQuotationModal}
+          onClose={() => setShowQuotationModal(false)}
         />
 
         {/* Drilldown Detail Modal */}

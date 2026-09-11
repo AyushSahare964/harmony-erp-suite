@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   User,
   Calendar,
@@ -38,6 +38,7 @@ import { SectionJumpBar, type SectionJumpItem } from "./SectionJumpBar";
 import { InventoryItemSection, type InventoryItemLine } from "./InventoryItemSection";
 import { ConsultationFeeSection } from "./ConsultationFeeSection";
 import { FollowUpSection, type FollowUpState } from "./FollowUpSection";
+import { LaboratoryOrderSection, type LaboratoryState } from "./LaboratoryOrderSection";
 import { LivePrescriptionSummaryPanel } from "./LivePrescriptionSummaryPanel";
 
 import { savePrescriptionSectionFn } from "@/lib/mongodb/serverFns/clinical";
@@ -57,6 +58,7 @@ export interface PrescriptionWorkflowProps {
   onClonePrevious?: () => void;
   onViewHistory?: () => void;
   pastVisits?: any[];
+  onJumpSectionsChange?: (sections: SectionJumpItem[]) => void;
 }
 
 const CLINICAL_FINDINGS_OPTIONS = [
@@ -78,6 +80,71 @@ const CLINICAL_FINDINGS_OPTIONS = [
   "Other",
 ];
 
+function serializeSectionState(sectionKey: string, data: any): string {
+  if (
+    sectionKey === "IMMEDIATE_MED" ||
+    sectionKey === "PRESCRIBED_MED" ||
+    sectionKey === "INJECTABLE" ||
+    sectionKey === "ANIMAL_FOOD" ||
+    sectionKey === "PRESCRIBED_FOOD" ||
+    sectionKey === "ACCESSORY"
+  ) {
+    const items = Array.isArray(data) ? data : (data?.items || []);
+    return JSON.stringify(
+      items.map((it: any) => ({
+        id: String(it.id || ""),
+        itemCode: String(it.itemCode || ""),
+        name: String(it.name || it.medicineName || ""),
+        quantity: Number(it.quantity) || 1,
+        unit: String(it.unit || it.doseUnit || ""),
+        unitPrice: Number(it.unitPrice) || 0,
+        dosageInstructions: String(it.dosageInstructions || it.dosage || it.instructions || ""),
+        frequency: String(it.frequency || ""),
+        duration: String(it.duration || ""),
+        route: String(it.route || ""),
+        dose: it.dose !== undefined ? Number(it.dose) : undefined,
+        category: String(it.category || ""),
+      }))
+    );
+  }
+  if (sectionKey === "FOLLOWUP") {
+    const f = data?.followUp || data;
+    return JSON.stringify({
+      required: Boolean(f?.required),
+      entries: f?.entries || {},
+    });
+  }
+  if (sectionKey === "LABORATORY") {
+    const lab = data || {};
+    return JSON.stringify({
+      enabled: Boolean(lab.enabled),
+      dueDate: String(lab.dueDate || ""),
+      quickOption: String(lab.quickOption || ""),
+      bloodTests: (lab.bloodTests || []).map((b: any) => ({
+        id: String(b.id || ""),
+        labTestId: String(b.labTestId || ""),
+        testName: String(b.testName || b.name || ""),
+      })),
+    });
+  }
+  if (sectionKey === "HISTORY" || sectionKey === "SYMPTOMS") {
+    return JSON.stringify({ text: String(data?.text ?? data ?? "").trim() });
+  }
+  if (sectionKey === "FINDINGS") {
+    return JSON.stringify({
+      findings: Array.isArray(data?.findings) ? data.findings : [],
+      other: String(data?.other ?? "").trim(),
+    });
+  }
+  if (sectionKey === "FEE") {
+    return JSON.stringify({
+      amount: data?.amount !== undefined && data?.amount !== null ? Number(data.amount) : null,
+      preset: data?.preset || "STANDARD",
+    });
+  }
+  return JSON.stringify(data);
+}
+
 export function PrescriptionWorkflow({
   visit,
   petDetails,
@@ -91,6 +158,7 @@ export function PrescriptionWorkflow({
   onClonePrevious,
   onViewHistory,
   pastVisits = [],
+  onJumpSectionsChange,
 }: PrescriptionWorkflowProps) {
   const initialRx: IPrescriptionData = visit?.prescriptionData || {};
 
@@ -114,8 +182,13 @@ export function PrescriptionWorkflow({
   const isSettled =
     visit?.status === "Paid" || visit?.status === "Settled" || visit?.status === "Closed";
 
-  // Optimistic version
+  // Optimistic version & Ref for synchronous sequential saves
   const [version, setVersion] = useState<number>(initialRx.version || 1);
+  const versionRef = useRef<number>(initialRx.version || 1);
+
+  useEffect(() => {
+    versionRef.current = version;
+  }, [version]);
 
   // Section 2: Previous History
   const [previousHistory, setPreviousHistory] = useState<string>(
@@ -138,11 +211,11 @@ export function PrescriptionWorkflow({
   const [findingSearchQuery, setFindingSearchQuery] = useState("");
   const [findingsDropdownOpen, setFindingsDropdownOpen] = useState(false);
 
-  // Section 5: Clinical Treatment (Immediate, Prescribed, Injectable)
-  const [immediateMedicines, setImmediateMedicines] = useState<InventoryItemLine[]>(() => {
+  // Initial values computed stably
+  const initialImmediate = useMemo<InventoryItemLine[]>(() => {
     if (initialRx.immediateMedicines && initialRx.immediateMedicines.length > 0) {
       return initialRx.immediateMedicines.map((m: any, idx: number) => ({
-        id: m.id || `imm-${idx}-${Date.now()}`,
+        id: m.id || `imm-${idx}-${visit?.visitId || "rx"}`,
         itemCode: m.itemCode,
         name: m.medicineName || m.name,
         dosageInstructions: m.dosage || m.instructions || "",
@@ -153,12 +226,14 @@ export function PrescriptionWorkflow({
       }));
     }
     return [];
-  });
+  }, [visit?.visitId, initialRx]);
 
-  const [prescribedMedicines, setPrescribedMedicines] = useState<InventoryItemLine[]>(() => {
+  const [immediateMedicines, setImmediateMedicines] = useState<InventoryItemLine[]>(initialImmediate);
+
+  const initialPrescribed = useMemo<InventoryItemLine[]>(() => {
     if (initialRx.prescribedMedicines && initialRx.prescribedMedicines.length > 0) {
       return initialRx.prescribedMedicines.map((m: any, idx: number) => ({
-        id: m.id || `med-${idx}-${Date.now()}`,
+        id: m.id || `med-${idx}-${visit?.visitId || "rx"}`,
         itemCode: m.itemCode,
         name: m.medicineName || m.name,
         brand: m.brand,
@@ -183,7 +258,7 @@ export function PrescriptionWorkflow({
       );
       if (medLines.length > 0) {
         return medLines.map((m: any, idx: number) => ({
-          id: m.id || m.sourceId || `med-${idx}-${Date.now()}`,
+          id: m.id || m.sourceId || `med-${idx}-${visit?.visitId || "rx"}`,
           itemCode: m.itemCode,
           name: m.name,
           dosageInstructions: m.dosageInstructions || "As directed",
@@ -195,12 +270,14 @@ export function PrescriptionWorkflow({
       }
     }
     return [];
-  });
+  }, [visit?.visitId, initialRx]);
 
-  const [injectables, setInjectables] = useState<InventoryItemLine[]>(() => {
+  const [prescribedMedicines, setPrescribedMedicines] = useState<InventoryItemLine[]>(initialPrescribed);
+
+  const initialInjectables = useMemo<InventoryItemLine[]>(() => {
     if (initialRx.injectables && initialRx.injectables.length > 0) {
       return initialRx.injectables.map((m: any, idx: number) => ({
-        id: m.id || `inj-${idx}-${Date.now()}`,
+        id: m.id || `inj-${idx}-${visit?.visitId || "rx"}`,
         itemCode: m.itemCode,
         name: m.name,
         dosageInstructions: m.instructions || "Administered in clinic",
@@ -212,25 +289,27 @@ export function PrescriptionWorkflow({
       }));
     }
     return [];
-  });
+  }, [visit?.visitId, initialRx]);
+
+  const [injectables, setInjectables] = useState<InventoryItemLine[]>(initialInjectables);
 
   // Section 6: Consultation Fee
-  const [consultationFee, setConsultationFee] = useState<number | null>(() => {
+  const initialFee = useMemo<number>(() => {
     if (initialRx.consultationFee !== undefined && initialRx.consultationFee !== null) {
       return Number(initialRx.consultationFee);
     }
-    // Check if visit has a consultation line item
     const consultLine = (visit?.items || []).find((l: any) => l.lineType === "Consultation");
     if (consultLine) return Number(consultLine.unitPrice) || 0;
-    return 500; // standard default
-  });
+    return 500;
+  }, [visit?.visitId, initialRx]);
 
+  const [consultationFee, setConsultationFee] = useState<number | null>(initialFee);
   const [consultationFeePreset, setConsultationFeePreset] = useState<string | null>(
     initialRx.consultationFeePreset || "STANDARD"
   );
 
   // Section 7: Clinical Follow-up
-  const [followUp, setFollowUp] = useState<FollowUpState>(() => {
+  const initialFollowUp = useMemo<FollowUpState>(() => {
     const rawF = initialRx.followUp;
     const entries = initialRx.followUpEntries || {};
     const bloodTests = initialRx.bloodTests || [];
@@ -267,19 +346,46 @@ export function PrescriptionWorkflow({
         },
       },
       bloodTests: bloodTests.map((b: any, i: number) => ({
-        id: b.id || `bt-${i}-${Date.now()}`,
+        id: b.id || `bt-${i}-${visit?.visitId || "rx"}`,
         labTestId: b.labTestId,
         testName: b.testName || b.name,
         status: b.status || "Ordered",
       })),
     };
-  });
+  }, [visit?.visitId, initialRx, rawDate]);
+
+  const [followUp, setFollowUp] = useState<FollowUpState>(initialFollowUp);
+
+  // Dedicated Laboratory Orders Section
+  const initialLaboratory = useMemo<LaboratoryState>(() => {
+    const rawBloodTests = initialRx.bloodTests || [];
+    const entries = initialRx.followUpEntries || {};
+    const bloodTestEntry = entries["BLOOD_TEST"];
+    const isEnabled =
+      initialRx.laboratoryRequired !== undefined
+        ? Boolean(initialRx.laboratoryRequired)
+        : Boolean(bloodTestEntry?.enabled || rawBloodTests.length > 0);
+
+    return {
+      enabled: isEnabled,
+      dueDate: bloodTestEntry?.dueDate || rawDate,
+      quickOption: bloodTestEntry?.quickOption || "TODAY",
+      bloodTests: rawBloodTests.map((b: any, i: number) => ({
+        id: b.id || `bt-${i}-${visit?.visitId || "rx"}`,
+        labTestId: b.labTestId,
+        testName: b.testName || b.name,
+        status: b.status || "Ordered",
+      })),
+    };
+  }, [visit?.visitId, initialRx, rawDate]);
+
+  const [laboratory, setLaboratory] = useState<LaboratoryState>(initialLaboratory);
 
   // Section 8: Animal Food
-  const [animalFood, setAnimalFood] = useState<InventoryItemLine[]>(() => {
+  const initialAnimalFood = useMemo<InventoryItemLine[]>(() => {
     const raw = initialRx.animalFood || [];
     return raw.map((f: any, idx: number) => ({
-      id: f.id || `food-${idx}-${Date.now()}`,
+      id: f.id || `food-${idx}-${visit?.visitId || "rx"}`,
       itemCode: f.itemCode,
       name: f.name,
       quantity: Number(f.quantity) || 1,
@@ -287,13 +393,15 @@ export function PrescriptionWorkflow({
       unitPrice: Number(f.unitPrice) || 1850,
       discountPercent: Number(f.discountPercent || 0),
     }));
-  });
+  }, [visit?.visitId, initialRx]);
+
+  const [animalFood, setAnimalFood] = useState<InventoryItemLine[]>(initialAnimalFood);
 
   // Section 9: Prescribed Food
-  const [prescribedFood, setPrescribedFood] = useState<InventoryItemLine[]>(() => {
+  const initialPrescribedFood = useMemo<InventoryItemLine[]>(() => {
     const raw = initialRx.prescribedFood || [];
     return raw.map((f: any, idx: number) => ({
-      id: f.id || `pfood-${idx}-${Date.now()}`,
+      id: f.id || `pfood-${idx}-${visit?.visitId || "rx"}`,
       itemCode: f.itemCode,
       name: f.name,
       quantity: Number(f.quantity) || 1,
@@ -303,13 +411,15 @@ export function PrescriptionWorkflow({
       duration: f.duration || "14 days",
       discountPercent: 0,
     }));
-  });
+  }, [visit?.visitId, initialRx]);
+
+  const [prescribedFood, setPrescribedFood] = useState<InventoryItemLine[]>(initialPrescribedFood);
 
   // Section 10: Accessories
-  const [accessories, setAccessories] = useState<InventoryItemLine[]>(() => {
+  const initialAccessories = useMemo<InventoryItemLine[]>(() => {
     const raw = initialRx.accessories || [];
     return raw.map((a: any, idx: number) => ({
-      id: a.id || `acc-${idx}-${Date.now()}`,
+      id: a.id || `acc-${idx}-${visit?.visitId || "rx"}`,
       itemCode: a.itemCode,
       name: a.name,
       category: a.category,
@@ -318,27 +428,30 @@ export function PrescriptionWorkflow({
       unitPrice: Number(a.unitPrice) || 320,
       discountPercent: Number(a.discountPercent || 0),
     }));
-  });
+  }, [visit?.visitId, initialRx]);
+
+  const [accessories, setAccessories] = useState<InventoryItemLine[]>(initialAccessories);
 
   // ── Snapshots for Dirty Detection ─────────────────────────────────────────
   const [lastSaved, setLastSaved] = useState<Record<string, string>>(() => ({
-    HISTORY: JSON.stringify({ text: initialRx.previousHistory ?? visit?.clinicalNotes ?? "" }),
-    SYMPTOMS: JSON.stringify({ text: initialRx.symptomsText ?? visit?.vitals?.complaint ?? "" }),
-    FINDINGS: JSON.stringify({
+    HISTORY: serializeSectionState("HISTORY", { text: initialRx.previousHistory ?? visit?.clinicalNotes ?? "" }),
+    SYMPTOMS: serializeSectionState("SYMPTOMS", { text: initialRx.symptomsText ?? visit?.vitals?.complaint ?? "" }),
+    FINDINGS: serializeSectionState("FINDINGS", {
       findings: initialRx.clinicalFindings || [],
       other: initialRx.clinicalFindingsOther || "",
     }),
-    IMMEDIATE_MED: JSON.stringify(initialRx.immediateMedicines || []),
-    PRESCRIBED_MED: JSON.stringify(initialRx.prescribedMedicines || []),
-    INJECTABLE: JSON.stringify(initialRx.injectables || []),
-    FEE: JSON.stringify({
-      amount: initialRx.consultationFee ?? (visit?.items?.find((l: any) => l.lineType === "Consultation")?.unitPrice ?? 500),
+    IMMEDIATE_MED: serializeSectionState("IMMEDIATE_MED", initialImmediate),
+    PRESCRIBED_MED: serializeSectionState("PRESCRIBED_MED", initialPrescribed),
+    INJECTABLE: serializeSectionState("INJECTABLE", initialInjectables),
+    FEE: serializeSectionState("FEE", {
+      amount: initialFee,
       preset: initialRx.consultationFeePreset || "STANDARD",
     }),
-    FOLLOWUP: JSON.stringify(initialRx.followUpEntries || {}),
-    ANIMAL_FOOD: JSON.stringify(initialRx.animalFood || []),
-    PRESCRIBED_FOOD: JSON.stringify(initialRx.prescribedFood || []),
-    ACCESSORY: JSON.stringify(initialRx.accessories || []),
+    FOLLOWUP: serializeSectionState("FOLLOWUP", initialFollowUp),
+    LABORATORY: serializeSectionState("LABORATORY", initialLaboratory),
+    ANIMAL_FOOD: serializeSectionState("ANIMAL_FOOD", initialAnimalFood),
+    PRESCRIBED_FOOD: serializeSectionState("PRESCRIBED_FOOD", initialPrescribedFood),
+    ACCESSORY: serializeSectionState("ACCESSORY", initialAccessories),
   }));
 
   const [sectionStatus, setSectionStatus] = useState<Record<string, SaveStatus>>({});
@@ -349,53 +462,55 @@ export function PrescriptionWorkflow({
 
   // Dirty calculations
   const isHistoryDirty = useMemo(
-    () => JSON.stringify({ text: previousHistory.trim() }) !== lastSaved["HISTORY"],
+    () => serializeSectionState("HISTORY", { text: previousHistory }) !== lastSaved["HISTORY"],
     [previousHistory, lastSaved]
   );
   const isSymptomsDirty = useMemo(
-    () => JSON.stringify({ text: symptomsText.trim() }) !== lastSaved["SYMPTOMS"],
+    () => serializeSectionState("SYMPTOMS", { text: symptomsText }) !== lastSaved["SYMPTOMS"],
     [symptomsText, lastSaved]
   );
   const isFindingsDirty = useMemo(
     () =>
-      JSON.stringify({ findings: clinicalFindings, other: clinicalFindingsOther.trim() }) !==
+      serializeSectionState("FINDINGS", { findings: clinicalFindings, other: clinicalFindingsOther }) !==
       lastSaved["FINDINGS"],
     [clinicalFindings, clinicalFindingsOther, lastSaved]
   );
   const isImmediateDirty = useMemo(
-    () => JSON.stringify(immediateMedicines) !== lastSaved["IMMEDIATE_MED"],
+    () => serializeSectionState("IMMEDIATE_MED", immediateMedicines) !== lastSaved["IMMEDIATE_MED"],
     [immediateMedicines, lastSaved]
   );
   const isPrescribedDirty = useMemo(
-    () => JSON.stringify(prescribedMedicines) !== lastSaved["PRESCRIBED_MED"],
+    () => serializeSectionState("PRESCRIBED_MED", prescribedMedicines) !== lastSaved["PRESCRIBED_MED"],
     [prescribedMedicines, lastSaved]
   );
   const isInjectableDirty = useMemo(
-    () => JSON.stringify(injectables) !== lastSaved["INJECTABLE"],
+    () => serializeSectionState("INJECTABLE", injectables) !== lastSaved["INJECTABLE"],
     [injectables, lastSaved]
   );
   const isFeeDirty = useMemo(
     () =>
-      JSON.stringify({ amount: consultationFee, preset: consultationFeePreset }) !==
+      serializeSectionState("FEE", { amount: consultationFee, preset: consultationFeePreset }) !==
       lastSaved["FEE"],
     [consultationFee, consultationFeePreset, lastSaved]
   );
   const isFollowUpDirty = useMemo(
-    () =>
-      JSON.stringify({ required: followUp.required, entries: followUp.entries, bloodTests: followUp.bloodTests }) !==
-      lastSaved["FOLLOWUP"],
+    () => serializeSectionState("FOLLOWUP", followUp) !== lastSaved["FOLLOWUP"],
     [followUp, lastSaved]
   );
+  const isLaboratoryDirty = useMemo(
+    () => serializeSectionState("LABORATORY", laboratory) !== lastSaved["LABORATORY"],
+    [laboratory, lastSaved]
+  );
   const isAnimalFoodDirty = useMemo(
-    () => JSON.stringify(animalFood) !== lastSaved["ANIMAL_FOOD"],
+    () => serializeSectionState("ANIMAL_FOOD", animalFood) !== lastSaved["ANIMAL_FOOD"],
     [animalFood, lastSaved]
   );
   const isPrescribedFoodDirty = useMemo(
-    () => JSON.stringify(prescribedFood) !== lastSaved["PRESCRIBED_FOOD"],
+    () => serializeSectionState("PRESCRIBED_FOOD", prescribedFood) !== lastSaved["PRESCRIBED_FOOD"],
     [prescribedFood, lastSaved]
   );
   const isAccessoryDirty = useMemo(
-    () => JSON.stringify(accessories) !== lastSaved["ACCESSORY"],
+    () => serializeSectionState("ACCESSORY", accessories) !== lastSaved["ACCESSORY"],
     [accessories, lastSaved]
   );
 
@@ -408,6 +523,7 @@ export function PrescriptionWorkflow({
     isInjectableDirty ||
     isFeeDirty ||
     isFollowUpDirty ||
+    isLaboratoryDirty ||
     isAnimalFoodDirty ||
     isPrescribedFoodDirty ||
     isAccessoryDirty;
@@ -420,10 +536,29 @@ export function PrescriptionWorkflow({
     { id: "sec-treatment", label: "4. Treatment", isDirty: isImmediateDirty || isPrescribedDirty || isInjectableDirty },
     { id: "sec-fee", label: "5. Fee", isDirty: isFeeDirty },
     { id: "sec-followup", label: "6. Follow-up", isDirty: isFollowUpDirty },
-    { id: "sec-animal-food", label: "7. Animal Food", isDirty: isAnimalFoodDirty },
-    { id: "sec-prescribed-food", label: "8. Prescribed Food", isDirty: isPrescribedFoodDirty },
-    { id: "sec-accessories", label: "9. Accessories", isDirty: isAccessoryDirty },
+    { id: "sec-laboratory", label: "7. Laboratory", isDirty: isLaboratoryDirty },
+    { id: "sec-animal-food", label: "8. Animal Food", isDirty: isAnimalFoodDirty },
+    { id: "sec-prescribed-food", label: "9. Prescribed Food", isDirty: isPrescribedFoodDirty },
+    { id: "sec-accessories", label: "10. Accessories", isDirty: isAccessoryDirty },
   ];
+
+  useEffect(() => {
+    onJumpSectionsChange?.(jumpSections);
+  }, [
+    onJumpSectionsChange,
+    isHistoryDirty,
+    isSymptomsDirty,
+    isFindingsDirty,
+    isImmediateDirty,
+    isPrescribedDirty,
+    isInjectableDirty,
+    isFeeDirty,
+    isFollowUpDirty,
+    isLaboratoryDirty,
+    isAnimalFoodDirty,
+    isPrescribedFoodDirty,
+    isAccessoryDirty,
+  ]);
 
   // ── Unified Section Save Handler (§1.3, §5.2) ─────────────────────────────
   const executeSaveSection = async (sectionKey: string, payload: any): Promise<void> => {
@@ -434,16 +569,17 @@ export function PrescriptionWorkflow({
           visitId: visit.visitId,
           section: sectionKey as any,
           payload,
-          version,
+          version: versionRef.current,
         },
       });
 
       const newVersion = res.version;
+      versionRef.current = newVersion;
       setVersion(newVersion);
       setSectionSavedAt(res.sectionSavedAt || {});
       setLastSaved((prev) => ({
         ...prev,
-        [sectionKey]: JSON.stringify(payload),
+        [sectionKey]: serializeSectionState(sectionKey, payload),
       }));
       setSectionStatus((prev) => ({ ...prev, [sectionKey]: "saved" }));
 
@@ -458,6 +594,7 @@ export function PrescriptionWorkflow({
       } else {
         toast.error(err.message || `Failed to save ${sectionKey}`);
       }
+      throw err;
     }
   };
 
@@ -486,7 +623,12 @@ export function PrescriptionWorkflow({
     executeSaveSection("FOLLOWUP", {
       required: followUp.required,
       entries: followUp.entries,
-      bloodTests: followUp.bloodTests,
+    });
+  const handleSaveLaboratory = () =>
+    executeSaveSection("LABORATORY", {
+      enabled: laboratory.enabled,
+      dueDate: laboratory.dueDate,
+      bloodTests: laboratory.bloodTests,
     });
   const handleSaveAnimalFood = () =>
     executeSaveSection("ANIMAL_FOOD", { items: animalFood });
@@ -508,6 +650,7 @@ export function PrescriptionWorkflow({
       if (isInjectableDirty) await handleSaveInjectable();
       if (isFeeDirty) await handleSaveFee();
       if (isFollowUpDirty) await handleSaveFollowUp();
+      if (isLaboratoryDirty) await handleSaveLaboratory();
       if (isAnimalFoodDirty) await handleSaveAnimalFood();
       if (isPrescribedFoodDirty) await handleSavePrescribedFood();
       if (isAccessoryDirty) await handleSaveAccessories();
@@ -515,7 +658,6 @@ export function PrescriptionWorkflow({
       toast.success("All prescription sections saved successfully as draft!");
     } catch (e: any) {
       anyFailed = true;
-      toast.error(e.message || "Failed to save draft");
     } finally {
       setIsSavingAll(false);
     }
@@ -541,6 +683,16 @@ export function PrescriptionWorkflow({
       injectables: injectables as any,
       consultationFee: consultationFee ?? undefined,
       consultationFeePreset: consultationFeePreset || undefined,
+      followupRequired: followUp.required ?? undefined,
+      followUpEntries: followUp.entries,
+      followUp: {
+        required: Boolean(followUp.required),
+        nextTreatmentDate: followUp.entries.TREATMENT?.dueDate || undefined,
+        nextVaccineDate: followUp.entries.VACCINE?.dueDate || undefined,
+        nextDewormingDate: followUp.entries.DEWORMING?.dueDate || undefined,
+      },
+      laboratoryRequired: laboratory.enabled,
+      bloodTests: laboratory.bloodTests as any,
       animalFood: animalFood as any,
       prescribedFood: prescribedFood as any,
       accessories: accessories as any,
@@ -598,9 +750,6 @@ export function PrescriptionWorkflow({
           )}
         </div>
       </div>
-
-      {/* ── Section Jump Bar (§6.2, §13) ──────────────────────────────── */}
-      <SectionJumpBar sections={jumpSections} />
 
       {/* ── 2-Column Responsive Workspace: Sections + Sticky Live Summary ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -923,7 +1072,7 @@ export function PrescriptionWorkflow({
             isLocked={isSettled}
           />
 
-          {/* 7. Clinical Follow-up & Reminders (§11, Phase 8 & 9) */}
+          {/* 6. Clinical Follow-up & Reminders */}
           <FollowUpSection
             id="sec-followup"
             visitDate={rawDate}
@@ -936,7 +1085,20 @@ export function PrescriptionWorkflow({
             isLocked={isSettled}
           />
 
-          {/* 8. Animal Food (§10, Phase 7) */}
+          {/* 7. Dedicated Laboratory & Diagnostics Orders */}
+          <LaboratoryOrderSection
+            id="sec-laboratory"
+            visitDate={rawDate}
+            laboratory={laboratory}
+            onChange={setLaboratory}
+            onSave={handleSaveLaboratory}
+            status={sectionStatus["LABORATORY"]}
+            lastSavedAt={sectionSavedAt["LABORATORY"]}
+            isDirty={isLaboratoryDirty}
+            isLocked={isSettled}
+          />
+
+          {/* 8. Animal Food */}
           <InventoryItemSection
             id="sec-animal-food"
             section="ANIMAL_FOOD"
