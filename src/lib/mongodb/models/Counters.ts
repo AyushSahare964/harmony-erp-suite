@@ -3,9 +3,7 @@
  * Uses findOneAndUpdate with $inc to guarantee uniqueness across concurrent requests.
  */
 
-import mongoose from "mongoose";
-
-const { Schema, model } = mongoose;
+import mongoose, { Schema, model } from "mongoose";
 
 export interface ICounter {
   _id: string; // counter name e.g. "inventory_item"

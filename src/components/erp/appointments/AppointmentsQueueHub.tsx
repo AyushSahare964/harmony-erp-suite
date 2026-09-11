@@ -28,6 +28,9 @@ import {
   Phone,
   Trash2,
   Calendar,
+  MessageSquare,
+  Share2,
+  Edit,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { KpiCard } from "@/components/erp/KpiCard";
@@ -52,15 +55,76 @@ const MONTHLY_APPOINTMENTS = [
   { name: "Aug", value: 1104 },
 ];
 
+function formatAppointmentDate(dateStr?: string | null) {
+  if (!dateStr) return "—";
+  try {
+    const raw = String(dateStr).split("T")[0] ?? "";
+    const parts = raw.split("-");
+    const pYear = parts[0];
+    const pMonth = parts[1];
+    const pDay = parts[2];
+    if (pYear && pMonth && pDay) {
+      const dateObj = new Date(Number(pYear), Number(pMonth) - 1, Number(pDay));
+      if (!isNaN(dateObj.getTime())) {
+        return dateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+      }
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    }
+    return dateStr;
+  } catch {
+    return dateStr;
+  }
+}
+
+function renderCategoryBadge(category?: string | null) {
+  if (!category) {
+    return <span className="text-[11px] text-muted-foreground italic">Not specified</span>;
+  }
+  const cat = String(category).toLowerCase();
+  if (cat === "call") {
+    return (
+      <Badge variant="outline" className="bg-sky-500/10 text-sky-600 border-sky-500/30 text-[10px] font-semibold gap-1">
+        <Phone className="size-3" /> Call
+      </Badge>
+    );
+  }
+  if (cat === "whatsapp") {
+    return (
+      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] font-semibold gap-1">
+        <MessageSquare className="size-3" /> WhatsApp
+      </Badge>
+    );
+  }
+  if (cat === "social_media" || cat === "social media") {
+    return (
+      <Badge variant="outline" className="bg-purple-500/10 text-purple-600 border-purple-500/30 text-[10px] font-semibold gap-1">
+        <Share2 className="size-3" /> Social Media
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-[10px] font-semibold">
+      {category}
+    </Badge>
+  );
+}
+
 export function AppointmentsQueueHub() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [doctorFilter, setDoctorFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [specificDate, setSpecificDate] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
 
   // Modals state
   const [showBookModal, setShowBookModal] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<any | null>(null);
   const [showVisitWorkspace, setShowVisitWorkspace] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<any | null>(null);
 
@@ -97,18 +161,28 @@ export function AppointmentsQueueHub() {
       setFollowUpsLoading(false);
     }
   };
+
   // Filtered rows
   const filteredRows = useMemo(() => {
     const q = query.toLowerCase().trim();
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+
     return appointments.filter((r) => {
+      const appCategory = (r.appointment_category || r.category || "").toLowerCase();
+      const appDate = (r.appointment_date || r.date || "").split("T")[0];
+
       const matchQ =
         !q ||
-        r.token?.toLowerCase().includes(q) ||
+        String(r.token ?? "").toLowerCase().includes(q) ||
         r.pet?.toLowerCase().includes(q) ||
         r.petId?.toLowerCase().includes(q) ||
         r.owner?.toLowerCase().includes(q) ||
         r.doctor?.toLowerCase().includes(q) ||
-        r.type?.toLowerCase().includes(q);
+        r.type?.toLowerCase().includes(q) ||
+        appCategory.includes(q);
 
       const matchS =
         statusFilter === "all" ||
@@ -116,9 +190,22 @@ export function AppointmentsQueueHub() {
 
       const matchD = doctorFilter === "all" || r.doctor === doctorFilter;
 
-      return matchQ && matchS && matchD;
+      const matchC =
+        categoryFilter === "all" ||
+        appCategory === categoryFilter.toLowerCase();
+
+      let matchDate = true;
+      if (dateFilter === "today") {
+        matchDate = appDate === todayStr;
+      } else if (dateFilter === "tomorrow") {
+        matchDate = appDate === tomorrowStr;
+      } else if (dateFilter === "specific") {
+        matchDate = !specificDate || appDate === specificDate;
+      }
+
+      return matchQ && matchS && matchD && matchC && matchDate;
     });
-  }, [appointments, query, statusFilter, doctorFilter]);
+  }, [appointments, query, statusFilter, doctorFilter, categoryFilter, dateFilter, specificDate]);
 
   const inQueueCount = appointments.filter((a) => a.status === "Waiting" || a.status === "In consultation").length;
   const noShowsCount = appointments.filter((a) => a.status === "No-show").length;
@@ -164,10 +251,13 @@ export function AppointmentsQueueHub() {
     toast.info(`📢 Calling Token ${app.token} for ${app.pet} (${app.owner}) to Room 1`);
   };
 
-  const handleUpdateStatus = (token: string, newStatus: string) => {
+  const handleUpdateStatus = (token: any, newStatus: string) => {
     setAppointments((prev) =>
-      prev.map((a) => (a.token === token ? { ...a, status: newStatus } : a))
+      prev.map((a) => (String(a.token) === String(token) ? { ...a, status: newStatus } : a))
     );
+    void updateAppointmentStatusFn({ data: { token, status: newStatus } }).catch((err) => {
+      console.warn("Could not sync status to server:", err);
+    });
     toast.success(`Token ${token} updated to ${newStatus}`);
   };
 
@@ -175,21 +265,34 @@ export function AppointmentsQueueHub() {
     setAppointments((prev) => [newApp, ...prev]);
   };
 
+  const handleEditAppointment = (app: any) => {
+    setEditingAppointment(app);
+    setShowBookModal(true);
+  };
+
+  const handleUpdatedAppointment = (updatedApp: any) => {
+    setAppointments((prev) =>
+      prev.map((a) => (String(a.token) === String(updatedApp.token) ? { ...a, ...updatedApp } : a))
+    );
+  };
+
   const handleReset = () => {
     void loadAppointments();
     setQuery("");
     setStatusFilter("all");
     setDoctorFilter("all");
+    setDateFilter("all");
+    setSpecificDate("");
+    setCategoryFilter("all");
     toast.success("Appointments reloaded from MongoDB");
   };
 
-
   const exportCsv = () => {
-    const header = "Token,Slot,Pet,Patient ID,Owner,Phone,Doctor,Type,Status";
+    const header = "Token,Appointment Date,Slot,Pet,Patient ID,Owner,Phone,Doctor,Type,Category,Status";
     const body = filteredRows
       .map(
         (r) =>
-          `"${r.token}","${r.time}","${r.pet}","${r.petId || ""}","${r.owner}","${r.ownerPhone || ""}","${r.doctor}","${r.type}","${r.status}"`
+          `"${r.token}","${formatAppointmentDate(r.appointment_date || r.date)}","${r.slot || r.time || ""}","${r.pet}","${r.petId || ""}","${r.owner}","${r.ownerPhone || ""}","${r.doctor}","${r.type}","${r.appointment_category || r.category || "Not specified"}","${r.status}"`
       )
       .join("\n");
     const blob = new Blob([`${header}\n${body}`], { type: "text/csv" });
@@ -393,20 +496,56 @@ export function AppointmentsQueueHub() {
           animate={{ opacity: 1, y: 0 }}
           className="erp-card overflow-hidden shadow-xs space-y-0"
         >
-          {/* Search and Status Dropdown Filter */}
+          {/* Search and Filters Bar */}
           <div className="flex flex-wrap items-center gap-3 border-b border-border p-4 bg-card">
-            <div className="relative min-w-[240px] flex-1">
+            <div className="relative min-w-[220px] flex-1">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search records by patient, token, owner, doctor..."
+                placeholder="Search records by patient, token, owner, doctor, channel..."
                 className="pl-9 text-xs h-9"
               />
             </div>
 
+            {/* Date Filter */}
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger className="w-[140px] text-xs h-9">
+                <SelectValue placeholder="All Dates" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Dates</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="tomorrow">Tomorrow</SelectItem>
+                <SelectItem value="specific">Specific Date</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {dateFilter === "specific" && (
+              <Input
+                type="date"
+                value={specificDate}
+                onChange={(e) => setSpecificDate(e.target.value)}
+                className="w-[140px] text-xs h-9 bg-card"
+              />
+            )}
+
+            {/* Category Filter */}
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-[150px] text-xs h-9">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                <SelectItem value="call">Call</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="social_media">Social Media</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Status Filter */}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px] text-xs h-9">
+              <SelectTrigger className="w-[150px] text-xs h-9">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
@@ -424,17 +563,19 @@ export function AppointmentsQueueHub() {
             </span>
           </div>
 
-          {/* Table (Exact Columns: TOKEN, SLOT, PET, OWNER, DOCTOR, TYPE, STATUS) */}
+          {/* Table (Columns: TOKEN, APPOINTMENT DATE, SLOT, PET, OWNER, DOCTOR, TYPE, CATEGORY, STATUS, ACTIONS) */}
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-muted/50 text-muted-foreground border-b border-border text-left font-bold uppercase tracking-wider text-[11px]">
                   <th className="px-4 py-3">TOKEN</th>
+                  <th className="px-4 py-3">APPOINTMENT DATE</th>
                   <th className="px-4 py-3">SLOT</th>
                   <th className="px-4 py-3">PET</th>
                   <th className="px-4 py-3">OWNER</th>
                   <th className="px-4 py-3">DOCTOR</th>
                   <th className="px-4 py-3">TYPE</th>
+                  <th className="px-4 py-3">CATEGORY</th>
                   <th className="px-4 py-3">STATUS</th>
                   <th className="px-4 py-3 text-right">ACTIONS</th>
                 </tr>
@@ -449,9 +590,14 @@ export function AppointmentsQueueHub() {
                       </span>
                     </td>
 
+                    {/* Appointment Date */}
+                    <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">
+                      {formatAppointmentDate(row.appointment_date || row.date)}
+                    </td>
+
                     {/* Slot */}
-                    <td className="px-4 py-3 font-mono font-semibold text-foreground">
-                      {row.time}
+                    <td className="px-4 py-3 font-mono font-semibold text-foreground whitespace-nowrap">
+                      {row.slot || row.time || "—"}
                     </td>
 
                     {/* Pet */}
@@ -487,6 +633,11 @@ export function AppointmentsQueueHub() {
                       </span>
                     </td>
 
+                    {/* Category */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {renderCategoryBadge(row.appointment_category || row.category)}
+                    </td>
+
                     {/* Status */}
                     <td className="px-4 py-3">
                       <StatusPill value={row.status} />
@@ -495,6 +646,16 @@ export function AppointmentsQueueHub() {
                     {/* Actions */}
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleEditAppointment(row)}
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                          title="Edit Appointment"
+                        >
+                          <Edit className="size-3.5" />
+                        </Button>
+
                         {row.status !== "Completed" && (
                           <Button
                             size="sm"
@@ -540,7 +701,7 @@ export function AppointmentsQueueHub() {
 
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-xs text-muted-foreground">
+                    <td colSpan={10} className="py-12 text-center text-xs text-muted-foreground">
                       No appointment records match your filters.
                     </td>
                   </tr>
@@ -550,11 +711,16 @@ export function AppointmentsQueueHub() {
           </div>
         </motion.div>
 
-        {/* Book Appointment Modal */}
+        {/* Book / Edit Appointment Modal */}
         <BookAppointmentModal
           open={showBookModal}
-          onClose={() => setShowBookModal(false)}
+          onClose={() => {
+            setShowBookModal(false);
+            setEditingAppointment(null);
+          }}
+          appointmentToEdit={editingAppointment}
           onBooked={handleBookedNew}
+          onUpdated={handleUpdatedAppointment}
         />
 
         {/* Clinical Workspace Modal for Consultation & Billing */}

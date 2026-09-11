@@ -31,13 +31,15 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useErp } from "@/lib/erp/store";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
-import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn } from "@/lib/mongodb/serverFns/clinical";
+import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn, savePrescriptionFn } from "@/lib/mongodb/serverFns/clinical";
+import { PrescriptionWorkflow } from "./prescription/PrescriptionWorkflow";
+import type { IPrescriptionData } from "@/lib/mongodb/models/ClinicalVisit";
 import { PrescriptionPrintView } from "./PrescriptionPrintView";
 import { InvoicePrintView } from "./InvoicePrintView";
 import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
 import { getPetFn } from "@/lib/mongodb/serverFns/crm";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
-import { calcLineItem, calcBillSummary, validateDiscount } from "@/lib/utils/moneyUtils";
+import { calcLineItem, calcBillSummary, validateDiscount, roundMoney } from "@/lib/utils/moneyUtils";
 
 interface VisitWorkspaceProps {
   open: boolean;
@@ -62,6 +64,9 @@ interface BillLine {
   discountValue?: number | undefined;      // raw user input
   discountAmount?: number | undefined;    // computed
   gstRate: number;
+  sourceType?: "RX_ITEM" | "RX_CONSULT" | "RX_LAB" | null | undefined;
+  sourceId?: string | null | undefined;
+  rxSection?: string | null | undefined;
 }
 
 const FALLBACK_CATALOG = [
@@ -96,13 +101,18 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   // Vitals & Clinical Form
   const [weightKg, setWeightKg] = useState(visit?.vitals?.weightKg ? String(visit.vitals.weightKg) : "24.5");
   const [tempC, setTempC] = useState(visit?.vitals?.tempC ? String(visit.vitals.tempC) : "38.5");
-  const [complaint, setComplaint] = useState(visit?.vitals?.complaint || "Routine consultation and health review");
+  const [complaint, setComplaint] = useState(visit?.vitals?.complaint || "");
   const [diagnosis, setDiagnosis] = useState(visit?.diagnosis || "");
   const [clinicalNotes, setClinicalNotes] = useState(visit?.clinicalNotes || "");
   
   // Reminders
   const [nextVisitDate, setNextVisitDate] = useState(visit?.nextVisitDate || "");
   const [nextDewormingDate, setNextDewormingDate] = useState(visit?.nextDewormingDate || "");
+
+  // Structured Prescription Data (§11)
+  const [prescriptionData, setPrescriptionData] = useState<IPrescriptionData | null>(
+    visit?.prescriptionData || null
+  );
 
   // Extended Records
   const [vaccineRecords, setVaccineRecords] = useState<{ id: string; type: string; dateGiven: string; nextDueDate: string; price?: number }[]>([]);
@@ -174,8 +184,12 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
   // Payment
   const [billType, setBillType] = useState<"GST" | "Non-GST">(visit?.billType || "GST");
+  const [paymentType, setPaymentType] = useState<"full" | "partial">("full");
   const [paymentMode, setPaymentMode] = useState<"UPI" | "Cash" | "Card" | "NetBanking" | "Cheque" | "Account Due">("UPI");
   const [trxRef, setTrxRef] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
+  const [amountReceived, setAmountReceived] = useState<number | "">("");
+  const [hasManuallyEditedAmount, setHasManuallyEditedAmount] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
 
   // Print Dialog States
@@ -250,6 +264,13 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     }));
 
     setLines(copiedLines);
+    if (prevVisit.prescriptionData) {
+      setPrescriptionData(prevVisit.prescriptionData);
+      if (prevVisit.prescriptionData.weight !== undefined) setWeightKg(String(prevVisit.prescriptionData.weight));
+      if (prevVisit.prescriptionData.bodyTemperature !== undefined) setTempC(String(prevVisit.prescriptionData.bodyTemperature));
+      if (prevVisit.prescriptionData.symptomsText) setComplaint(prevVisit.prescriptionData.symptomsText);
+    }
+
     if (prevVisit.diagnosis && !diagnosis) {
       setDiagnosis(prevVisit.diagnosis);
     }
@@ -261,6 +282,91 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
     toast.success(`Loaded ${copiedLines.length} item(s) from previous Rx (${prevVisit.date}) into current prescription form!`);
     setShowHistoryPanel(false);
+  };
+
+  const handleSavePrescription = async (rxData: IPrescriptionData, billableLines: any[]) => {
+    try {
+      setPrescriptionData(rxData);
+      if (rxData.weight !== undefined) setWeightKg(String(rxData.weight));
+      if (rxData.bodyTemperature !== undefined) setTempC(String(rxData.bodyTemperature));
+      if (rxData.symptomsText) setComplaint(rxData.symptomsText);
+      if (rxData.followUp?.nextTreatmentDate) setNextVisitDate(rxData.followUp.nextTreatmentDate);
+      if (rxData.followUp?.nextDewormingDate) setNextDewormingDate(rxData.followUp.nextDewormingDate);
+
+      // Keep consultation fees & diagnostic procedures, sync pharmacy, food, accessories
+      const feeLines = lines.filter(
+        (l) => l.lineType === "Consultation" || l.lineType === "Procedure" || l.lineType === "Diagnostic" || l.lineType === "Service"
+      );
+
+      const mergedLines: BillLine[] = [
+        ...feeLines,
+        ...billableLines.map((bl, i) => ({
+          id: bl.id || `bl-${Date.now()}-${i}`,
+          lineType: bl.lineType || "Pharmacy",
+          itemCode: bl.itemCode,
+          batchNo: bl.batchNo,
+          name: bl.name,
+          dosageInstructions: bl.dosageInstructions,
+          quantity: bl.quantity || 1,
+          unitPrice: bl.unitPrice || 0,
+          discountPercent: bl.discountPercent || 0,
+          discountType: bl.discountType || "percentage",
+          discountValue: bl.discountValue ?? bl.discountPercent ?? 0,
+          discountAmount: bl.discountAmount,
+          gstRate: bl.gstRate || 0,
+        })),
+      ];
+
+      setLines(mergedLines);
+
+      const updated = await savePrescriptionFn({
+        data: {
+          visitId: visit.visitId || `V-${Math.floor(1000 + Math.random() * 9000)}`,
+          prescriptionNo: visit.prescriptionNo,
+          date: rxData.dateOfVisit || visit.date || new Date().toISOString().slice(0, 10),
+          petId: visit.petId,
+          petName: visit.petName,
+          species: visit.species,
+          breed: visit.breed,
+          ownerId: visit.ownerId,
+          ownerName: visit.ownerName,
+          ownerPhone: visit.ownerPhone,
+          doctorName: activeDoctorName,
+          vitals: {
+            weight: rxData.weight,
+            weightUnit: rxData.weightUnit,
+            temp: rxData.bodyTemperature,
+            tempUnit: rxData.temperatureUnit,
+            complaint: rxData.symptomsText,
+          },
+          diagnosis: rxData.clinicalFindings && rxData.clinicalFindings.length > 0
+            ? `Findings: ${rxData.clinicalFindings.join(", ")}${rxData.clinicalFindingsOther ? ` (${rxData.clinicalFindingsOther})` : ""}`
+            : diagnosis || visit.diagnosis,
+          clinicalNotes: rxData.previousHistory || clinicalNotes,
+          nextVisitDate: rxData.followUp?.nextTreatmentDate,
+          nextVaccineDate: rxData.followUp?.nextVaccineDate,
+          nextDewormingDate: rxData.followUp?.nextDewormingDate,
+          prescriptionData: rxData,
+          billableItems: mergedLines,
+        },
+      });
+
+      if (updated) {
+        onVisitFinalized?.(updated);
+      }
+    } catch (e: any) {
+      console.error("Save prescription error:", e);
+      throw e;
+    }
+  };
+
+  const handleProceedToBilling = async (rxData: IPrescriptionData, billableLines: any[]) => {
+    try {
+      await handleSavePrescription(rxData, billableLines);
+    } catch (e) {
+      console.warn("Auto-save on proceed to billing encountered an issue:", e);
+    }
+    setTab("billing");
   };
 
   // REQ-RX-01: set of already-prescribed itemCodes — excludes from catalog dropdown
@@ -594,13 +700,13 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       }
       setWeightKg(visit?.vitals?.weightKg ? String(visit.vitals.weightKg) : "24.5");
       setTempC(visit?.vitals?.tempC ? String(visit.vitals.tempC) : "38.5");
-      setComplaint(visit?.vitals?.complaint || "Routine consultation and health review");
+      setComplaint(visit?.vitals?.complaint || "");
       setDiagnosis(visit?.diagnosis || "");
       setClinicalNotes(visit?.clinicalNotes || "");
       setNextVisitDate(visit?.nextVisitDate || "");
       setNextDewormingDate(visit?.nextDewormingDate || "");
       if (visit.items && visit.items.length > 0) {
-        setLines(visit.items.map((it: any, idx: number) => ({ ...it, id: String(idx + 1) })));
+        setLines(visit.items.map((it: any, idx: number) => ({ ...it, id: it.id || String(idx + 1) })));
       } else {
         setLines([
           {
@@ -636,24 +742,34 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     if (!visit?.petId) return;
     try {
       const latestVisit = await getLatestVisitFn({ data: { petId: visit.petId, excludeVisitId: visit.visitId } });
-      if (!latestVisit || !latestVisit.items || latestVisit.items.length === 0) {
+      if (!latestVisit) {
         toast.info("No previous treatments found to clone.");
         return;
       }
-      const existingLineIds = new Set(lines.map(l => l.itemCode));
-      const clonedItems = latestVisit.items
-        .filter((it: any) => it.lineType === "Medicine" && !existingLineIds.has(it.itemCode))
-        .map((it: any) => ({
-          ...it,
-          id: Math.random().toString(),
-        }));
-      
-      if (clonedItems.length === 0) {
-        toast.info("Previous medicines are already added.");
-        return;
+      if (latestVisit.prescriptionData) {
+        setPrescriptionData(latestVisit.prescriptionData);
+        if (latestVisit.prescriptionData.weight !== undefined) setWeightKg(String(latestVisit.prescriptionData.weight));
+        if (latestVisit.prescriptionData.bodyTemperature !== undefined) setTempC(String(latestVisit.prescriptionData.bodyTemperature));
+        if (latestVisit.prescriptionData.symptomsText) setComplaint(latestVisit.prescriptionData.symptomsText);
       }
-      setLines(prev => [...prev, ...clonedItems]);
-      toast.success(`Cloned ${clonedItems.length} previous medicine(s).`);
+      if (latestVisit.items && latestVisit.items.length > 0) {
+        const existingLineIds = new Set(lines.map((l) => l.itemCode));
+        const clonedItems = latestVisit.items
+          .filter((it: any) => (it.lineType === "Medicine" || it.lineType === "Pharmacy" || it.lineType === "Vaccine") && (!it.itemCode || !existingLineIds.has(it.itemCode)))
+          .map((it: any) => ({
+            ...it,
+            id: Math.random().toString(),
+          }));
+
+        if (clonedItems.length > 0) {
+          setLines((prev) => [...prev, ...clonedItems]);
+          toast.success(`Cloned ${clonedItems.length} previous medicine(s).`);
+        } else {
+          toast.info("Previous medicines are already added.");
+        }
+      } else {
+        toast.info("No prescription items found in previous visit.");
+      }
     } catch (e) {
       console.warn("Could not clone treatment:", e);
       toast.error("Failed to clone treatment.");
@@ -729,6 +845,34 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     };
   }, [lines, billType]);
 
+  // Partial Payment State & Derivations (§15 & §4.1)
+  useEffect(() => {
+    if (paymentType === "full") {
+      setAmountReceived(billSummary.totalAmount);
+    }
+  }, [billSummary.totalAmount, paymentType]);
+
+  const numericAmountReceived = typeof amountReceived === "number" ? amountReceived : 0;
+  const pendingAmount = Math.max(0, roundMoney(billSummary.totalAmount - numericAmountReceived));
+
+  const paymentStatus: "Full" | "Partial" | "Unpaid" = useMemo(() => {
+    if (numericAmountReceived >= billSummary.totalAmount && billSummary.totalAmount > 0) return "Full";
+    if (numericAmountReceived > 0) return "Partial";
+    return "Unpaid";
+  }, [numericAmountReceived, billSummary.totalAmount]);
+
+  const isAmountOver = numericAmountReceived > billSummary.totalAmount;
+  const isAmountNegative = typeof amountReceived === "number" && amountReceived < 0;
+  const isPartialEmptyOrZero = paymentType === "partial" && (amountReceived === "" || numericAmountReceived <= 0);
+
+  const paymentValidationError = isAmountOver
+    ? "Paid amount cannot be greater than the total bill."
+    : isAmountNegative
+    ? "Amount received cannot be negative."
+    : isPartialEmptyOrZero
+    ? "Please enter a valid payment amount."
+    : null;
+
   const handleAddMedicineFromCatalog = async () => {
     if (!selectedMedicine) {
       toast.error("Please select a medicine or service from catalog");
@@ -794,6 +938,11 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       return;
     }
 
+    if (paymentValidationError) {
+      toast.error(paymentValidationError);
+      return;
+    }
+
     setIsFinalizing(true);
     try {
       const payload = {
@@ -808,10 +957,19 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         branch: visit.branch || "Main Clinic",
         billType: (visit.billType as "GST" | "Non-GST") || billType,
         doctorName: visit.doctorName || activeDoctorName,
-        diagnosis: diagnosis.trim() || "Clinical Examination Completed",
-        clinicalNotes: clinicalNotes.trim(),
-        nextVisitDate: nextVisitDate || undefined,
-        nextDewormingDate: nextDewormingDate || undefined,
+        diagnosis: diagnosis.trim() || (prescriptionData?.clinicalFindings && prescriptionData.clinicalFindings.length > 0 ? `Findings: ${prescriptionData.clinicalFindings.join(", ")}` : "Clinical Examination Completed"),
+        clinicalNotes: clinicalNotes.trim() || (prescriptionData?.previousHistory ? `History: ${prescriptionData.previousHistory}` : ""),
+        nextVisitDate: nextVisitDate || prescriptionData?.followUp?.nextTreatmentDate || undefined,
+        nextVaccineDate: prescriptionData?.followUp?.nextVaccineDate || undefined,
+        nextDewormingDate: nextDewormingDate || prescriptionData?.followUp?.nextDewormingDate || undefined,
+        prescriptionData: prescriptionData || visit?.prescriptionData,
+        vitals: {
+          weight: prescriptionData?.weight ? Number(prescriptionData.weight) : (visit?.vitals?.weight ? Number(visit.vitals.weight) : undefined),
+          weightUnit: (prescriptionData?.weightUnit as "kg" | "lb") || visit?.vitals?.weightUnit || "kg",
+          temp: prescriptionData?.bodyTemperature ? Number(prescriptionData.bodyTemperature) : (visit?.vitals?.temp ? Number(visit.vitals.temp) : undefined),
+          tempUnit: (prescriptionData?.temperatureUnit as "°C" | "°F") || visit?.vitals?.tempUnit || "°C",
+          complaint: prescriptionData?.symptomsText || complaint || visit?.vitals?.complaint,
+        },
         items: lines.map((l) => {
           const applyGst = billType === "GST";
           const dType: "percentage" | "fixed" = (l.discountType === "fixed" || l.discountType === "₹") ? "fixed" : "percentage";
@@ -825,6 +983,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             applyGst,
           });
           return {
+            id: l.id,
             lineType: l.lineType,
             itemCode: l.itemCode,
             batchNo: l.batchNo,
@@ -839,6 +998,9 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             taxableAmount: calc.taxableAmount,
             gstRate: l.gstRate,
             lineTotal: calc.lineTotal,
+            sourceType: l.sourceType || null,
+            sourceId: l.sourceId || null,
+            rxSection: l.rxSection || null,
           };
         }),
         subtotal: billSummary.subtotal,
@@ -847,11 +1009,13 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         gstAmount: billSummary.gstAmount,
         roundOff: billSummary.roundOff,
         totalAmount: billSummary.totalAmount,
-        amountPaid: billSummary.totalAmount,
+        amountPaid: numericAmountReceived,
+        pendingAmount,
+        paymentStatus,
         paymentMode,
         trxRef: trxRef || undefined,
+        notes: paymentNotes.trim() || undefined,
       };
-
 
       const updated = await finalizeVisitAndBillFn({ data: payload });
       setFinalizedVisit(updated);
@@ -950,1119 +1114,70 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         {/* ── Main Scrollable Body ──────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {tab === "consultation" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left 2 Cols: Vitals, Diagnosis & Medicine Picker */}
-              <div className="lg:col-span-2 space-y-5">
-                {/* Prominent Bold Highlighted Allergies Warning Banner */}
-                {Boolean(
-                  (visit?.allergies && (Array.isArray(visit.allergies) ? visit.allergies.length > 0 : String(visit.allergies).trim().length > 0)) ||
-                  (petDetails?.allergies && (Array.isArray(petDetails.allergies) ? petDetails.allergies.length > 0 : String(petDetails.allergies).trim().length > 0))
-                ) && (
-                  <div className="rounded-2xl p-4 bg-destructive text-destructive-foreground border-2 border-destructive shadow-lg flex items-start gap-3.5 animate-pulse">
-                    <AlertTriangle className="size-6 text-white shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
-                        <span>⚠ CRITICAL ALLERGY ALERT</span>
-                        <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-mono font-bold">SAFETY WARNING</span>
-                      </h4>
-                      <p className="text-xs font-bold text-white/95 leading-relaxed">
-                        Patient has documented allergies:{" "}
-                        <span className="underline decoration-wavy font-extrabold text-yellow-300 text-sm">
-                          {Array.isArray(visit?.allergies) && visit.allergies.length > 0
-                            ? visit.allergies.join(", ")
-                            : Array.isArray(petDetails?.allergies)
-                            ? petDetails.allergies.join(", ")
-                            : String(visit?.allergies || petDetails?.allergies)}
-                        </span>
-                      </p>
-                      <p className="text-[10px] font-semibold text-white/80">
-                        * Avoid prescribing contra-indicated drugs or administering allergen vaccines to this patient.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Vitals Strip */}
-                <div className="erp-card p-4 bg-muted/20">
-                  <p className="section-label mb-2.5">Patient Intake Vitals</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Weight (kg)</Label>
-                      <Input value={weightKg} onChange={(e) => setWeightKg(e.target.value)} className="h-8 text-xs font-semibold" />
-                    </div>
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Body Temp (°C)</Label>
-                      <Input value={tempC} onChange={(e) => setTempC(e.target.value)} className="h-8 text-xs font-semibold" />
-                    </div>
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Presenting Complaint</Label>
-                      <Input value={complaint} onChange={(e) => setComplaint(e.target.value)} className="h-8 text-xs" />
-                    </div>
+            <div className="space-y-5">
+              {/* Prominent Bold Highlighted Allergies Warning Banner */}
+              {Boolean(
+                (visit?.allergies && (Array.isArray(visit.allergies) ? visit.allergies.length > 0 : String(visit.allergies).trim().length > 0)) ||
+                (petDetails?.allergies && (Array.isArray(petDetails.allergies) ? petDetails.allergies.length > 0 : String(petDetails.allergies).trim().length > 0))
+              ) && (
+                <div className="rounded-2xl p-4 bg-destructive text-destructive-foreground border-2 border-destructive shadow-lg flex items-start gap-3.5 animate-pulse">
+                  <AlertTriangle className="size-6 text-white shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                      <span>⚠ CRITICAL ALLERGY ALERT</span>
+                      <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-mono font-bold">SAFETY WARNING</span>
+                    </h4>
+                    <p className="text-xs font-bold text-white/95 leading-relaxed">
+                      Patient has documented allergies:{" "}
+                      <span className="underline decoration-wavy font-extrabold text-yellow-300 text-sm">
+                        {Array.isArray(visit?.allergies) && visit.allergies.length > 0
+                          ? visit.allergies.join(", ")
+                          : Array.isArray(petDetails?.allergies)
+                          ? petDetails.allergies.join(", ")
+                          : String(visit?.allergies || petDetails?.allergies)}
+                      </span>
+                    </p>
+                    <p className="text-[10px] font-semibold text-white/80">
+                      Check contraindications before prescribing NSAIDs, specific antibiotics, or anaesthetics.
+                    </p>
                   </div>
                 </div>
+              )}
 
-                {/* Doctor's Diagnosis & Findings */}
-                <div className="erp-card p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="section-label">Clinical Diagnosis &amp; Findings</p>
-                    <span className="text-[11px] text-primary font-semibold">Doctor: {activeDoctorName}</span>
-                  </div>
-                  <Input
-                    placeholder="Primary Diagnosis (e.g. Acute Gastritis, Routine 9-in-1 Vaccination, Otitis Externa)"
-                    value={diagnosis}
-                    onChange={(e) => setDiagnosis(e.target.value)}
-                    className="font-medium text-sm"
-                  />
-                  <textarea
-                    rows={3}
-                    placeholder="Detailed clinical notes, examination observations, diet advice, or care guidelines..."
-                    value={clinicalNotes}
-                    onChange={(e) => setClinicalNotes(e.target.value)}
-                    className="w-full rounded-md border border-input bg-background p-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  />
-                </div>
-
-                {/* Doctor Consultation Fee Manual Control */}
-                <div className="erp-card p-4 bg-primary-soft/10 border border-primary/20 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                    <div>
-                      <p className="text-xs font-bold text-navy flex items-center gap-1.5">
-                        <Stethoscope className="size-3.5 text-primary" /> Doctor Consultation Fee (Manual)
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Set custom consultation fee for this doctor visit or pick from quick presets
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="relative w-32">
-                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">₹</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          step={50}
-                          value={consultationLine ? consultationLine.unitPrice : 0}
-                          onChange={(e) => handleSetConsultationFee(Number(e.target.value))}
-                          className="h-8 text-xs font-bold pl-6 text-foreground bg-card border-primary/40 font-mono"
-                          placeholder="Fee (₹)"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quick Fee Presets */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-primary/10">
-                    <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mr-1">Presets:</span>
-                    {[
-                      { label: "₹0 (Free / Follow-up)", val: 0 },
-                      { label: "₹300 (Re-check)", val: 300 },
-                      { label: "₹500 (Standard)", val: 500 },
-                      { label: "₹800 (Specialist)", val: 800 },
-                      { label: "₹1200 (Emergency / Surgery)", val: 1200 },
-                    ].map((preset) => (
-                      <button
-                        key={preset.val}
-                        type="button"
-                        onClick={() => handleSetConsultationFee(preset.val)}
-                        className={cn(
-                          "rounded-md px-2.5 py-1 text-[11px] font-semibold border transition-all shadow-2xs",
-                          consultationLine && consultationLine.unitPrice === preset.val
-                            ? "bg-primary text-primary-foreground border-primary font-bold"
-                            : "bg-card text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
-                        )}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Live Inventory Medicine & Vaccine Picker */}
-                <div className="erp-card p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b border-border pb-2">
-                    <p className="section-label mb-0">Prescribe Medicines &amp; Vaccines (Live Inventory)</p>
-                    <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                      {filteredCatalog.length} items available
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-2 relative">
-                      <Label className="text-[11px] text-muted-foreground flex items-center justify-between">
-                        <span>Search Product Catalog</span>
-                        <span className="text-[10px] text-primary font-semibold">Dynamic Auto-search</span>
-                      </Label>
-                      <div className="relative">
-                        <Input
-                          placeholder="🔍 Start typing medicine name (e.g. Amox, Rabies)..."
-                          value={medSearchQuery}
-                          onChange={(e) => setMedSearchQuery(e.target.value)}
-                          className="h-9 text-xs bg-background pr-8 font-medium"
-                        />
-                        {medSearchQuery && (
-                          <button
-                            type="button"
-                            onClick={() => setMedSearchQuery("")}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            ✕
-                          </button>
-                        )}
-                        {/* Dynamic Instant Search Results Floating Dropdown */}
-                        {medSearchQuery.trim().length > 0 && (
-                          <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-52 overflow-y-auto rounded-xl border border-primary/40 bg-card p-1 shadow-xl">
-                            {filteredCatalog.length === 0 ? (
-                              <p className="p-2 text-[11px] text-muted-foreground italic text-center">No matching medicines found.</p>
-                            ) : (
-                              filteredCatalog.map((m: any) => (
-                                <button
-                                  key={m.itemCode}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedMedicine(m);
-                                    setMedSearchQuery(m.name);
-                                  }}
-                                  className="w-full text-left p-2 hover:bg-primary/10 rounded-lg flex items-center justify-between text-xs transition-colors border-b border-border/30 last:border-0"
-                                >
-                                  <div>
-                                    <p className="font-bold text-foreground">{m.name}</p>
-                                    <span className="text-[10px] font-mono text-muted-foreground">{m.itemCode}</span>
-                                  </div>
-                                  <span className="font-mono font-bold text-primary text-xs">₹{m.defaultSalePrice || 250}</span>
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <Select
-                        value={selectedMedicine?.itemCode || ""}
-                        onValueChange={(code) => {
-                          const m = catalogItems.find((x: any) => x.itemCode === code);
-                          setSelectedMedicine(m || null);
-                          if (m) setMedSearchQuery(m.name);
-                        }}
-                      >
-                        <SelectTrigger className="text-xs h-9 bg-card">
-                          <SelectValue placeholder="Or choose from medicine catalog dropdown..." />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-56">
-                          {filteredCatalog.map((m: any) => (
-                            <SelectItem key={m.itemCode} value={m.itemCode}>
-                              <div className="flex items-center justify-between w-full gap-4">
-                                <span className="font-medium">{m.name}</span>
-                                <span className="font-mono text-[10px] text-muted-foreground">
-                                  ₹{m.defaultSalePrice || 250} · {m.itemCode}
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-[11px] text-muted-foreground">Quantity &amp; Dosage Instructions</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          type="number"
-                          min={1}
-                          value={itemQty}
-                          onChange={(e) => setItemQty(Number(e.target.value))}
-                          className="w-16 h-9 text-xs font-mono text-center"
-                        />
-                        <Input
-                          placeholder="e.g. 1 tab BID x 5 days"
-                          value={dosageText}
-                          onChange={(e) => setDosageText(e.target.value)}
-                          className="flex-1 h-9 text-xs"
-                        />
-                        <Button size="sm" onClick={handleAddMedicineFromCatalog} className="h-9 px-3.5 font-bold">
-                          <Plus className="size-4" /> Add
-                        </Button>
-                      </div>
-                      {selectedMedicine && (
-                        <div className="text-[11px] text-primary bg-primary/10 px-2.5 py-1 rounded-md font-medium flex items-center justify-between border border-primary/20">
-                          <span>Selected: <strong className="font-bold">{selectedMedicine.name}</strong></span>
-                          <span className="font-mono font-bold">₹{selectedMedicine.defaultSalePrice || 250}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Added Prescribed Medicines List (Immediately Below Entry Field) */}
-                  <div className="pt-3 border-t border-border space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <span>💊 Prescribed Medicines List</span>
-                        <Badge variant="outline" className="text-[10px] font-mono bg-primary/10 text-primary">
-                          {lines.filter((l) => l.lineType === "Pharmacy").length} prescribed
-                        </Badge>
-                      </p>
-                      <span className="text-[10px] text-muted-foreground">Displayed directly below entry field</span>
-                    </div>
-
-                    {lines.filter((l) => l.lineType === "Pharmacy").length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground italic text-center py-2 bg-muted/20 rounded-lg">No medicines added to prescription yet.</p>
-                    ) : (
-                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                        {lines
-                          .filter((l) => l.lineType === "Pharmacy")
-                          .map((m) => (
-                            <div key={m.id} className="flex items-center justify-between p-2.5 rounded-xl bg-card border border-border/80 text-xs shadow-2xs">
-                              <div>
-                                <p className="font-bold text-foreground">{m.name}</p>
-                                {m.dosageInstructions && (
-                                  <p className="text-[10px] text-primary font-medium mt-0.5">Dosage: {m.dosageInstructions}</p>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <span className="text-[11px] text-muted-foreground font-mono">Qty: {m.quantity} × ₹{m.unitPrice}</span>
-                                <span className="font-mono font-bold text-foreground">₹{m.quantity * m.unitPrice}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveLine(m.id)}
-                                  className="text-muted-foreground hover:text-destructive p-1"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Quick Add Clinical Procedures */}
-                  <div className="pt-2 flex flex-wrap gap-2 items-center border-t border-border/40">
-                    <span className="text-[11px] text-muted-foreground font-semibold">Quick Procedures:</span>
-                    {[
-                      { name: "Deworming Dose", price: 200, cat: "Procedure" as const },
-                      { name: "Ear Cleaning / Flush", price: 350, cat: "Procedure" as const },
-                      { name: "Nail Clipping", price: 150, cat: "Procedure" as const },
-                      { name: "CBC Blood Test", price: 750, cat: "Diagnostic" as const },
-                    ].map((svc) => (
-                      <button
-                        key={svc.name}
-                        onClick={() => handleAddServiceLine(svc.name, svc.price, svc.cat)}
-                        className="rounded-lg border border-border bg-muted/40 px-2 py-1 text-[11px] font-medium hover:border-primary/40 hover:bg-primary-soft/30 transition-all"
-                      >
-                        + {svc.name} (₹{svc.price})
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Follow-up Scheduling */}
-                <div className="erp-card p-4">
-                  <p className="section-label mb-2.5">Clinical Follow-up &amp; Reminder Schedule</p>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-[11px] text-muted-foreground flex justify-between">
-                        <span>Next Visit Date</span>
-                        <Select onValueChange={(val) => {
-                          const date = new Date();
-                          if (val === "1") date.setDate(date.getDate() + 1);
-                          else if (val === "2") date.setDate(date.getDate() + 2);
-                          else if (val === "5") date.setDate(date.getDate() + 5);
-                          else if (val === "7") date.setDate(date.getDate() + 7);
-                          else if (val === "30") date.setMonth(date.getMonth() + 1);
-                          setNextVisitDate(date.toISOString().slice(0, 10));
-                        }}>
-                          <SelectTrigger className="h-4 w-20 text-[9px] border-none bg-muted/40 p-0 px-1 shadow-none focus:ring-0">
-                            <SelectValue placeholder="Quick Date" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="1">Tomorrow</SelectItem>
-                            <SelectItem value="2">Day After</SelectItem>
-                            <SelectItem value="5">After 5 Days</SelectItem>
-                            <SelectItem value="7">After 7 Days</SelectItem>
-                            <SelectItem value="30">After 1 Month</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Label>
-                      <Input type="date" value={nextVisitDate} onChange={(e) => setNextVisitDate(e.target.value)} className="h-8 text-xs font-semibold" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[11px] text-muted-foreground flex justify-between">
-                        <span>Next Deworming Due</span>
-                        <Select onValueChange={(val) => {
-                          const date = new Date();
-                          if (val === "15") date.setDate(date.getDate() + 15);
-                          else if (val === "30") date.setMonth(date.getMonth() + 1);
-                          else if (val === "90") date.setMonth(date.getMonth() + 3);
-                          setNextDewormingDate(date.toISOString().slice(0, 10));
-                        }}>
-                          <SelectTrigger className="h-4 w-20 text-[9px] border-none bg-muted/40 p-0 px-1 shadow-none focus:ring-0">
-                            <SelectValue placeholder="Quick Date" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="15">After 15 Days</SelectItem>
-                            <SelectItem value="30">After 30 Days</SelectItem>
-                            <SelectItem value="90">After 3 Months</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Label>
-                      <Input type="date" value={nextDewormingDate} onChange={(e) => setNextDewormingDate(e.target.value)} className="h-8 text-xs font-semibold" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Vaccines Records Section */}
-                <div className="erp-card p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b border-border pb-2">
-                    <p className="section-label mb-0">Vaccine Records Entry</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-[11px] font-bold border-blue-500/40 text-blue-700 hover:bg-blue-50 dark:text-blue-300 shadow-2xs gap-1"
-                      onClick={handleAddVaccineRecord}
-                    >
-                      <Plus className="size-3.5 text-blue-600" /> Add Vaccine
-                    </Button>
-                  </div>
-                  <div className="space-y-3">
-                    {vaccineRecords.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic text-center py-2 bg-muted/20 rounded-lg">
-                        Click "+ Add Vaccine" to record a vaccination &amp; automatically add to billing.
-                      </p>
-                    )}
-                    {vaccineRecords.map((vr) => (
-                      <div key={vr.id} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end border border-border/60 bg-muted/10 p-2.5 rounded-lg text-xs">
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-muted-foreground font-semibold">Vaccine Type</Label>
-                          <Select value={vr.type} onValueChange={(v) => handleUpdateVaccineType(vr.id, v)}>
-                            <SelectTrigger className="h-7 text-[11px] bg-card"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Anti-rabies">Anti-rabies (Rabisin) — ₹350</SelectItem>
-                              <SelectItem value="All-in-1">All-in-1 (DHPPi/L 9-in-1) — ₹450</SelectItem>
-                              <SelectItem value="Kennel Cough">Kennel Cough (KC) — ₹400</SelectItem>
-                              <SelectItem value="Feline Tri-cat">Feline Tri-cat — ₹550</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-muted-foreground font-semibold">Date Given</Label>
-                          <Input type="date" value={vr.dateGiven} onChange={(e) => setVaccineRecords(vaccineRecords.map(r => r.id === vr.id ? { ...r, dateGiven: e.target.value } : r))} className="h-7 text-[11px] bg-card font-mono" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-muted-foreground flex justify-between font-semibold">
-                            <span>Next Due</span>
-                            <Select onValueChange={(val) => {
-                              const date = new Date(vr.dateGiven || new Date());
-                              if (val === "30") date.setMonth(date.getMonth() + 1);
-                              else if (val === "365") date.setFullYear(date.getFullYear() + 1);
-                              setVaccineRecords(vaccineRecords.map(r => r.id === vr.id ? { ...r, nextDueDate: date.toISOString().slice(0, 10) } : r));
-                            }}>
-                              <SelectTrigger className="h-4 w-12 text-[8px] border-none bg-muted/40 p-0 px-1 shadow-none focus:ring-0"><SelectValue placeholder="Quick" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="30">1 Mo</SelectItem>
-                                <SelectItem value="365">1 Yr</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </Label>
-                          <Input type="date" value={vr.nextDueDate} onChange={(e) => setVaccineRecords(vaccineRecords.map(r => r.id === vr.id ? { ...r, nextDueDate: e.target.value } : r))} className="h-7 text-[11px] bg-card font-mono" />
-                        </div>
-                        <div className="pb-0.5">
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveVaccineRecord(vr.id)}>
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Added Vaccine Records List (Immediately Below Entry Field & Synced with Billing) */}
-                  <div className="pt-3 border-t border-border space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <span>💉 ADDED VACCINES LIST</span>
-                        <Badge variant="outline" className="text-[10px] font-mono bg-blue-50 text-blue-700 border-blue-200 font-bold">
-                          {vaccineRecords.length} RECORDED
-                        </Badge>
-                      </p>
-                      <span className="text-[10px] text-muted-foreground">Displayed directly below entry field</span>
-                    </div>
-
-                    {vaccineRecords.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground italic text-center py-2.5 bg-muted/20 rounded-lg">No vaccines recorded yet.</p>
-                    ) : (
-                      <div className="space-y-2 max-h-52 overflow-y-auto">
-                        {vaccineRecords.map((vr) => (
-                          <div key={vr.id} className="flex items-center justify-between p-3 rounded-xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-xs shadow-2xs">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <p className="font-extrabold text-blue-700 dark:text-blue-300 text-xs flex items-center gap-1.5">
-                                  <CheckCircle2 className="size-4 text-blue-600" /> {vr.type}
-                                </p>
-                                <Badge variant="outline" className="text-[9px] font-mono bg-emerald-50 text-emerald-700 border-emerald-300 font-extrabold">
-                                  ₹{vr.price || DEFAULT_VACCINE_PRICES[vr.type] || 350} (Added to Billing)
-                                </Badge>
-                              </div>
-                              <p className="text-[11px] text-muted-foreground font-mono">
-                                Date Given: <strong className="text-foreground">{vr.dateGiven}</strong>
-                                {vr.nextDueDate ? <> · Next Due: <strong className="text-blue-600 font-bold">{vr.nextDueDate}</strong></> : ""}
-                              </p>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => handleRemoveVaccineRecord(vr.id)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Blood Tests Redesigned Card */}
-                <div className="erp-card p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b border-border pb-2">
-                    <p className="section-label mb-0">Blood Tests &amp; Diagnostics</p>
-                    <span className="text-[10px] font-mono font-bold bg-destructive/10 text-destructive px-2 py-0.5 rounded-full">
-                      {bloodTests.length} ordered
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Select value={newBloodTestType} onValueChange={setNewBloodTestType}>
-                      <SelectTrigger className="h-8 text-xs flex-1 bg-card">
-                        <SelectValue placeholder="Select diagnostic test..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="CBC (Complete Blood Count)">CBC (Complete Blood Count)</SelectItem>
-                        <SelectItem value="LFT / KFT (Liver & Kidney Panel)">LFT / KFT (Liver &amp; Kidney Panel)</SelectItem>
-                        <SelectItem value="Electrolytes & Blood Gas">Electrolytes &amp; Blood Gas</SelectItem>
-                        <SelectItem value="Thyroid T4 / TSH Panel">Thyroid T4 / TSH Panel</SelectItem>
-                        <SelectItem value="TGH / Blood Smear Examination">TGH / Blood Smear Examination</SelectItem>
-                        <SelectItem value="Parvovirus / Distemper Rapid Snap">Parvovirus / Distemper Rapid Snap</SelectItem>
-                      </SelectContent>
-                    </Select>
-
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleAddBloodTest}
-                      className="h-8 text-xs font-bold border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
-                    >
-                      <Plus className="size-3.5 mr-1" /> Order Test
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2 pt-1 max-h-40 overflow-y-auto">
-                    {bloodTests.length === 0 && (
-                      <p className="text-[11px] text-muted-foreground italic text-center py-2">No diagnostic tests ordered for this visit.</p>
-                    )}
-                    {bloodTests.map((bt) => (
-                      <div key={bt.id} className="flex items-center justify-between p-2.5 rounded-xl border border-border bg-muted/20 text-xs">
-                        <div className="space-y-0.5">
-                          <p className="font-bold text-foreground">{bt.testType}</p>
-                          <span className="text-[10px] font-mono text-muted-foreground">REF: {bt.id.slice(-6).toUpperCase()}</span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Select value={bt.status} onValueChange={(v) => setBloodTests(bloodTests.map(t => t.id === bt.id ? { ...t, status: v } : t))}>
-                            <SelectTrigger className="h-7 w-28 text-[10px] font-semibold bg-card">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Ordered">⌛ Ordered</SelectItem>
-                              <SelectItem value="Sample Collected">🧪 Sample Collected</SelectItem>
-                              <SelectItem value="Processing">🔬 Processing</SelectItem>
-                              <SelectItem value="Completed">✓ Completed</SelectItem>
-                            </SelectContent>
-                          </Select>
-
-                          <button
-                            type="button"
-                            onClick={() => setBloodTests(bloodTests.filter(t => t.id !== bt.id))}
-                            className="text-muted-foreground hover:text-destructive p-1"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* ── Main Category Card: Animal Food & Accessories (Live Inventory Linked) ── */}
-                <div className="erp-card p-4 space-y-4">
-                  <div className="flex items-center justify-between border-b border-border pb-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">📦</span>
-                      <div>
-                        <h3 className="font-bold text-xs uppercase tracking-wider text-foreground">Animal Food &amp; Accessories</h3>
-                        <p className="text-[10px] text-muted-foreground">Select pet nutrition supplies, dietary food, or accessories from Live Inventory</p>
-                      </div>
-                    </div>
-                    <Badge variant="outline" className="text-[10px] font-mono bg-primary/10 text-primary shrink-0">
-                      {foodItems.length + accessoryItems.length} Total Items
-                    </Badge>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Subsection 1: Animal Food */}
-                    <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-3">
-                      <div className="flex items-center justify-between border-b border-border/50 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm">🥣</span>
-                          <div>
-                            <p className="font-bold text-xs text-foreground uppercase tracking-wide">1. Animal Food</p>
-                            <p className="text-[9px] text-muted-foreground">Directly linked to Live Food Inventory</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsCustomFood(!isCustomFood);
-                              setSelectedFood(null);
-                            }}
-                            className="text-[10px] text-primary hover:underline font-semibold"
-                          >
-                            {isCustomFood ? "← From Inventory" : "+ Custom Food"}
-                          </button>
-                          <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                            {foodItems.length} items
-                          </span>
-                        </div>
-                      </div>
-
-                      {!isCustomFood ? (
-                        <div className="space-y-2">
-                          {/* Live Food Catalog Search Input with Auto-search Floating Dropdown */}
-                          <div className="relative">
-                            <div className="relative">
-                              <Input
-                                placeholder="🔍 Start typing pet food / diet (e.g. Royal Canin)..."
-                                value={foodSearchQuery}
-                                onChange={(e) => {
-                                  setFoodSearchQuery(e.target.value);
-                                  setSelectedFood(null);
-                                }}
-                                className="h-8 text-xs bg-card pr-7"
-                              />
-                              {foodSearchQuery && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setFoodSearchQuery("");
-                                    setSelectedFood(null);
-                                  }}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
-                                >
-                                  ✕
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Floating Dropdown */}
-                            {foodSearchQuery.trim().length > 0 && !selectedFood && (
-                              <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto rounded-xl border border-primary/40 bg-card p-1 shadow-xl">
-                                {filteredFoodCatalog.length === 0 ? (
-                                  <p className="p-2 text-[11px] text-muted-foreground italic text-center">
-                                    No food found in inventory. Click "+ Custom Food" to enter custom item.
-                                  </p>
-                                ) : (
-                                  filteredFoodCatalog.map((m: any) => (
-                                    <button
-                                      key={m.itemCode}
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedFood(m);
-                                        setFoodSearchQuery(m.name);
-                                        setNewFoodPrice(m.defaultSalePrice || 1850);
-                                      }}
-                                      className="w-full text-left p-1.5 hover:bg-primary/10 rounded-lg flex items-center justify-between text-xs transition-colors border-b border-border/30 last:border-0"
-                                    >
-                                      <div className="min-w-0 pr-2">
-                                        <p className="font-bold text-foreground truncate">{m.name}</p>
-                                        <span className="text-[10px] text-muted-foreground font-mono">
-                                          {m.brand || m.unit || "Pack"} · {m.itemCode}
-                                        </span>
-                                      </div>
-                                      <span className="font-mono font-bold text-primary text-xs shrink-0">
-                                        ₹{m.defaultSalePrice || 1850}
-                                      </span>
-                                    </button>
-                                  ))
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Secondary Select Dropdown */}
-                          <Select
-                            value={selectedFood?.itemCode || ""}
-                            onValueChange={(code) => {
-                              const found = catalogItems.find((x: any) => x.itemCode === code);
-                              if (found) {
-                                setSelectedFood(found);
-                                setFoodSearchQuery(found.name);
-                                setNewFoodPrice(found.defaultSalePrice || 1850);
-                              }
-                            }}
-                          >
-                            <SelectTrigger className="h-8 text-xs bg-card">
-                              <SelectValue placeholder="Or select food from catalog dropdown..." />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-48">
-                              {foodCatalog.map((f: any) => (
-                                <SelectItem key={f.itemCode} value={f.itemCode}>
-                                  <div className="flex items-center justify-between w-full gap-2">
-                                    <span>{f.name}</span>
-                                    <span className="font-mono text-[10px] text-muted-foreground">
-                                      ₹{f.defaultSalePrice || 1850}
-                                    </span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ) : (
-                        /* Custom Free Entry */
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <Input
-                            placeholder="Custom Food Name (e.g. Hill's Science)"
-                            value={customFoodName}
-                            onChange={(e) => setCustomFoodName(e.target.value)}
-                            className="sm:col-span-2 h-8 text-xs bg-card"
-                          />
-                          <Input
-                            placeholder="Pack (e.g. 3kg)"
-                            value={customFoodPack}
-                            onChange={(e) => setCustomFoodPack(e.target.value)}
-                            className="h-8 text-xs bg-card"
-                          />
-                        </div>
-                      )}
-
-                      {/* Controls Row: Qty, Price, Discount Toggle and Add Button */}
-                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40 flex-wrap">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <Label className="text-[11px] text-muted-foreground shrink-0">Qty:</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={newFoodQty}
-                            onChange={(e) => setNewFoodQty(Number(e.target.value))}
-                            className="h-8 w-12 text-xs font-mono text-center bg-card px-1"
-                          />
-                          <Label className="text-[11px] text-muted-foreground ml-1 shrink-0">Price (₹):</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            value={newFoodPrice}
-                            onChange={(e) => setNewFoodPrice(Number(e.target.value))}
-                            className="h-8 w-20 text-xs font-mono bg-card px-2"
-                          />
-                          {/* Discount Toggle */}
-                          <div className="flex items-center gap-1 ml-1">
-                            <button
-                              type="button"
-                              onClick={() => setNewFoodDiscType(newFoodDiscType === "percentage" ? "fixed" : "percentage")}
-                              className="h-7 px-2 text-[10px] font-bold rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0"
-                              title="Toggle discount type"
-                            >
-                              {newFoodDiscType === "percentage" ? "Disc %" : "Disc ₹"}
-                            </button>
-                            <Input
-                              type="number"
-                              min={0}
-                              max={newFoodDiscType === "percentage" ? 100 : undefined}
-                              value={newFoodDiscValue}
-                              onChange={(e) => setNewFoodDiscValue(Number(e.target.value))}
-                              className="h-7 w-14 text-xs font-mono bg-card text-center"
-                              placeholder={newFoodDiscType === "percentage" ? "0%" : "₹0"}
-                            />
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleAddFoodItem}
-                          className="h-8 text-xs font-bold border-primary/30 text-primary hover:bg-primary hover:text-white shrink-0 ml-auto"
-                        >
-                          <Plus className="size-3.5 mr-1" /> Add Food
-                        </Button>
-                      </div>
-
-                      {/* Food Items List */}
-                      <div className="space-y-1.5 pt-1 max-h-36 overflow-y-auto">
-                        {foodItems.length === 0 && (
-                          <p className="text-[11px] text-muted-foreground italic text-center py-2">No food items added.</p>
-                        )}
-                        {foodItems.map((fi) => {
-                          const base = fi.price * fi.quantity;
-                          const discVal = fi.discountValue || 0;
-                          const disc = fi.discountType === "percentage"
-                            ? (base * discVal / 100)
-                            : Math.min(discVal, base);
-                          const net = base - disc;
-                          return (
-                            <div key={fi.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
-                              <div className="min-w-0 pr-2">
-                                <p className="font-semibold text-foreground truncate">{fi.name}</p>
-                                <p className="text-[10px] text-muted-foreground">{fi.packSize} · Qty: {fi.quantity} {fi.itemCode && `· ${fi.itemCode}`}</p>
-                                {discVal > 0 && (
-                                  <p className="text-[10px] text-emerald-600 font-medium">
-                                    Disc: {fi.discountType === "percentage" ? `${discVal}%` : `₹${discVal}`} (−₹{disc.toFixed(2)})
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <div className="text-right">
-                                  {discVal > 0 && (
-                                    <p className="text-[10px] text-muted-foreground line-through">₹{base.toFixed(2)}</p>
-                                  )}
-                                  <span className="font-mono font-bold text-primary">₹{net.toFixed(2)}</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveFoodItem(fi.id)}
-                                  className="text-muted-foreground hover:text-destructive p-0.5"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-
-                      </div>
-
-                    </div>
-
-                    {/* Subsection 2: Accessories */}
-                    <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-3">
-                      <div className="flex items-center justify-between border-b border-border/50 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm">🎾</span>
-                          <div>
-                            <p className="font-bold text-xs text-foreground uppercase tracking-wide">2. Accessories</p>
-                            <p className="text-[9px] text-muted-foreground">Directly linked to Live Accessories Inventory</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsCustomAcc(!isCustomAcc);
-                              setSelectedAcc(null);
-                            }}
-                            className="text-[10px] text-primary hover:underline font-semibold"
-                          >
-                            {isCustomAcc ? "← From Inventory" : "+ Custom Item"}
-                          </button>
-                          <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                            {accessoryItems.length} items
-                          </span>
-                        </div>
-                      </div>
-
-                      {!isCustomAcc ? (
-                        <div className="space-y-2">
-                          {/* Live Accessories Catalog Search Input with Auto-search Floating Dropdown */}
-                          <div className="relative">
-                            <div className="relative">
-                              <Input
-                                placeholder="🔍 Start typing accessory (e.g. Collar, Leash, Harness)..."
-                                value={accSearchQuery}
-                                onChange={(e) => {
-                                  setAccSearchQuery(e.target.value);
-                                  setSelectedAcc(null);
-                                }}
-                                className="h-8 text-xs bg-card pr-7"
-                              />
-                              {accSearchQuery && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setAccSearchQuery("");
-                                    setSelectedAcc(null);
-                                  }}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
-                                >
-                                  ✕
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Floating Dropdown */}
-                            {accSearchQuery.trim().length > 0 && !selectedAcc && (
-                              <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto rounded-xl border border-primary/40 bg-card p-1 shadow-xl">
-                                {filteredAccessoryCatalog.length === 0 ? (
-                                  <p className="p-2 text-[11px] text-muted-foreground italic text-center">
-                                    No accessory found. Click "+ Custom Item" to enter custom accessory.
-                                  </p>
-                                ) : (
-                                  filteredAccessoryCatalog.map((m: any) => (
-                                    <button
-                                      key={m.itemCode}
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedAcc(m);
-                                        setAccSearchQuery(m.name);
-                                        setNewAccPrice(m.defaultSalePrice || 320);
-                                      }}
-                                      className="w-full text-left p-1.5 hover:bg-primary/10 rounded-lg flex items-center justify-between text-xs transition-colors border-b border-border/30 last:border-0"
-                                    >
-                                      <div className="min-w-0 pr-2">
-                                        <p className="font-bold text-foreground truncate">{m.name}</p>
-                                        <span className="text-[10px] text-muted-foreground font-mono">
-                                          {m.subGroup || m.category || "Accessory"} · {m.itemCode}
-                                        </span>
-                                      </div>
-                                      <span className="font-mono font-bold text-primary text-xs shrink-0">
-                                        ₹{m.defaultSalePrice || 320}
-                                      </span>
-                                    </button>
-                                  ))
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Secondary Select Dropdown */}
-                          <Select
-                            value={selectedAcc?.itemCode || ""}
-                            onValueChange={(code) => {
-                              const found = catalogItems.find((x: any) => x.itemCode === code);
-                              if (found) {
-                                setSelectedAcc(found);
-                                setAccSearchQuery(found.name);
-                                setNewAccPrice(found.defaultSalePrice || 320);
-                              }
-                            }}
-                          >
-                            <SelectTrigger className="h-8 text-xs bg-card">
-                              <SelectValue placeholder="Or select accessory from catalog dropdown..." />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-48">
-                              {accessoryCatalog.map((a: any) => (
-                                <SelectItem key={a.itemCode} value={a.itemCode}>
-                                  <div className="flex items-center justify-between w-full gap-2">
-                                    <span>{a.name}</span>
-                                    <span className="font-mono text-[10px] text-muted-foreground">
-                                      ₹{a.defaultSalePrice || 320}
-                                    </span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ) : (
-                        /* Custom Free Entry */
-                        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-                          <Input
-                            placeholder="Custom Accessory Name (e.g. Velvet Collar)"
-                            value={customAccName}
-                            onChange={(e) => setCustomAccName(e.target.value)}
-                            className="sm:col-span-3 h-8 text-xs bg-card"
-                          />
-                          <Select value={customAccCat} onValueChange={setCustomAccCat}>
-                            <SelectTrigger className="sm:col-span-2 h-8 text-xs bg-card">
-                              <SelectValue placeholder="Category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Collars & Leashes">Collars &amp; Leashes</SelectItem>
-                              <SelectItem value="Grooming">Grooming Tools</SelectItem>
-                              <SelectItem value="Toys">Toys &amp; Chews</SelectItem>
-                              <SelectItem value="Housing/Cages">Housing / Cages</SelectItem>
-                              <SelectItem value="Other">Other Supplies</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      {/* Controls Row: Qty, Price, Discount Toggle and Add Button */}
-                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40 flex-wrap">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <Label className="text-[11px] text-muted-foreground shrink-0">Qty:</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={newAccQty}
-                            onChange={(e) => setNewAccQty(Number(e.target.value))}
-                            className="h-8 w-12 text-xs font-mono text-center bg-card px-1"
-                          />
-                          <Label className="text-[11px] text-muted-foreground ml-1 shrink-0">Price (₹):</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            value={newAccPrice}
-                            onChange={(e) => setNewAccPrice(Number(e.target.value))}
-                            className="h-8 w-20 text-xs font-mono bg-card px-2"
-                          />
-                          {/* Discount Toggle */}
-                          <div className="flex items-center gap-1 ml-1">
-                            <button
-                              type="button"
-                              onClick={() => setNewAccDiscType(newAccDiscType === "percentage" ? "fixed" : "percentage")}
-                              className="h-7 px-2 text-[10px] font-bold rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0"
-                              title="Toggle discount type"
-                            >
-                              {newAccDiscType === "percentage" ? "Disc %" : "Disc ₹"}
-                            </button>
-                            <Input
-                              type="number"
-                              min={0}
-                              max={newAccDiscType === "percentage" ? 100 : undefined}
-                              value={newAccDiscValue}
-                              onChange={(e) => setNewAccDiscValue(Number(e.target.value))}
-                              className="h-7 w-14 text-xs font-mono bg-card text-center"
-                              placeholder={newAccDiscType === "percentage" ? "0%" : "₹0"}
-                            />
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleAddAccessoryItem}
-                          className="h-8 text-xs font-bold border-primary/30 text-primary hover:bg-primary hover:text-white shrink-0 ml-auto"
-                        >
-                          <Plus className="size-3.5 mr-1" /> Add Accessory
-                        </Button>
-                      </div>
-
-                      {/* Accessories List */}
-                      <div className="space-y-1.5 pt-1 max-h-36 overflow-y-auto">
-                        {accessoryItems.length === 0 && (
-                          <p className="text-[11px] text-muted-foreground italic text-center py-2">No accessories added.</p>
-                        )}
-                        {accessoryItems.map((acc) => {
-                          const base = acc.price * acc.quantity;
-                          const discVal = acc.discountValue || 0;
-                          const disc = acc.discountType === "percentage"
-                            ? (base * discVal / 100)
-                            : Math.min(discVal, base);
-                          const net = base - disc;
-                          return (
-                            <div key={acc.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 text-xs">
-                              <div className="min-w-0 pr-2">
-                                <p className="font-semibold text-foreground truncate">{acc.name}</p>
-                                <p className="text-[10px] text-muted-foreground">{acc.category} · Qty: {acc.quantity} {acc.itemCode && `· ${acc.itemCode}`}</p>
-                                {discVal > 0 && (
-                                  <p className="text-[10px] text-emerald-600 font-medium">
-                                    Disc: {acc.discountType === "percentage" ? `${discVal}%` : `₹${discVal}`} (−₹{disc.toFixed(2)})
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <div className="text-right">
-                                  {discVal > 0 && (
-                                    <p className="text-[10px] text-muted-foreground line-through">₹{base.toFixed(2)}</p>
-                                  )}
-                                  <span className="font-mono font-bold text-primary">₹{net.toFixed(2)}</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveAccessoryItem(acc.id)}
-                                  className="text-muted-foreground hover:text-destructive p-0.5"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Col: Live Prescription / Items Summary */}
-              <div className="space-y-4">
-                <div className="erp-card p-4 space-y-3">
-                  <div className="border-b border-border pb-2.5 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold text-sm text-foreground">Prescribed Items ({lines.length})</p>
-                      <span className="font-extrabold text-primary text-base font-mono">₹{billSummary.totalAmount}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10 flex-1 justify-center" onClick={handleCloneTreatment}>
-                        <CheckCircle2 className="size-3 mr-1" /> Clone Previous
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground border border-border/40 flex-1 justify-center" onClick={handleViewHistory}>
-                        <FileText className="size-3 mr-1" /> History
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-                    {lines.map((l) => (
-                      <div key={l.id} className="rounded-lg border border-border/60 bg-muted/20 p-2.5 text-xs space-y-2">
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="flex-1 min-w-0">
-                            <span className="font-semibold text-foreground block truncate">{l.name}</span>
-                            <span className="inline-block mt-0.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
-                              {l.lineType}
-                            </span>
-                          </div>
-                          <button onClick={() => handleRemoveLine(l.id)} className="text-muted-foreground hover:text-destructive shrink-0 p-1">
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-
-                        {l.dosageInstructions && (
-                          <p className="text-[11px] text-muted-foreground italic">
-                            Dosage: {l.dosageInstructions}
-                          </p>
-                        )}
-
-                        {/* Editable Fee & Quantity Controls */}
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1.5 border-t border-border/30 gap-2 flex-wrap sm:flex-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] text-muted-foreground shrink-0">Fee/Price:</span>
-                            <div className="relative w-20">
-                              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-bold">₹</span>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={l.unitPrice}
-                                onChange={(e) => updateLine(l.id, "unitPrice", Number(e.target.value))}
-                                className="h-6 text-xs font-mono font-bold pl-4 text-right pr-1 bg-card border-border"
-                              />
-                            </div>
-                            <span className="text-[11px] text-muted-foreground">×</span>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={l.quantity}
-                              onChange={(e) => updateLine(l.id, "quantity", Math.max(1, Number(e.target.value)))}
-                              className="h-6 w-12 text-xs font-mono text-center px-1 bg-card border-border"
-                            />
-                          </div>
-                          <span className="font-bold text-foreground font-mono text-xs ml-auto">₹{l.quantity * l.unitPrice}</span>
-                        </div>
-                      </div>
-                    ))}
-
-                    {!consultationLine && (
-                      <button
-                        type="button"
-                        onClick={() => handleSetConsultationFee(500)}
-                        className="w-full rounded-lg border border-dashed border-primary/40 bg-primary/5 py-2 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors flex items-center justify-center gap-1.5"
-                      >
-                        <Plus className="size-3.5" /> Add Doctor Consultation Fee (₹500)
-                      </button>
-                    )}
-                  </div>
-
-                  <Button onClick={() => setTab("billing")} className="w-full text-xs font-bold mt-2">
-                    Proceed to Billing &amp; Settlement →
-                  </Button>
-                </div>
-              </div>
+              {/* ── Prescription Workflow Module (Sections + Live Summary Panel) ── */}
+              <PrescriptionWorkflow
+                visit={visit}
+                petDetails={petDetails}
+                catalogItems={catalogItems}
+                onSavePrescription={handleSavePrescription}
+                onProceedToBilling={handleProceedToBilling}
+                onOpenPrint={() => setShowRxPrint(true)}
+                doctorName={activeDoctorName}
+                onSyncLines={(newLines) => {
+                  setLines(newLines.map((l: any, idx: number) => ({
+                    ...l,
+                    id: l.id || `rx-line-${idx}-${Date.now()}`,
+                  })));
+                }}
+                onRefreshVisit={async () => {
+                  if (visit?.visitId && visit?.petId) {
+                    try {
+                      const latest = await getLatestVisitFn({ data: { petId: visit.petId } });
+                      if (latest && latest.visitId === visit.visitId) {
+                        setPrescriptionData(latest.prescriptionData || null);
+                        if (latest.items) {
+                          setLines(latest.items.map((it: any, idx: number) => ({ ...it, id: it.id || String(idx + 1) })));
+                        }
+                      }
+                    } catch (e) {
+                      console.warn("Could not reload visit:", e);
+                    }
+                  }
+                }}
+                onClonePrevious={handleCloneTreatment}
+                onViewHistory={handleViewHistory}
+                pastVisits={historyVisits}
+              />
             </div>
           )}
 
@@ -2106,8 +1221,26 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       {lines.map((l) => (
                         <tr key={l.id} className="hover:bg-muted/20">
                           <td className="px-4 py-2.5">
-                            <p className="font-semibold text-foreground">{l.name}</p>
-                            <span className="text-[10px] text-muted-foreground">{l.lineType} {l.batchNo && `· Batch: ${l.batchNo}`}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-semibold text-foreground">{l.name}</p>
+                              {l.sourceType && (
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-bold bg-primary/10 text-primary border-primary/20">
+                                  Rx
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-muted-foreground">{l.lineType} {l.batchNo && `· Batch: ${l.batchNo}`}</span>
+                              {l.sourceType && (
+                                <button
+                                  type="button"
+                                  onClick={() => setTab("consultation")}
+                                  className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
+                                >
+                                  Edit in Rx
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-center">
                             <Input
@@ -2156,36 +1289,195 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                 </div>
               </div>
 
-              {/* Right Col: Summary & Payment Modes */}
+              {/* Right Col: Summary & Partial Payment Settlement Panel */}
               <div className="space-y-4">
-                <div className="erp-card p-5 space-y-4">
-                  <p className="section-label">Payment Breakdown</p>
+                <div className="erp-card p-5 space-y-4 shadow-sm border border-border">
+                  <div className="flex items-center justify-between border-b border-border pb-2.5">
+                    <p className="font-extrabold text-sm text-foreground">Billing &amp; Settlement</p>
+                    <Badge
+                      className={cn(
+                        "text-xs font-bold font-mono px-2.5 py-0.5",
+                        paymentStatus === "Full"
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30"
+                          : paymentStatus === "Partial"
+                          ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30"
+                          : "bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30"
+                      )}
+                    >
+                      Status: {paymentStatus}
+                    </Badge>
+                  </div>
 
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between text-muted-foreground">
                       <span>Subtotal</span>
-                      <span>₹{billSummary.subtotal.toFixed(2)}</span>
+                      <span className="font-mono">₹{billSummary.subtotal.toFixed(2)}</span>
                     </div>
                     {billType === "GST" && (
                       <div className="flex justify-between text-muted-foreground">
                         <span>GST (CGST + SGST)</span>
-                        <span>+₹{billSummary.gstAmount.toFixed(2)}</span>
+                        <span className="font-mono">+₹{billSummary.gstAmount.toFixed(2)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-muted-foreground">
                       <span>Round-off Adjustment</span>
-                      <span>{billSummary.roundOff >= 0 ? `+₹${billSummary.roundOff.toFixed(2)}` : `-₹${Math.abs(billSummary.roundOff).toFixed(2)}`}</span>
+                      <span className="font-mono">{billSummary.roundOff >= 0 ? `+₹${billSummary.roundOff.toFixed(2)}` : `-₹${Math.abs(billSummary.roundOff).toFixed(2)}`}</span>
                     </div>
-                    <div className="flex justify-between font-extrabold text-base pt-2 border-t border-border text-foreground">
-                      <span>Grand Total</span>
-                      <span className="text-primary">₹{billSummary.totalAmount}</span>
+                    <div className="flex justify-between font-extrabold text-sm pt-2 border-t border-border text-foreground">
+                      <span>Total Bill Amount</span>
+                      <span className="text-primary font-mono text-base">₹{billSummary.totalAmount}</span>
                     </div>
                   </div>
 
+                  {/* Payment Type Selection (§4.1) */}
+                  <div className="space-y-3 pt-3 border-t border-border">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold text-foreground">Payment Type</Label>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5",
+                          paymentStatus === "Full"
+                            ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-400"
+                            : paymentStatus === "Partial"
+                            ? "bg-amber-500/10 text-amber-600 border-amber-500/30 dark:text-amber-400"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {paymentStatus === "Full" ? "Full Payment" : paymentStatus === "Partial" ? "Partial Payment" : "Unpaid"}
+                      </Badge>
+                    </div>
+
+                    {/* Radio/Segmented Toggle: Full vs Partial */}
+                    <div className="grid grid-cols-2 gap-2 p-1 bg-muted/50 rounded-lg border border-border">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentType("full");
+                          setAmountReceived(billSummary.totalAmount);
+                          setHasManuallyEditedAmount(false);
+                        }}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-bold transition-all",
+                          paymentType === "full"
+                            ? "bg-background text-foreground shadow-xs border border-border/80"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <span className={cn("size-2 rounded-full", paymentType === "full" ? "bg-emerald-500" : "bg-muted-foreground/40")} />
+                        Full Payment
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentType("partial");
+                          if (numericAmountReceived === billSummary.totalAmount) {
+                            setAmountReceived("");
+                          }
+                        }}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-bold transition-all",
+                          paymentType === "partial"
+                            ? "bg-background text-foreground shadow-xs border border-border/80"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <span className={cn("size-2 rounded-full", paymentType === "partial" ? "bg-amber-500" : "bg-muted-foreground/40")} />
+                        Partial Payment
+                      </button>
+                    </div>
+
+                    {paymentType === "full" ? (
+                      <div className="rounded-lg p-2.5 bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-emerald-800 dark:text-emerald-300 uppercase font-extrabold block">
+                            Amount to Pay (Full)
+                          </span>
+                          <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                            Pre-filled total bill · Balance: ₹0.00
+                          </span>
+                        </div>
+                        <span className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-400">
+                          ₹{billSummary.totalAmount}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-bold text-foreground">
+                            Amount Paid (₹) <span className="text-destructive">*</span>
+                          </Label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentType("full");
+                              setAmountReceived(billSummary.totalAmount);
+                            }}
+                            className="text-[11px] font-semibold text-primary hover:underline"
+                          >
+                            Switch to Full (₹{billSummary.totalAmount})
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-xs text-muted-foreground font-bold">₹</span>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={billSummary.totalAmount}
+                            value={amountReceived}
+                            onChange={(e) => {
+                              setHasManuallyEditedAmount(true);
+                              const val = e.target.value === "" ? "" : Number(e.target.value);
+                              setAmountReceived(val);
+                              if (typeof val === "number" && val >= billSummary.totalAmount && billSummary.totalAmount > 0) {
+                                setPaymentType("full");
+                              }
+                            }}
+                            placeholder={`Enter partial amount (< ₹${billSummary.totalAmount})`}
+                            className={cn(
+                              "h-9 pl-7 font-mono font-bold text-sm bg-background",
+                              paymentValidationError && "border-destructive focus-visible:ring-destructive/30"
+                            )}
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pending Amount (Computed, Read-Only, Dynamic) */}
+                    <div className="rounded-lg p-2.5 bg-muted/40 border border-border/80 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-muted-foreground uppercase font-extrabold block">
+                          Remaining Amount (Dynamic)
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {pendingAmount === 0 ? "Fully settled · No balance due" : "Balance to be collected later"}
+                        </span>
+                      </div>
+                      <span
+                        className={cn(
+                          "text-sm font-mono font-black",
+                          pendingAmount > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
+                        )}
+                      >
+                        ₹{pendingAmount.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Validation Error Banner */}
+                    {paymentValidationError && (
+                      <div className="rounded-lg p-2.5 bg-destructive/10 border border-destructive/30 text-destructive text-xs font-semibold flex items-center gap-2 animate-in fade-in-50">
+                        <AlertTriangle className="size-4 shrink-0" />
+                        <span>{paymentValidationError}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment Mode & Details */}
                   <div className="space-y-2 pt-2 border-t border-border">
                     <Label className="text-xs font-semibold">Payment Mode</Label>
                     <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as any)}>
-                      <SelectTrigger className="text-xs h-9">
+                      <SelectTrigger className="text-xs h-9 bg-background">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -2193,6 +1485,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         <SelectItem value="Cash">Cash</SelectItem>
                         <SelectItem value="Card">Debit / Credit Card</SelectItem>
                         <SelectItem value="NetBanking">NetBanking / NEFT</SelectItem>
+                        <SelectItem value="Cheque">Bank Cheque</SelectItem>
                         <SelectItem value="Account Due">Post to Client Due A/C</SelectItem>
                       </SelectContent>
                     </Select>
@@ -2202,17 +1495,39 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         placeholder="Transaction / UPI Ref No. (Optional)"
                         value={trxRef}
                         onChange={(e) => setTrxRef(e.target.value)}
-                        className="text-xs h-8"
+                        className="text-xs h-8 bg-background"
                       />
                     )}
+
+                    <Input
+                      placeholder="Payment Notes (Optional, e.g. Balance on next visit)"
+                      value={paymentNotes}
+                      onChange={(e) => setPaymentNotes(e.target.value)}
+                      className="text-xs h-8 bg-background"
+                    />
                   </div>
 
                   <Button
                     onClick={handleFinalize}
-                    disabled={isFinalizing}
-                    className="w-full font-bold bg-success hover:bg-success/90 text-success-foreground"
+                    disabled={isFinalizing || Boolean(paymentValidationError)}
+                    className={cn(
+                      "w-full font-bold transition-all shadow-sm",
+                      paymentStatus === "Full"
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        : paymentStatus === "Partial"
+                        ? "bg-amber-600 hover:bg-amber-700 text-white"
+                        : "bg-primary hover:bg-primary/90 text-primary-foreground"
+                    )}
                   >
-                    {isFinalizing ? "Processing & Syncing..." : `Finalize & Collect ₹${billSummary.totalAmount} ✓`}
+                    {isFinalizing ? (
+                      "Processing & Syncing..."
+                    ) : paymentStatus === "Full" ? (
+                      `Finalize & Collect Full ₹${numericAmountReceived} ✓`
+                    ) : paymentStatus === "Partial" ? (
+                      `Collect Partial ₹${numericAmountReceived} (₹${pendingAmount.toFixed(2)} Pending) ✓`
+                    ) : (
+                      `Finalize Unpaid Bill (₹${pendingAmount.toFixed(2)} Due) ✓`
+                    )}
                   </Button>
                 </div>
               </div>
@@ -2341,17 +1656,32 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       <div>
                         <p><span className="text-slate-500">Owner:</span> <strong>{finalizedVisit.ownerName}</strong></p>
                         <p><span className="text-slate-500">Phone:</span> {finalizedVisit.ownerPhone}</p>
-                        <p><span className="text-slate-500">Weight:</span> {finalizedVisit.vitals?.weightKg ? `${finalizedVisit.vitals.weightKg} kg` : "—"}</p>
+                        <p><span className="text-slate-500">Weight:</span> <strong className="font-mono">{finalizedVisit.prescriptionData?.weight ? `${finalizedVisit.prescriptionData.weight} ${finalizedVisit.prescriptionData.weightUnit || "kg"}` : (finalizedVisit.vitals?.weight ? `${finalizedVisit.vitals.weight} ${finalizedVisit.vitals.weightUnit || "kg"}` : (finalizedVisit.vitals?.weightKg ? `${finalizedVisit.vitals.weightKg} kg` : "—"))}</strong></p>
                       </div>
                       <div>
                         <p><span className="text-slate-500">Rx No:</span> <strong className="font-mono text-blue-900">{finalizedVisit.prescriptionNo}</strong></p>
                         <p><span className="text-slate-500">Visit No:</span> <span className="font-mono">{finalizedVisit.visitId}</span></p>
-                        <p><span className="text-slate-500">Temp:</span> {finalizedVisit.vitals?.tempC ? `${finalizedVisit.vitals.tempC} °C` : "—"}</p>
+                        <p><span className="text-slate-500">Temp:</span> <strong className="font-mono">{finalizedVisit.prescriptionData?.bodyTemperature ? `${finalizedVisit.prescriptionData.bodyTemperature} ${finalizedVisit.prescriptionData.temperatureUnit || "°C"}` : (finalizedVisit.vitals?.temp ? `${finalizedVisit.vitals.temp} ${finalizedVisit.vitals.tempUnit || "°C"}` : (finalizedVisit.vitals?.tempC ? `${finalizedVisit.vitals.tempC} °C` : "—"))}</strong></p>
                       </div>
                     </div>
 
-                    {/* Diagnosis & Findings */}
-                    <div className="space-y-1">
+                    {/* Diagnosis, Symptoms & Findings */}
+                    <div className="space-y-1.5">
+                      {finalizedVisit.prescriptionData?.symptomsText && (
+                        <p className="text-[11px] text-slate-700">
+                          <strong className="text-slate-500">Symptoms:</strong> {finalizedVisit.prescriptionData.symptomsText}
+                        </p>
+                      )}
+                      {finalizedVisit.prescriptionData?.clinicalFindings && finalizedVisit.prescriptionData.clinicalFindings.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {finalizedVisit.prescriptionData.clinicalFindings.map((cf: string, i: number) => (
+                            <span key={i} className="text-[10px] bg-blue-50 text-blue-900 border border-blue-200 px-1.5 py-0.5 rounded font-medium">✓ {cf}</span>
+                          ))}
+                          {finalizedVisit.prescriptionData.clinicalFindingsOther && (
+                            <span className="text-[10px] bg-slate-100 text-slate-700 border border-slate-300 px-1.5 py-0.5 rounded font-medium italic">Other: {finalizedVisit.prescriptionData.clinicalFindingsOther}</span>
+                          )}
+                        </div>
+                      )}
                       <h5 className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Clinical Diagnosis</h5>
                       <p className="text-xs font-semibold text-slate-900 border-l-2 border-blue-600 pl-2 py-0.5">
                         {finalizedVisit.diagnosis || "General Clinical Health Review"}
@@ -2363,58 +1693,179 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       )}
                     </div>
 
+                    {/* Immediate Medicines (Administered in Hospital) */}
+                    {finalizedVisit.prescriptionData?.immediateMedicines && finalizedVisit.prescriptionData.immediateMedicines.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">Immediate Medicines (Hospital Administered)</p>
+                        <table className="w-full text-[10px] border border-amber-200">
+                          <thead>
+                            <tr className="bg-amber-50 text-amber-950 font-bold">
+                              <th className="p-1 text-left">Medicine</th>
+                              <th className="p-1 text-center">Dose</th>
+                              <th className="p-1 text-center">Route</th>
+                              <th className="p-1 text-center">Time</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-amber-100">
+                            {finalizedVisit.prescriptionData.immediateMedicines.map((im: any, idx: number) => (
+                              <tr key={idx}>
+                                <td className="p-1 font-semibold text-slate-900">{im.medicineName}</td>
+                                <td className="p-1 text-center font-mono">{im.dose} {im.unit}</td>
+                                <td className="p-1 text-center">{im.route}</td>
+                                <td className="p-1 text-center">{im.time || "Immediate"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
                     {/* Prescribed Medications Table */}
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-1 font-bold text-blue-900 text-xs">
                         <span className="text-sm font-serif">℞</span> Prescribed Medications
                       </div>
 
-                      <table className="w-full text-[11px] border border-slate-200">
-                        <thead>
-                          <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700">
-                            <th className="p-1.5 w-6">#</th>
-                            <th className="p-1.5">Medicine / Formulation</th>
-                            <th className="p-1.5 text-center w-12">Qty</th>
-                            <th className="p-1.5">Dosage / Instructions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {(finalizedVisit.items || []).filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine").length === 0 ? (
-                            <tr>
-                              <td colSpan={4} className="p-3 text-center text-slate-400 italic">
-                                No pharmacy medications required. Symptomatic monitoring advised.
-                              </td>
+                      {finalizedVisit.prescriptionData?.prescribedMedicines && finalizedVisit.prescriptionData.prescribedMedicines.length > 0 ? (
+                        <table className="w-full text-[10px] border border-slate-200">
+                          <thead>
+                            <tr className="bg-blue-50/70 border-b border-slate-200 text-left font-bold text-blue-950">
+                              <th className="p-1.5">Medicine</th>
+                              <th className="p-1.5 text-center">Dose</th>
+                              <th className="p-1.5 text-center">Frequency</th>
+                              <th className="p-1.5 text-center">Duration</th>
+                              <th className="p-1.5 text-center">Route</th>
+                              <th className="p-1.5">Timing</th>
                             </tr>
-                          ) : (
-                            (finalizedVisit.items || [])
-                              .filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine")
-                              .map((m: any, idx: number) => (
-                                <tr key={idx}>
-                                  <td className="p-1.5 text-slate-400">{idx + 1}</td>
-                                  <td className="p-1.5 font-bold text-slate-900">{m.name}</td>
-                                  <td className="p-1.5 text-center font-medium">{m.quantity}</td>
-                                  <td className="p-1.5 text-slate-700">{m.dosageInstructions || "As directed by physician"}</td>
-                                </tr>
-                              ))
-                          )}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {finalizedVisit.prescriptionData.prescribedMedicines.map((m: any, idx: number) => (
+                              <tr key={idx}>
+                                <td className="p-1.5 font-bold text-slate-900">
+                                  {m.medicineName}
+                                  {m.note && <span className="block text-[9px] text-slate-500 font-normal italic">{m.note}</span>}
+                                </td>
+                                <td className="p-1.5 text-center font-mono font-semibold">{m.dose} {m.unit}</td>
+                                <td className="p-1.5 text-center font-semibold text-blue-900">{m.frequency}</td>
+                                <td className="p-1.5 text-center font-medium">{m.duration}</td>
+                                <td className="p-1.5 text-center">{m.route || "Oral"}</td>
+                                <td className="p-1.5 text-slate-700">{m.time || "After Food"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <table className="w-full text-[11px] border border-slate-200">
+                          <thead>
+                            <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700">
+                              <th className="p-1.5 w-6">#</th>
+                              <th className="p-1.5">Medicine / Formulation</th>
+                              <th className="p-1.5 text-center w-12">Qty</th>
+                              <th className="p-1.5">Dosage / Instructions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {(finalizedVisit.items || []).filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine").length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="p-3 text-center text-slate-400 italic">
+                                  No pharmacy medications required. Symptomatic monitoring advised.
+                                </td>
+                              </tr>
+                            ) : (
+                              (finalizedVisit.items || [])
+                                .filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine")
+                                .map((m: any, idx: number) => (
+                                  <tr key={idx}>
+                                    <td className="p-1.5 text-slate-400">{idx + 1}</td>
+                                    <td className="p-1.5 font-bold text-slate-900">{m.name}</td>
+                                    <td className="p-1.5 text-center font-medium">{m.quantity}</td>
+                                    <td className="p-1.5 text-slate-700">{m.dosageInstructions || "As directed by physician"}</td>
+                                  </tr>
+                                ))
+                            )}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
+
+                    {/* Injectables (Hospital) */}
+                    {finalizedVisit.prescriptionData?.injectables && finalizedVisit.prescriptionData.injectables.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-purple-900 uppercase tracking-wider">Injectables (Hospital Given)</p>
+                        <table className="w-full text-[10px] border border-purple-200">
+                          <thead>
+                            <tr className="bg-purple-50 text-purple-950 font-bold">
+                              <th className="p-1 text-left">Drug</th>
+                              <th className="p-1 text-center">Dose</th>
+                              <th className="p-1 text-center">Route</th>
+                              <th className="p-1 text-center">Time</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-purple-100">
+                            {finalizedVisit.prescriptionData.injectables.map((inj: any, idx: number) => (
+                              <tr key={idx}>
+                                <td className="p-1 font-semibold text-slate-900">{inj.drugName}</td>
+                                <td className="p-1 text-center font-mono">{inj.dose} {inj.unit}</td>
+                                <td className="p-1 text-center">{inj.route}</td>
+                                <td className="p-1 text-center">{inj.time || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Diet & Care Recommendations */}
+                    {(finalizedVisit.prescriptionData?.prescribedDiet?.length > 0 || finalizedVisit.prescriptionData?.foodItems?.length > 0 || finalizedVisit.prescriptionData?.accessories?.length > 0) && (
+                      <div className="rounded-lg border border-slate-200 p-2 bg-amber-50/20 text-[10px] space-y-1">
+                        <span className="font-bold text-amber-900 block uppercase">Dietary &amp; Care Recommendations:</span>
+                        {finalizedVisit.prescriptionData?.prescribedDiet?.map((d: any, di: number) => (
+                          <p key={di} className="text-slate-700">• Diet: <strong className="text-slate-900">{d.foodName}</strong> {d.specialInstructions && `(${d.specialInstructions})`}</p>
+                        ))}
+                        {[
+                          ...(finalizedVisit.prescriptionData?.foodItems || []).map((f: any) => `${f.foodName} (Qty: ${f.quantity})`),
+                          ...(finalizedVisit.prescriptionData?.accessories || []).map((a: any) => `${a.accessoryName} (Qty: ${a.quantity})`),
+                        ].length > 0 && (
+                          <p className="text-slate-600">• Dispensed: {[...(finalizedVisit.prescriptionData?.foodItems || []).map((f: any) => `${f.foodName} (x${f.quantity})`), ...(finalizedVisit.prescriptionData?.accessories || []).map((a: any) => `${a.accessoryName} (x${a.quantity})`)].join(", ")}</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Follow-up Reminders */}
                     <div className="rounded-xl border border-dashed border-blue-200 p-2.5 text-[11px] grid grid-cols-3 gap-1.5 bg-blue-50/40">
                       <div>
                         <span className="text-slate-500 block text-[10px]">Follow-up Visit:</span>
-                        <p className="font-bold text-slate-900">{finalizedVisit.nextVisitDate || "On distress / As needed"}</p>
+                        <p className="font-bold text-slate-900">
+                          {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextTreatmentDate || finalizedVisit.nextVisitDate) ||
+                            finalizedVisit.prescriptionData?.followUp?.nextTreatmentDate ||
+                            finalizedVisit.nextVisitDate ||
+                            "On distress / As needed"}
+                        </p>
                       </div>
                       <div>
                         <span className="text-slate-500 block text-[10px]">Vaccination Due:</span>
-                        <p className="font-bold text-slate-900">{finalizedVisit.nextVaccineDate || "Per annual schedule"}</p>
+                        <p className="font-bold text-slate-900">
+                          {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextVaccineDate || finalizedVisit.nextVaccineDate) ||
+                            finalizedVisit.prescriptionData?.followUp?.nextVaccineDate ||
+                            finalizedVisit.nextVaccineDate ||
+                            "Per annual schedule"}
+                        </p>
                       </div>
                       <div>
                         <span className="text-slate-500 block text-[10px]">Deworming Due:</span>
-                        <p className="font-bold text-slate-900">{finalizedVisit.nextDewormingDate || "Quarterly"}</p>
+                        <p className="font-bold text-slate-900">
+                          {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextDewormingDate || finalizedVisit.nextDewormingDate) ||
+                            finalizedVisit.prescriptionData?.followUp?.nextDewormingDate ||
+                            finalizedVisit.nextDewormingDate ||
+                            "Quarterly"}
+                        </p>
                       </div>
+                      {finalizedVisit.prescriptionData?.followUp?.instructions && (
+                        <div className="col-span-3 pt-1 border-t border-blue-200/50 mt-1">
+                          <span className="text-slate-600 font-semibold text-[10px]">Special Instructions:</span>
+                          <p className="text-slate-800 italic mt-0.5">{finalizedVisit.prescriptionData.followUp.instructions}</p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Footer Signature */}
@@ -2684,6 +2135,41 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         </span>
                       </div>
 
+                      {/* Vitals Summary */}
+                      {(hv.prescriptionData?.weight || hv.vitals?.weight || hv.vitals?.weightKg || hv.prescriptionData?.bodyTemperature || hv.vitals?.temp || hv.vitals?.tempC) && (
+                        <div className="flex items-center gap-2 text-[10px] font-mono">
+                          {(hv.prescriptionData?.weight || hv.vitals?.weight || hv.vitals?.weightKg) && (
+                            <span className="bg-blue-50 text-blue-800 px-1.5 py-0.5 rounded font-semibold">
+                              Weight: {hv.prescriptionData?.weight || hv.vitals?.weight || hv.vitals?.weightKg} {hv.prescriptionData?.weightUnit || hv.vitals?.weightUnit || "kg"}
+                            </span>
+                          )}
+                          {(hv.prescriptionData?.bodyTemperature || hv.vitals?.temp || hv.vitals?.tempC) && (
+                            <span className="bg-rose-50 text-rose-800 px-1.5 py-0.5 rounded font-semibold">
+                              Temp: {hv.prescriptionData?.bodyTemperature || hv.vitals?.temp || hv.vitals?.tempC} {hv.prescriptionData?.temperatureUnit || hv.vitals?.tempUnit || "°C"}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Clinical Findings Badges */}
+                      {hv.prescriptionData?.clinicalFindings && hv.prescriptionData.clinicalFindings.length > 0 && (
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Clinical Findings</p>
+                          <div className="flex flex-wrap gap-1">
+                            {hv.prescriptionData.clinicalFindings.map((cf: string, cIdx: number) => (
+                              <span key={cIdx} className="text-[10px] bg-blue-500/10 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded font-medium">
+                                ✓ {cf}
+                              </span>
+                            ))}
+                            {hv.prescriptionData.clinicalFindingsOther && (
+                              <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-medium italic">
+                                Other: {hv.prescriptionData.clinicalFindingsOther}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       {hv.diagnosis && (
                         <div className="space-y-0.5">
                           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Diagnosis</p>
@@ -2702,7 +2188,59 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         </div>
                       )}
 
-                      {hv.items && hv.items.length > 0 && (
+                      {/* Immediate Medicines Given in Clinic */}
+                      {hv.prescriptionData?.immediateMedicines && hv.prescriptionData.immediateMedicines.length > 0 && (
+                        <div className="space-y-1 pt-1 border-t border-border/40">
+                          <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wider">Immediate Hospital Treatment</p>
+                          <div className="space-y-1">
+                            {hv.prescriptionData.immediateMedicines.map((im: any, imIdx: number) => (
+                              <div key={imIdx} className="flex items-center justify-between text-xs p-1.5 rounded-md bg-amber-500/5 border border-amber-500/20">
+                                <span className="font-semibold text-[11px] text-foreground">{im.medicineName}</span>
+                                <span className="font-mono text-[10px] text-muted-foreground">{im.dose} {im.unit} · {im.route}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Injectables Given */}
+                      {hv.prescriptionData?.injectables && hv.prescriptionData.injectables.length > 0 && (
+                        <div className="space-y-1 pt-1 border-t border-border/40">
+                          <p className="text-[10px] text-purple-700 dark:text-purple-400 font-bold uppercase tracking-wider">Hospital Injectables</p>
+                          <div className="space-y-1">
+                            {hv.prescriptionData.injectables.map((inj: any, injIdx: number) => (
+                              <div key={injIdx} className="flex items-center justify-between text-xs p-1.5 rounded-md bg-purple-500/5 border border-purple-500/20">
+                                <span className="font-semibold text-[11px] text-foreground">{inj.drugName}</span>
+                                <span className="font-mono text-[10px] text-muted-foreground">{inj.dose} {inj.unit} · {inj.route}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Prescribed Items (from prescriptionData or items) */}
+                      {hv.prescriptionData?.prescribedMedicines && hv.prescriptionData.prescribedMedicines.length > 0 ? (
+                        <div className="space-y-1 pt-1 border-t border-border/40">
+                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider flex items-center justify-between">
+                            <span>Prescribed Rx Schedule ({hv.prescriptionData.prescribedMedicines.length})</span>
+                          </p>
+                          <div className="space-y-1">
+                            {hv.prescriptionData.prescribedMedicines.map((m: any, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between text-xs p-1.5 rounded-md bg-muted/20 border border-border/30">
+                                <div>
+                                  <p className="font-semibold text-foreground text-[11px]">{m.medicineName}</p>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    {m.dose} {m.unit} · {m.frequency} · {m.duration}
+                                  </p>
+                                </div>
+                                <span className="font-mono text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                  {m.route || "Oral"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : hv.items && hv.items.length > 0 ? (
                         <div className="space-y-1 pt-1 border-t border-border/40">
                           <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider flex items-center justify-between">
                             <span>Prescription Items ({hv.items.length})</span>
@@ -2723,7 +2261,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                             ))}
                           </div>
                         </div>
-                      )}
+                      ) : null}
 
                       <div className="flex items-center justify-between pt-2 border-t border-border/60">
                         <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
@@ -2735,7 +2273,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       </div>
 
                       {/* Re-order / Copy Previous Prescription Button */}
-                      {hv.items && hv.items.length > 0 && (
+                      {((hv.items && hv.items.length > 0) || (hv.prescriptionData?.prescribedMedicines && hv.prescriptionData.prescribedMedicines.length > 0)) && (
                         <Button
                           type="button"
                           size="sm"

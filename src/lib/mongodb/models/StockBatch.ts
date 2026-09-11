@@ -4,9 +4,7 @@
  * Running stock qty is maintained here; ledger tracks all movements.
  */
 
-import mongoose from "mongoose";
-
-const { Schema, model } = mongoose;
+import mongoose, { Schema, model } from "mongoose";
 
 export type BatchStatus = "Active" | "Exhausted" | "Rejected" | "Expired";
 

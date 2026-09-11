@@ -3,9 +3,7 @@
  * Covers all fields across identity, stock, pricing, tax, purchasing, and sales tabs.
  */
 
-import mongoose from "mongoose";
-
-const { Schema, model } = mongoose;
+import mongoose, { Schema, model } from "mongoose";
 
 export type MedicineCategory = "Medicine" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
 export type UnitOfMeasure =
@@ -28,9 +26,34 @@ export interface UomConversion {
   conversionFactor: number;
 }
 
+export type ProductType = "MEDICINE" | "FOOD" | "ACCESSORY";
+
+export interface MedicineDetails {
+  medicineType?: string;
+  genericComposition?: string;
+  strength?: string;
+  dosageForm?: string;
+  packSize?: string;
+  batchNumber?: string;
+  expiryDate?: string;
+}
+
+export interface FoodDetails {
+  foodType?: string;
+  species?: string;
+  variantFlavour?: string;
+  packSize?: string;
+}
+
+export interface AccessoryDetails {
+  accessoryType?: string;
+  sizeVariant?: string;
+}
+
 export interface IInventoryItem {
   // ── Identity ──────────────────────────────────────────────────────────────
-  itemCode: string;       // auto-generated: M-0001
+  itemCode: string;       // auto-generated: M-0001, F-0001, A-0001
+  productType: ProductType;
   name: string;
   genericName: string;
   brand: string;
@@ -39,6 +62,12 @@ export interface IInventoryItem {
   category: MedicineCategory;
   subGroup: string;
   hasVariants: boolean;
+  sku: string;
+
+  // Category specific details (1:1 with Product Master)
+  medicineDetails?: MedicineDetails;
+  foodDetails?: FoodDetails;
+  accessoryDetails?: AccessoryDetails;
 
   // ── Stock & Inventory ─────────────────────────────────────────────────────
   unit: UnitOfMeasure;
@@ -47,6 +76,8 @@ export interface IInventoryItem {
   uomConversions: UomConversion[];
   maintainStock: boolean;
   valuationMethod: ValuationMethod;
+  currentStock: number;
+  minStockLevel: number;
   reorderLevel: number;
   reorderQty: number;
   safetyStock: number;
@@ -58,6 +89,7 @@ export interface IInventoryItem {
   // ── Pricing ───────────────────────────────────────────────────────────────
   defaultSalePrice: number;
   defaultPurchasePrice: number;
+  mrp: number;
   minSalePrice: number;
   maxDiscountPct: number;
   valuationRate: number;
@@ -103,10 +135,42 @@ const uomConversionSchema = new Schema<UomConversion>(
   { _id: false }
 );
 
+const medicineDetailsSchema = new Schema<MedicineDetails>(
+  {
+    medicineType: { type: String, default: "" },
+    genericComposition: { type: String, default: "" },
+    strength: { type: String, default: "" },
+    dosageForm: { type: String, default: "" },
+    packSize: { type: String, default: "" },
+    batchNumber: { type: String, default: "" },
+    expiryDate: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const foodDetailsSchema = new Schema<FoodDetails>(
+  {
+    foodType: { type: String, default: "" },
+    species: { type: String, default: "" },
+    variantFlavour: { type: String, default: "" },
+    packSize: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const accessoryDetailsSchema = new Schema<AccessoryDetails>(
+  {
+    accessoryType: { type: String, default: "" },
+    sizeVariant: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const inventoryItemSchema = new Schema<InventoryItemDocument>(
   {
     // Identity
     itemCode:       { type: String, required: true, unique: true, index: true },
+    productType:    { type: String, enum: ["MEDICINE", "FOOD", "ACCESSORY"], default: "MEDICINE", index: true },
     name:           { type: String, required: true },
     genericName:    { type: String, default: "" },
     brand:          { type: String, default: "" },
@@ -115,6 +179,11 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
     category:       { type: String, required: true, enum: ["Medicine", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"] },
     subGroup:       { type: String, default: "" },
     hasVariants:    { type: Boolean, default: false },
+    sku:            { type: String, default: "", index: true },
+
+    medicineDetails:  { type: medicineDetailsSchema, default: () => ({}) },
+    foodDetails:      { type: foodDetailsSchema, default: () => ({}) },
+    accessoryDetails: { type: accessoryDetailsSchema, default: () => ({}) },
 
     // Stock & Inventory
     unit:               { type: String, required: true },
@@ -123,6 +192,8 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
     uomConversions:     { type: [uomConversionSchema], default: [] },
     maintainStock:      { type: Boolean, default: true },
     valuationMethod:    { type: String, enum: ["FEFO", "FIFO", "Moving Average"], default: "FEFO" },
+    currentStock:       { type: Number, default: 0 },
+    minStockLevel:      { type: Number, default: 0 },
     reorderLevel:       { type: Number, default: 10 },
     reorderQty:         { type: Number, default: 20 },
     safetyStock:        { type: Number, default: 0 },
@@ -134,6 +205,7 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
     // Pricing
     defaultSalePrice:     { type: Number, required: true, default: 0 },
     defaultPurchasePrice: { type: Number, default: 0 },
+    mrp:                  { type: Number, default: 0 },
     minSalePrice:         { type: Number, default: 0 },
     maxDiscountPct:       { type: Number, default: 0 },
     valuationRate:        { type: Number, default: 0 },
@@ -169,9 +241,11 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
   { timestamps: true, collection: "inventory_items" }
 );
 
+inventoryItemSchema.index({ productType: 1, status: 1 });
 inventoryItemSchema.index({ category: 1, status: 1 });
 inventoryItemSchema.index({ name: "text", genericName: "text" });
 
 export const InventoryItem: mongoose.Model<InventoryItemDocument> =
   (mongoose.models["InventoryItem"] as mongoose.Model<InventoryItemDocument>) ??
   model<InventoryItemDocument>("InventoryItem", inventoryItemSchema);
+

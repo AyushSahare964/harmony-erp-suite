@@ -176,3 +176,68 @@ function isValidDateParts(day: number, month: number, year: number): boolean {
   if (day < 1 || day > daysInMonth(month, year)) return false;
   return true;
 }
+
+// ─── Quick Dates Calculator (§1.11, §11.2) ──────────────────────────────────
+
+import { addDays, addMonths, addYears } from "date-fns";
+
+export type QuickDateCode =
+  | "TODAY"
+  | "3D"
+  | "5D"
+  | "7D"
+  | "14D"
+  | "15D"
+  | "1M"
+  | "3M"
+  | "6M"
+  | "1Y";
+
+export function calculateQuickDate(
+  baseInput: string | Date | null | undefined,
+  quickCode: QuickDateCode | string
+): string {
+  let base: Date;
+  if (baseInput instanceof Date) {
+    base = new Date(baseInput.getFullYear(), baseInput.getMonth(), baseInput.getDate());
+  } else if (typeof baseInput === "string" && baseInput.trim()) {
+    const parts = baseInput.trim().split("-");
+    if (parts.length === 3) {
+      base = new Date(parseInt(parts[0]!, 10), parseInt(parts[1]!, 10) - 1, parseInt(parts[2]!, 10));
+    } else {
+      const d = new Date(baseInput);
+      base = isNaN(d.getTime()) ? new Date() : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
+  } else {
+    const now = new Date();
+    base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  const code = (quickCode || "").toUpperCase().trim();
+  if (code === "TODAY") {
+    return toISODate(base);
+  }
+
+  const match = code.match(/^(\d+)([DWMY])$/);
+  if (match) {
+    const num = parseInt(match[1]!, 10);
+    const unit = match[2]!;
+    if (unit === "D") return toISODate(addDays(base, num));
+    if (unit === "W") return toISODate(addDays(base, num * 7));
+    if (unit === "M") return toISODate(addMonths(base, num));
+    if (unit === "Y") return toISODate(addYears(base, num));
+  }
+
+  switch (code) {
+    case "3D": return toISODate(addDays(base, 3));
+    case "5D": return toISODate(addDays(base, 5));
+    case "7D": return toISODate(addDays(base, 7));
+    case "14D": return toISODate(addDays(base, 14));
+    case "15D": return toISODate(addDays(base, 15));
+    case "1M": return toISODate(addMonths(base, 1));
+    case "3M": return toISODate(addMonths(base, 3));
+    case "6M": return toISODate(addMonths(base, 6));
+    case "1Y": return toISODate(addYears(base, 1));
+    default: return toISODate(base);
+  }
+}

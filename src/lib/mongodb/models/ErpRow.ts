@@ -2,9 +2,7 @@
  * Generic ERP Row model — stores all module rows in "erp_rows" collection.
  */
 
-import mongoose from "mongoose";
-
-const { Schema, model } = mongoose;
+import mongoose, { Schema, model } from "mongoose";
 
 export interface IErpRow {
   moduleId: string;

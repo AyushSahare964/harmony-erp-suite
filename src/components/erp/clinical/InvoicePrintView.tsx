@@ -5,6 +5,8 @@ import { Printer, Receipt, CheckCircle2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
 
+import { cn } from "@/lib/utils";
+
 interface Props {
   visit: any;
   open: boolean;
@@ -23,6 +25,36 @@ export function InvoicePrintView({ visit, open, onClose }: Props) {
   };
 
   const isGst = visit?.billType === "GST";
+
+  const payments: any[] =
+    visit?.payments && visit.payments.length > 0
+      ? visit.payments
+      : visit?.amountPaid > 0
+      ? [
+          {
+            mode: visit?.paymentMode || "UPI",
+            amount: visit?.amountPaid,
+            timestamp: visit?.date,
+            recordedBy: visit?.doctorName || "Cashier",
+            trxRef: visit?.trxRef,
+          },
+        ]
+      : [];
+
+  const totalPaid =
+    visit?.amountPaid !== undefined
+      ? visit.amountPaid
+      : payments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+
+  const balanceDue =
+    visit?.balanceDue !== undefined
+      ? visit.balanceDue
+      : Math.max(0, (visit?.totalAmount || 0) - totalPaid);
+
+  const isMultiPayment = payments.length > 1 || (balanceDue > 0 && payments.length > 0);
+  const latestPayment = payments.length > 0 ? payments[payments.length - 1] : null;
+  const currentPaymentAmount = latestPayment ? latestPayment.amount : totalPaid;
+  const previousPaidAmount = isMultiPayment ? Math.max(0, totalPaid - currentPaymentAmount) : 0;
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
@@ -120,25 +152,58 @@ export function InvoicePrintView({ visit, open, onClose }: Props) {
             </tbody>
           </table>
 
-          {/* Financial Summary & Split Settlement */}
-          <div className="flex justify-between items-start pt-2">
-            {/* Left: Payment Mode Details */}
-            <div className="rounded-lg border border-gray-200 p-3 text-xs w-64 space-y-1 bg-gray-50">
-              <p className="font-bold text-gray-700 uppercase text-[10px]">Payment Summary</p>
-              {(visit?.payments || []).map((p: any, idx: number) => (
-                <div key={idx} className="flex justify-between text-gray-800">
-                  <span>Paid via {p.mode}:</span>
-                  <span className="font-bold">₹{p.amount.toFixed(2)}</span>
-                </div>
-              ))}
-              <div className="flex justify-between text-green-700 font-bold pt-1 border-t border-gray-200">
-                <span>Payment Status:</span>
-                <span>{visit?.status === "Paid" ? "PAID IN FULL ✓" : "PARTIALLY PAID"}</span>
+          {/* Financial Summary & Split Settlement (§4.4) */}
+          <div className="flex flex-col md:flex-row justify-between items-start gap-4 pt-2">
+            {/* Left: Payment History Sub-Table (§4.4) */}
+            <div className="flex-1 w-full space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="font-bold text-gray-700 uppercase text-[10px]">Payment History / Installments</p>
+                {/* Status Watermark / Badge (§4.4) */}
+                <span
+                  className={cn(
+                    "text-[10px] font-black uppercase px-2 py-0.5 rounded border",
+                    balanceDue === 0
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-amber-50 text-amber-700 border-amber-300"
+                  )}
+                >
+                  {balanceDue === 0 ? "PAID IN FULL ✓" : `PARTIAL PAYMENT — BALANCE DUE: ₹${balanceDue.toFixed(2)}`}
+                </span>
               </div>
+
+              {payments.length > 0 ? (
+                <table className="w-full text-[11px] border border-gray-200">
+                  <thead>
+                    <tr className="bg-gray-100 text-gray-700 border-b border-gray-200 text-left font-semibold">
+                      <th className="p-1.5">Date</th>
+                      <th className="p-1.5">Mode</th>
+                      <th className="p-1.5">Ref / Notes</th>
+                      <th className="p-1.5">Recorded By</th>
+                      <th className="p-1.5 text-right">Amount Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {payments.map((p: any, idx: number) => {
+                      const dateStr = p.timestamp ? new Date(p.timestamp).toLocaleDateString("en-GB") : visit?.date || "-";
+                      return (
+                        <tr key={idx}>
+                          <td className="p-1.5 text-gray-700">{dateStr}</td>
+                          <td className="p-1.5 font-bold uppercase text-[10px] text-gray-800">{p.mode || "UPI"}</td>
+                          <td className="p-1.5 text-gray-600">{p.trxRef || p.notes || "—"}</td>
+                          <td className="p-1.5 text-gray-600">{p.recordedBy || "Cashier"}</td>
+                          <td className="p-1.5 text-right font-mono font-bold text-gray-900">₹{Number(p.amount).toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-xs text-gray-400 italic">No payments recorded.</p>
+              )}
             </div>
 
-            {/* Right: Calculations */}
-            <div className="w-64 space-y-1.5 text-xs text-right">
+            {/* Right: Detailed Summary (§4.4) */}
+            <div className="w-72 space-y-1.5 text-xs text-right border-t md:border-t-0 md:border-l border-gray-200 pt-3 md:pt-0 md:pl-4">
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal:</span>
                 <span>₹{(visit?.subtotal || 0).toFixed(2)}</span>
@@ -156,19 +221,37 @@ export function InvoicePrintView({ visit, open, onClose }: Props) {
                 </div>
               )}
               <div className="flex justify-between font-extrabold text-base pt-2 border-t-2 border-black text-gray-900">
-                <span>Total Amount:</span>
-                <span>₹{(visit?.totalAmount || 0).toLocaleString("en-IN")}</span>
+                <span>Total Bill:</span>
+                <span>₹{(visit?.totalAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
               </div>
-              <div className="flex justify-between text-xs font-semibold text-gray-700">
-                <span>Amount Received:</span>
-                <span>₹{(visit?.amountPaid || 0).toLocaleString("en-IN")}</span>
-              </div>
-              {(visit?.balanceDue || 0) > 0 && (
-                <div className="flex justify-between text-xs font-bold text-red-600">
-                  <span>Balance Due:</span>
-                  <span>₹{visit.balanceDue.toLocaleString("en-IN")}</span>
-                </div>
+
+              {isMultiPayment && (
+                <>
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>Previous Paid:</span>
+                    <span>₹{previousPaidAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between text-xs font-semibold text-gray-800">
+                    <span>Current Payment:</span>
+                    <span>₹{Number(currentPaymentAmount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </>
               )}
+
+              <div className="flex justify-between text-xs font-semibold text-gray-800 border-t border-gray-200 pt-1">
+                <span>Total Paid:</span>
+                <span>₹{Number(totalPaid).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              </div>
+
+              <div
+                className={cn(
+                  "flex justify-between text-xs font-bold pt-1 border-t border-gray-200",
+                  balanceDue > 0 ? "text-red-600" : "text-emerald-700"
+                )}
+              >
+                <span>Balance Due:</span>
+                <span>₹{Number(balanceDue).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              </div>
             </div>
           </div>
 

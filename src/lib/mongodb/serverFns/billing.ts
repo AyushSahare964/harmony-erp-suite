@@ -435,11 +435,14 @@ const FilterInvoicesInputZ = z.object({
   status: z.string().optional().default("all"),
 });
 
-const RecordPaymentInputZ = z.object({
-  invoiceNo: z.string().min(1),
-  amount: z.number().positive(),
-  mode: z.enum(["UPI", "Cash", "Card", "NetBanking", "Cheque"]),
+export const RecordPaymentInputZ = z.object({
+  invoiceNo: z.string().optional(),
+  visitId: z.string().optional(),
+  amount: z.number(),
+  mode: z.enum(["UPI", "Cash", "Card", "NetBanking", "Cheque", "Account Due", "Bank Transfer"]),
   trxRef: z.string().optional(),
+  notes: z.string().optional(),
+  recordedBy: z.string().optional(),
 });
 
 const PartialPaymentAllocationZ = z.object({
@@ -494,23 +497,41 @@ export const recordInvoicePaymentFn = createServerFn({ method: "POST" })
   .handler(async ({ data }: { data: z.infer<typeof RecordPaymentInputZ> }) => {
     await connectDB();
 
-    const visit = await ClinicalVisit.findOne({ invoiceNo: data.invoiceNo });
-    if (!visit) throw new Error(`Invoice ${data.invoiceNo} not found`);
+    if (data.amount <= 0) {
+      throw new Error("Please enter a valid payment amount.");
+    }
 
+    const filter = data.invoiceNo ? { invoiceNo: data.invoiceNo } : data.visitId ? { visitId: data.visitId } : null;
+    if (!filter) throw new Error("invoiceNo or visitId is required");
+    const visit = await ClinicalVisit.findOne(filter);
+    if (!visit) throw new Error(`Invoice / Visit ${data.invoiceNo || data.visitId} not found`);
+
+    const currentBal = Math.max(0, (visit.totalAmount || 0) - (visit.amountPaid || 0));
+    if (data.amount > currentBal + 0.001) {
+      throw new Error("Paid amount cannot be greater than the total bill.");
+    }
+
+    const payId = `PAY-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     const newPayment = {
+      id: payId,
+      paymentId: payId,
       mode: data.mode,
       amount: data.amount,
       trxRef: data.trxRef || undefined,
       timestamp: new Date().toISOString(),
+      recordedBy: data.recordedBy || "Staff",
+      notes: data.notes || undefined,
     };
 
-    const currentPaid = (visit.amountPaid || 0) + data.amount;
-    const currentBal = Math.max(0, (visit.totalAmount || 0) - currentPaid);
+    const newTotalPaid = Math.round(((visit.amountPaid || 0) + data.amount) * 100) / 100;
+    const newBalance = Math.max(0, Math.round(((visit.totalAmount || 0) - newTotalPaid) * 100) / 100);
 
-    visit.amountPaid = currentPaid;
-    visit.balanceDue = currentBal;
-    visit.status = currentBal === 0 ? "Paid" : "Billed";
-    visit.payments.push(newPayment as any);
+    visit.amountPaid = newTotalPaid;
+    visit.balanceDue = newBalance;
+    visit.pendingAmount = newBalance;
+    visit.paymentStatus = newBalance === 0 ? "Full" : newTotalPaid > 0 ? "Partial" : "Unpaid";
+    visit.status = newBalance === 0 ? "Paid" : "Billed";
+    visit.payments = [...(visit.payments || []), newPayment as any];
 
     await visit.save();
 
@@ -529,14 +550,14 @@ export const recordInvoicePaymentFn = createServerFn({ method: "POST" })
           bankAccount: data.mode === "Cash" ? "Cash on Hand" : "HDFC Current",
           referenceNo: data.trxRef || visit.invoiceNo,
           paidAmount: data.amount,
-          narration: `Payment installment received for ${visit.invoiceNo}`,
+          narration: `Payment installment received for ${visit.invoiceNo} (Due: ₹${newBalance})`,
           references: [
             {
               invoiceNo: visit.invoiceNo,
               invoiceDate: visit.date,
               dueDate: visit.date,
               invoiceAmount: visit.totalAmount,
-              outstanding: currentBal,
+              outstanding: newBalance,
               allocatedAmount: data.amount,
             },
           ],
@@ -547,6 +568,30 @@ export const recordInvoicePaymentFn = createServerFn({ method: "POST" })
     }
 
     return toPlain<any>(visit.toObject ? visit.toObject() : visit);
+  });
+
+export const recordBillPaymentFn = recordInvoicePaymentFn;
+
+export const getPatientOutstandingBalanceFn = createServerFn({ method: "GET" })
+  .validator((raw: unknown) =>
+    z.object({ petId: z.string().optional(), ownerId: z.string().optional() }).parse(raw || {})
+  )
+  .handler(async ({ data }: { data: { petId?: string | undefined; ownerId?: string | undefined } }) => {
+    await connectDB();
+    const filter: any = { balanceDue: { $gt: 0 } };
+    if (data.petId) filter.petId = data.petId;
+    if (data.ownerId) filter.ownerId = data.ownerId;
+
+    const bills = await ClinicalVisit.find(filter)
+      .select("invoiceNo visitId petId petName ownerId ownerName totalAmount amountPaid balanceDue paymentStatus date")
+      .lean();
+
+    const totalOutstanding = bills.reduce((sum, b) => sum + (b.balanceDue || 0), 0);
+    return {
+      outstandingBalance: Math.round(totalOutstanding * 100) / 100,
+      unpaidBillsCount: bills.length,
+      bills: toPlain<any[]>(bills),
+    };
   });
 
 export const deleteInvoiceFn = createServerFn({ method: "POST" })

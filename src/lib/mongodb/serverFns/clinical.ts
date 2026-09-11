@@ -9,6 +9,7 @@ import { FinanceTransaction } from "@/lib/mongodb/models/FinanceTransaction";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { FoodPurchase } from "@/lib/mongodb/models/FoodPurchase";
 import { nextSeq } from "./counters";
+import { calcLineItem, calcBillSummary, roundMoney } from "@/lib/utils/moneyUtils";
 
 function toPlain<T>(v: any): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -77,6 +78,36 @@ const PrescriptionLineZ = z.object({
   lineTotal: z.number().min(0),
 });
 
+const SavePrescriptionInputZ = z.object({
+  visitId: z.string().min(1),
+  prescriptionNo: z.string().optional(),
+  date: z.string().optional(),
+  petId: z.string().optional(),
+  petName: z.string().optional(),
+  species: z.string().optional(),
+  breed: z.string().optional(),
+  ownerId: z.string().optional(),
+  ownerName: z.string().optional(),
+  ownerPhone: z.string().optional(),
+  doctorName: z.string().optional(),
+  vitals: z.object({
+    weightKg: z.number().optional(),
+    tempC: z.number().optional(),
+    complaint: z.string().optional(),
+    weight: z.number().optional(),
+    weightUnit: z.enum(["kg", "lb"]).optional(),
+    temp: z.number().optional(),
+    tempUnit: z.enum(["°C", "°F"]).optional(),
+  }).optional(),
+  diagnosis: z.string().optional(),
+  clinicalNotes: z.string().optional(),
+  nextVisitDate: z.string().optional(),
+  nextVaccineDate: z.string().optional(),
+  nextDewormingDate: z.string().optional(),
+  prescriptionData: z.any().optional(),
+  billableItems: z.array(PrescriptionLineZ).optional(),
+});
+
 const FinalizeVisitInputZ = z.object({
   visitId: z.string().min(1),
   petId: z.string().optional(),
@@ -94,6 +125,16 @@ const FinalizeVisitInputZ = z.object({
   nextVisitDate: z.string().optional(),
   nextVaccineDate: z.string().optional(),
   nextDewormingDate: z.string().optional(),
+  prescriptionData: z.any().optional(),
+  vitals: z.object({
+    weightKg: z.number().optional(),
+    tempC: z.number().optional(),
+    complaint: z.string().optional(),
+    weight: z.number().optional(),
+    weightUnit: z.enum(["kg", "lb"]).optional(),
+    temp: z.number().optional(),
+    tempUnit: z.enum(["°C", "°F"]).optional(),
+  }).optional(),
   items: z.array(PrescriptionLineZ),
   subtotal: z.number(),
   billDiscount: z.number().default(0),
@@ -101,9 +142,13 @@ const FinalizeVisitInputZ = z.object({
   gstAmount: z.number(),
   roundOff: z.number().default(0),
   totalAmount: z.number(),
-  amountPaid: z.number(),
+  amountPaid: z.number().min(0, "Amount received cannot be negative"),
+  pendingAmount: z.number().optional(),
+  paymentStatus: z.enum(["Full", "Partial", "Unpaid"]).optional(),
   paymentMode: z.enum(["UPI", "Cash", "Card", "NetBanking", "Cheque", "Account Due"]).default("UPI"),
   trxRef: z.string().optional(),
+  notes: z.string().optional(),
+  recordedBy: z.string().optional(),
 });
 
 
@@ -282,6 +327,597 @@ export const admitPatientFn = createServerFn({ method: "POST" })
     return toPlain<any>(newVisit.toObject ? newVisit.toObject() : newVisit);
   });
 
+export const savePrescriptionFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => SavePrescriptionInputZ.parse(data))
+  .handler(async ({ data }: { data: z.infer<typeof SavePrescriptionInputZ> }) => {
+    await connectDB();
+    let visit = await ClinicalVisit.findOne({ visitId: data.visitId });
+    if (!visit) {
+      const invSeq = await nextSeq("invoice_no", "INV/2026-27", 4, maxInvoiceSeq);
+      const rxSeq = data.prescriptionNo || (await nextSeq("prescription_no", "RX", 4, maxRxSeq));
+      visit = new ClinicalVisit({
+        visitId: data.visitId,
+        invoiceNo: invSeq,
+        prescriptionNo: rxSeq,
+        date: data.date || new Date().toISOString().slice(0, 10),
+        branch: "Main Clinic",
+        billType: "GST",
+        petId: data.petId || "PET-0001",
+        petName: data.petName || "Patient",
+        species: data.species || "Canine",
+        breed: data.breed || "Standard",
+        ownerId: data.ownerId || "OWN-0001",
+        ownerName: data.ownerName || "Client",
+        ownerPhone: data.ownerPhone || "N/A",
+        doctorName: data.doctorName || "Dr. Rohit Sharma",
+        receptionistName: "Front Desk",
+        status: "In Consultation",
+        items: [],
+        subtotal: 0,
+        totalAmount: 0,
+        amountPaid: 0,
+        balanceDue: 0,
+        payments: [],
+      });
+    }
+
+    if (!visit.prescriptionNo) {
+      visit.prescriptionNo = data.prescriptionNo || (await nextSeq("prescription_no", "RX", 4, maxRxSeq));
+    }
+
+    if (data.vitals) {
+      const wUnit = data.vitals.weightUnit || "kg";
+      const tUnit = data.vitals.tempUnit || "°C";
+      const wVal = data.vitals.weight ?? data.vitals.weightKg;
+      const tVal = data.vitals.temp ?? data.vitals.tempC;
+      
+      const wKg = wVal !== undefined ? (wUnit === "lb" ? +(wVal * 0.453592).toFixed(2) : wVal) : visit.vitals?.weightKg;
+      const tC = tVal !== undefined ? (tUnit === "°F" ? +((tVal - 32) * 5 / 9).toFixed(1) : tVal) : visit.vitals?.tempC;
+
+      visit.vitals = {
+        ...visit.vitals,
+        weightKg: wKg,
+        tempC: tC,
+        complaint: data.vitals.complaint ?? visit.vitals?.complaint,
+        weight: wVal,
+        weightUnit: wUnit,
+        temp: tVal,
+        tempUnit: tUnit,
+      };
+    }
+
+    if (data.diagnosis !== undefined) visit.diagnosis = data.diagnosis;
+    if (data.clinicalNotes !== undefined) visit.clinicalNotes = data.clinicalNotes;
+    if (data.nextVisitDate !== undefined) visit.nextVisitDate = data.nextVisitDate;
+    if (data.nextVaccineDate !== undefined) visit.nextVaccineDate = data.nextVaccineDate;
+    if (data.nextDewormingDate !== undefined) visit.nextDewormingDate = data.nextDewormingDate;
+    if (data.prescriptionData !== undefined) visit.prescriptionData = data.prescriptionData;
+
+    if (data.billableItems && data.billableItems.length > 0 && (visit.status === "Admitted" || visit.status === "In Consultation")) {
+      visit.items = data.billableItems as any;
+    }
+
+    if (visit.status === "Admitted") {
+      visit.status = "In Consultation";
+    }
+
+    await visit.save();
+
+    // Auto-sync appointment if next visit scheduled
+    if (data.nextVisitDate) {
+      try {
+        const nextToken = Math.floor(100 + Math.random() * 900);
+        await ErpRow.findOneAndUpdate(
+          {
+            moduleId: "appointments",
+            "data.petId": visit.petId,
+            "data.date": data.nextVisitDate,
+          },
+          {
+            $set: {
+              moduleId: "appointments",
+              data: {
+                token: nextToken,
+                petId: visit.petId,
+                pet: visit.petName,
+                species: visit.species || "Canine",
+                breed: visit.breed || "Standard",
+                owner: visit.ownerName,
+                phone: visit.ownerPhone,
+                doctor: visit.doctorName || "Dr. Rohit Sharma",
+                reason: `Follow-up Consultation: ${data.diagnosis || "Clinical Review"}`,
+                slot: "09:30 AM",
+                date: data.nextVisitDate,
+                status: "Scheduled",
+                priority: "Follow-up",
+                createdAt: new Date().toISOString(),
+              },
+            },
+          },
+          { upsert: true }
+        );
+      } catch (appErr) {
+        console.warn("[Appointment Auto-Sync] Warning during appointment sync:", appErr);
+      }
+    }
+
+    return toPlain<any>(visit.toObject ? visit.toObject() : visit);
+  });
+
+// ─── Section Save & Sync Machinery (§5.1, §5.2, §5.3) ─────────────────────────
+
+const SectionSaveInputZ = z.object({
+  visitId: z.string().min(1),
+  section: z.enum([
+    "HISTORY",
+    "SYMPTOMS",
+    "FINDINGS",
+    "FEE",
+    "IMMEDIATE_MED",
+    "PRESCRIBED_MED",
+    "INJECTABLE",
+    "ANIMAL_FOOD",
+    "PRESCRIBED_FOOD",
+    "ACCESSORY",
+    "FOLLOWUP",
+  ]),
+  payload: z.any(),
+  version: z.number().optional(),
+});
+
+export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => SectionSaveInputZ.parse(raw))
+  .handler(async ({ data }: { data: z.infer<typeof SectionSaveInputZ> }) => {
+    await connectDB();
+
+    const visit = await ClinicalVisit.findOne({ visitId: data.visitId });
+    if (!visit) {
+      throw new Error(`Visit with ID ${data.visitId} not found.`);
+    }
+
+    // 1. Optimistic Locking Check (§5.2)
+    const currentVersion = visit.prescriptionData?.version || 1;
+    if (data.version !== undefined && data.version !== currentVersion) {
+      throw new Error(
+        `CONFLICT_VERSION: Prescription has been modified in another session (current v${currentVersion}, provided v${data.version}). Please reload to review the latest state.`
+      );
+    }
+
+    // 2. Settled Bill Check (§1.8, §5.2)
+    const isSettled =
+      (visit.status as string) === "Paid" ||
+      (visit.status as string) === "Settled" ||
+      visit.status === "Closed";
+
+    const billableSections = [
+      "FEE",
+      "IMMEDIATE_MED",
+      "PRESCRIBED_MED",
+      "INJECTABLE",
+      "ANIMAL_FOOD",
+      "PRESCRIBED_FOOD",
+      "ACCESSORY",
+    ];
+
+    if (isSettled && billableSections.includes(data.section)) {
+      throw new Error(
+        "BILL_SETTLED: This visit's bill has already been settled. Billable prescription items are locked and cannot be modified."
+      );
+    }
+
+    if (!visit.prescriptionData) {
+      visit.prescriptionData = {
+        prescriptionId: visit.prescriptionNo,
+        dateOfVisit: visit.date,
+        version: 1,
+        sectionSavedAt: {},
+      };
+    }
+
+    // 3. Section Dispatch
+    switch (data.section) {
+      case "FEE": {
+        const feeAmount =
+          typeof data.payload?.amount === "number"
+            ? Math.max(0, data.payload.amount)
+            : null;
+        visit.prescriptionData.consultationFee = feeAmount ?? undefined;
+        visit.prescriptionData.consultationFeePreset =
+          data.payload?.preset || undefined;
+
+        // Sync consultation line in visit.items
+        visit.items = (visit.items || []).filter(
+          (l: any) =>
+            l.sourceType !== "RX_CONSULT" &&
+            !(
+              !l.sourceType &&
+              l.lineType === "Consultation" &&
+              l.name?.toLowerCase().includes("consultation")
+            )
+        );
+
+        if (feeAmount !== null && feeAmount !== undefined) {
+          const gstRate = visit.billType === "GST" ? 18 : 0;
+          visit.items.unshift({
+            id: `rx-consult-${visit.visitId}`,
+            lineType: "Consultation",
+            name: "Doctor Consultation",
+            quantity: 1,
+            unitPrice: feeAmount,
+            discountPercent: 0,
+            taxableAmount: feeAmount,
+            gstRate,
+            lineTotal: feeAmount,
+            sourceType: "RX_CONSULT",
+            sourceId: visit.visitId,
+            rxSection: "FEE",
+          });
+        }
+        break;
+      }
+
+      case "HISTORY": {
+        const text = String(data.payload?.text || "").trim();
+        visit.prescriptionData.previousHistory = text;
+        visit.clinicalNotes = text;
+        break;
+      }
+
+      case "SYMPTOMS": {
+        const text = String(data.payload?.text || "").trim();
+        visit.prescriptionData.symptomsText = text;
+        if (!visit.vitals) {
+          visit.vitals = {};
+        }
+        visit.vitals.complaint = text;
+        break;
+      }
+
+      case "FINDINGS": {
+        const findings = Array.isArray(data.payload?.findings)
+          ? data.payload.findings
+          : [];
+        const other = String(data.payload?.other || "").trim();
+        visit.prescriptionData.clinicalFindings = findings;
+        visit.prescriptionData.clinicalFindingsOther = other;
+        if (findings.length > 0) {
+          visit.diagnosis =
+            findings.join(", ") + (other ? ` (${other})` : "");
+        }
+        break;
+      }
+
+      case "IMMEDIATE_MED":
+      case "PRESCRIBED_MED":
+      case "INJECTABLE":
+      case "ANIMAL_FOOD":
+      case "PRESCRIBED_FOOD":
+      case "ACCESSORY": {
+        const items = Array.isArray(data.payload?.items)
+          ? data.payload.items
+          : [];
+
+        // Save into prescriptionData structured slot
+        if (data.section === "IMMEDIATE_MED") {
+          visit.prescriptionData.immediateMedicines = items.map((it: any) => ({
+            id: it.id,
+            itemCode: it.itemCode,
+            medicineName: it.name,
+            quantity: Number(it.quantity) || 1,
+            unit: it.unit || "Tablet",
+            dosage: it.dosage || it.dosageInstructions || "",
+            instructions: it.instructions || it.dosageInstructions || "",
+            unitPrice: Number(it.unitPrice) || 0,
+          }));
+        } else if (data.section === "PRESCRIBED_MED") {
+          visit.prescriptionData.prescribedMedicines = items.map((it: any) => ({
+            id: it.id,
+            itemCode: it.itemCode,
+            medicineName: it.name,
+            quantity: Number(it.quantity) || 1,
+            unit: it.unit || "Tablet",
+            dosage: it.dosage || it.dosageInstructions || "",
+            frequency: it.frequency || "As directed",
+            duration: it.duration || "5",
+            route: it.route || "Oral",
+            instructions: it.instructions || it.dosageInstructions || "",
+            unitPrice: Number(it.unitPrice) || 0,
+          }));
+        } else if (data.section === "INJECTABLE") {
+          visit.prescriptionData.injectables = items.map((it: any) => ({
+            id: it.id,
+            name: it.name,
+            itemCode: it.itemCode,
+            dose: Number(it.dose) || 1,
+            doseUnit: it.unit || "ml",
+            route: it.route || "SC",
+            quantity: Number(it.quantity) || 1,
+            dateTimeAdministered:
+              it.dateTimeAdministered || new Date().toISOString(),
+            instructions: it.instructions || it.dosageInstructions || "",
+            unitPrice: Number(it.unitPrice) || 0,
+          }));
+        } else if (data.section === "ANIMAL_FOOD") {
+          visit.prescriptionData.animalFood = items.map((it: any) => ({
+            id: it.id,
+            name: it.name,
+            itemCode: it.itemCode,
+            quantity: Number(it.quantity) || 1,
+            unit: it.unit || "Kg",
+            frequency: "Daily",
+            instructions: it.instructions || "",
+            unitPrice: Number(it.unitPrice) || 0,
+          }));
+        } else if (data.section === "PRESCRIBED_FOOD") {
+          visit.prescriptionData.prescribedFood = items.map((it: any) => ({
+            id: it.id,
+            name: it.name,
+            quantity: Number(it.quantity) || 1,
+            unit: it.unit || "Kg",
+            frequency: "Daily",
+            instructions: it.instructions || "",
+            duration: it.duration || "14 days",
+          }));
+        } else if (data.section === "ACCESSORY") {
+          visit.prescriptionData.accessories = items.map((it: any) => ({
+            id: it.id,
+            name: it.name,
+            itemCode: it.itemCode,
+            quantity: Number(it.quantity) || 1,
+            unitPrice: Number(it.unitPrice) || 0,
+          }));
+        }
+
+        // 4. Billing Sync: Replace-set for this section's lines (§1.3, §5.3)
+        visit.items = (visit.items || []).filter(
+          (l: any) =>
+            !(l.sourceType === "RX_ITEM" && l.rxSection === data.section)
+        );
+
+        for (const it of items) {
+          const qty = Number(it.quantity) || 1;
+          const price = Number(it.unitPrice) || 0;
+          const disc = Number(it.discountPercent) || 0;
+          const defaultGst =
+            data.section === "ANIMAL_FOOD" ||
+            data.section === "PRESCRIBED_FOOD" ||
+            data.section === "ACCESSORY"
+              ? 18
+              : 12;
+          const gst = Number(it.gstRate) || (visit.billType === "GST" ? defaultGst : 0);
+
+          const lineCalc = calcLineItem({
+            quantity: qty,
+            unitPrice: price,
+            discountType: disc > 0 ? "percentage" : undefined,
+            discountValue: disc,
+            gstRate: gst,
+            applyGst: visit.billType === "GST",
+          });
+
+          const isVaccine =
+            it.name?.toLowerCase().includes("vaccine") ||
+            it.lineType === "Vaccine";
+          const lineType =
+            data.section === "ANIMAL_FOOD" || data.section === "PRESCRIBED_FOOD"
+              ? "Food"
+              : data.section === "ACCESSORY"
+              ? "Accessory"
+              : isVaccine
+              ? "Vaccine"
+              : "Pharmacy";
+
+          visit.items.push({
+            id: it.id,
+            lineType,
+            itemCode: it.itemCode,
+            batchNo: it.batchNo,
+            name: it.name,
+            dosageInstructions: it.dosage || it.instructions || it.dosageInstructions,
+            quantity: qty,
+            unitPrice: price,
+            discountPercent: disc,
+            discountType: disc > 0 ? "percentage" : undefined,
+            discountValue: disc,
+            discountAmount: lineCalc.discountAmount,
+            taxableAmount: lineCalc.taxableAmount,
+            gstRate: gst,
+            lineTotal: lineCalc.lineTotal,
+            sourceType: "RX_ITEM",
+            sourceId: it.id,
+            rxSection: data.section,
+          });
+        }
+        break;
+      }
+
+      case "FOLLOWUP": {
+        const required = Boolean(data.payload?.required);
+        const entries = data.payload?.entries || {};
+        const bloodTests = Array.isArray(data.payload?.bloodTests)
+          ? data.payload.bloodTests
+          : [];
+
+        visit.prescriptionData.followupRequired = required;
+        visit.prescriptionData.followUpEntries = entries;
+        visit.prescriptionData.bloodTests = bloodTests;
+        visit.prescriptionData.followUp = {
+          required,
+          nextTreatmentDate: entries.TREATMENT?.dueDate || undefined,
+          nextVaccineDate: entries.VACCINE?.dueDate || undefined,
+          nextDewormingDate: entries.DEWORMING?.dueDate || undefined,
+        };
+
+        if (entries.TREATMENT?.dueDate) {
+          visit.nextVisitDate = entries.TREATMENT.dueDate;
+        }
+        if (entries.VACCINE?.dueDate) {
+          visit.nextVaccineDate = entries.VACCINE.dueDate;
+        }
+        if (entries.DEWORMING?.dueDate) {
+          visit.nextDewormingDate = entries.DEWORMING.dueDate;
+        }
+
+        // Laboratory Sync (§5.5, Phase 9)
+        const currentTestIds = new Set(bloodTests.map((t: any) => t.id));
+        const existingLabOrders = await ErpRow.find({
+          moduleId: "lab_orders",
+          "data.sourceType": "RX_FOLLOWUP_TEST",
+          "data.visitId": visit.visitId,
+        });
+
+        // Check for removed tests that cannot be cancelled
+        for (const ord of existingLabOrders) {
+          const ordData = (ord.data || {}) as Record<string, any>;
+          const ordId = ordData["sourceId"];
+          if (!currentTestIds.has(ordId) || !required) {
+            if (
+              ordData["status"] === "Sample Collected" ||
+              ordData["status"] === "Processing" ||
+              ordData["status"] === "Completed"
+            ) {
+              throw new Error(
+                `Cannot remove lab test "${ordData["testName"]}": sample is already collected in the Laboratory. Please manage or cancel it from the Laboratory section.`
+              );
+            }
+            // If status is Ordered, cancel it
+            if (ordData["status"] === "Ordered") {
+              ordData["status"] = "Cancelled";
+              ordData["cancelReason"] = "Removed from Doctor Prescription";
+              ord.markModified("data");
+              await ord.save();
+            }
+          }
+        }
+
+        // Upsert active blood tests into Lab Orders
+        if (required && bloodTests.length > 0) {
+          for (const t of bloodTests) {
+            const existing = existingLabOrders.find(
+              (o: any) => o.data?.sourceId === t.id && o.data?.status !== "Cancelled"
+            );
+            if (!existing) {
+              const labSeq = await nextSeq("lab_order", "LAB", 4);
+              await ErpRow.create({
+                moduleId: "lab_orders",
+                data: {
+                  orderId: labSeq,
+                  pet: visit.petName,
+                  petId: visit.petId,
+                  species: visit.species,
+                  breed: visit.breed,
+                  owner: visit.ownerName,
+                  phone: visit.ownerPhone,
+                  testName: t.testName || t.name,
+                  profile: "Biochemistry & Hematology",
+                  sampleType: "Whole Blood EDTA",
+                  barcode: `BC-${Math.floor(1000 + Math.random() * 9000)}`,
+                  tat: "2 hours",
+                  priority: "Routine",
+                  doctor: visit.doctorName || "Dr. Rohit Sharma",
+                  date:
+                    entries.BLOOD_TEST?.dueDate ||
+                    visit.date ||
+                    new Date().toISOString().slice(0, 10),
+                  time: new Date().toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }),
+                  status: "Ordered",
+                  isAbnormal: false,
+                  parameters: [],
+                  sourceType: "RX_FOLLOWUP_TEST",
+                  sourceId: t.id,
+                  visitId: visit.visitId,
+                },
+              });
+            } else if (((existing.data || {}) as Record<string, any>)["status"] === "Ordered") {
+              const exData = (existing.data || {}) as Record<string, any>;
+              exData["testName"] = t.testName || t.name;
+              exData["date"] =
+                entries["BLOOD_TEST"]?.dueDate || exData["date"];
+              existing.markModified("data");
+              await existing.save();
+            }
+          }
+        }
+        break;
+      }
+    }
+
+    // 5. Authoritative Bill Recalculation (§1.7, §5.3)
+    const billSummary = calcBillSummary(
+      (visit.items || []).map((l: any) => ({
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        discountType: l.discountType || "percentage",
+        discountValue: l.discountValue ?? l.discountPercent ?? 0,
+        gstRate: l.gstRate || 0,
+      })),
+      visit.billType === "GST"
+    );
+
+    visit.subtotal = billSummary.subtotal;
+    visit.taxableAmount = billSummary.subtotal;
+    visit.gstAmount = billSummary.totalGst;
+    visit.roundOff = billSummary.roundOff;
+    visit.totalAmount = billSummary.roundedTotal;
+    visit.balanceDue = Math.max(
+      0,
+      roundMoney(billSummary.roundedTotal - (visit.amountPaid || 0))
+    );
+
+    // 6. Bump Optimistic Version & Timestamp
+    const nextVersion = currentVersion + 1;
+    visit.prescriptionData.version = nextVersion;
+    if (!visit.prescriptionData.sectionSavedAt) {
+      visit.prescriptionData.sectionSavedAt = {};
+    }
+    visit.prescriptionData.sectionSavedAt[data.section] = new Date().toISOString();
+
+    visit.markModified("prescriptionData");
+    visit.markModified("items");
+    if (visit.vitals) visit.markModified("vitals");
+
+    await visit.save();
+
+    return {
+      success: true,
+      visit: toPlain<any>(visit.toObject ? visit.toObject() : visit),
+      version: nextVersion,
+      sectionSavedAt: visit.prescriptionData.sectionSavedAt,
+      billingSummary: {
+        subtotal: visit.subtotal,
+        gstAmount: visit.gstAmount,
+        roundOff: visit.roundOff,
+        totalAmount: visit.totalAmount,
+        balanceDue: visit.balanceDue,
+        lineCount: visit.items.length,
+      },
+    };
+  });
+
+export const getPrescriptionBillingSummaryFn = createServerFn({ method: "GET" })
+  .validator((raw: unknown) => z.object({ visitId: z.string().min(1) }).parse(raw))
+  .handler(async ({ data }: { data: { visitId: string } }) => {
+    await connectDB();
+    const visit = await ClinicalVisit.findOne({ visitId: data.visitId }).lean();
+    if (!visit) {
+      throw new Error(`Visit ${data.visitId} not found`);
+    }
+    return {
+      subtotal: visit.subtotal || 0,
+      gstAmount: visit.gstAmount || 0,
+      roundOff: visit.roundOff || 0,
+      totalAmount: visit.totalAmount || 0,
+      balanceDue: visit.balanceDue || 0,
+      lineCount: (visit.items || []).length,
+      lines: toPlain<any[]>(visit.items || []),
+      version: (visit as any).prescriptionData?.version || 1,
+      sectionSavedAt: (visit as any).prescriptionData?.sectionSavedAt || {},
+    };
+  });
+
 export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => FinalizeVisitInputZ.parse(data))
   .handler(async ({ data }: { data: z.infer<typeof FinalizeVisitInputZ> }) => {
@@ -318,16 +954,35 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     }
 
 
-    const now = new Date().toISOString();
+    // Bill edit protection (§3.3)
+    if (visit.amountPaid && data.totalAmount < visit.amountPaid) {
+      throw new Error(
+        `Cannot reduce bill total (₹${data.totalAmount}) below already paid amount (₹${visit.amountPaid}). Please process refund or reconciliation first.`
+      );
+    }
+
+    const pendingAmount = Math.max(0, data.totalAmount - data.amountPaid);
+    const paymentStatus: "Full" | "Partial" | "Unpaid" =
+      data.amountPaid === data.totalAmount
+        ? "Full"
+        : data.amountPaid > 0
+        ? "Partial"
+        : "Unpaid";
+
+    const balanceDue = pendingAmount;
+    const status = balanceDue === 0 ? "Paid" : "Billed";
+
+    const paymentId = `PAY-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     const paymentRecord = {
+      id: paymentId,
+      paymentId,
       mode: data.paymentMode,
       amount: data.amountPaid,
       trxRef: data.trxRef || undefined,
-      timestamp: now,
+      timestamp: new Date().toISOString(),
+      recordedBy: data.recordedBy || data.doctorName || "Cashier",
+      notes: data.notes || undefined,
     };
-
-    const balanceDue = Math.max(0, data.totalAmount - data.amountPaid);
-    const status = balanceDue === 0 ? "Paid" : "Billed";
 
     // 1. Server-side duplicate medicine check (REQ-RX-02)
     const seenCodes = new Set<string>();
@@ -340,9 +995,10 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
       }
     }
 
-    // 2. FEFO Inventory Deduction & Ledger Recording for all items with stock tracking
-    for (const item of data.items) {
-      if (item.itemCode || item.lineType === "Pharmacy" || item.lineType === "Vaccine" || item.lineType === "Food" || item.lineType === "Accessory") {
+    // 2. FEFO Inventory Deduction & Ledger Recording (ONLY if not already deducted!)
+    if (!visit.inventoryDeducted) {
+      for (const item of data.items) {
+        if (item.itemCode || item.lineType === "Pharmacy" || item.lineType === "Vaccine" || item.lineType === "Food" || item.lineType === "Accessory") {
 
         try {
           const filter: any = { qty: { $gt: 0 } };
@@ -406,6 +1062,7 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
         }
       }
     }
+  }
 
     // 2. Post Double-Entry Journal in Accounting
     try {
@@ -463,6 +1120,28 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     }
 
     // 3. Update Clinical Visit Record
+    if (data.prescriptionData !== undefined) {
+      visit.prescriptionData = data.prescriptionData;
+    }
+    if (data.vitals) {
+      const wUnit = data.vitals.weightUnit || "kg";
+      const tUnit = data.vitals.tempUnit || "°C";
+      const wVal = data.vitals.weight ?? data.vitals.weightKg;
+      const tVal = data.vitals.temp ?? data.vitals.tempC;
+      const wKg = wVal !== undefined ? (wUnit === "lb" ? +(wVal * 0.453592).toFixed(2) : wVal) : visit.vitals?.weightKg;
+      const tC = tVal !== undefined ? (tUnit === "°F" ? +((tVal - 32) * 5 / 9).toFixed(1) : tVal) : visit.vitals?.tempC;
+
+      visit.vitals = {
+        ...visit.vitals,
+        weightKg: wKg,
+        tempC: tC,
+        complaint: data.vitals.complaint ?? visit.vitals?.complaint,
+        weight: wVal,
+        weightUnit: wUnit,
+        temp: tVal,
+        tempUnit: tUnit,
+      };
+    }
     visit.diagnosis = data.diagnosis || undefined;
     visit.clinicalNotes = data.clinicalNotes || undefined;
     visit.nextVisitDate = data.nextVisitDate || undefined;
@@ -477,7 +1156,26 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     visit.totalAmount = data.totalAmount;
     visit.amountPaid = data.amountPaid;
     visit.balanceDue = balanceDue;
-    visit.payments = [paymentRecord] as any;
+    visit.pendingAmount = pendingAmount;
+    visit.paymentStatus = paymentStatus;
+    
+    if (data.amountPaid > 0) {
+      const existingPayments = visit.payments || [];
+      const sumExisting = existingPayments.reduce((s: number, p: any) => s + (p.amount || 0), 0);
+      if (sumExisting < data.amountPaid) {
+        const delta = Math.round((data.amountPaid - sumExisting) * 100) / 100;
+        visit.payments = [
+          ...existingPayments,
+          {
+            ...paymentRecord,
+            amount: delta,
+          } as any,
+        ];
+      } else if (existingPayments.length === 0) {
+        visit.payments = [paymentRecord] as any;
+      }
+    }
+
     visit.status = status;
     visit.inventoryDeducted = true;
     await visit.save();
@@ -504,7 +1202,7 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
           date: visit.date || new Date().toISOString().slice(0, 10),
           status: "Verified & Signed",
           isNarrative: true,
-          narrative: `Chief Complaint: ${visit.vitals?.complaint || "Routine Clinical Consultation"}\n\nClinical Findings: ${visit.diagnosis || "Examination completed"}\n\nNotes & Advice: ${visit.clinicalNotes || "As prescribed."}\n\nPrescription (${visit.prescriptionNo}):\n${(data.items || []).map((it: any) => `• ${it.name} (Qty: ${it.quantity}) - ${it.dosageInstructions || "As advised"}`).join("\n")}`,
+          narrative: `Chief Complaint: ${visit.vitals?.complaint || "Clinical Consultation"}\n\nClinical Findings: ${visit.diagnosis || "Examination completed"}\n\nNotes & Advice: ${visit.clinicalNotes || "As prescribed."}\n\nPrescription (${visit.prescriptionNo}):\n${(data.items || []).map((it: any) => `• ${it.name} (Qty: ${it.quantity}) - ${it.dosageInstructions || "As advised"}`).join("\n")}`,
           totalAmount: visit.totalAmount,
         },
       });

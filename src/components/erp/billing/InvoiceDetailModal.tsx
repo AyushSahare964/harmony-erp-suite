@@ -43,6 +43,8 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<"UPI" | "Cash" | "Card" | "NetBanking" | "Cheque">("UPI");
   const [paymentRef, setPaymentRef] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
+  const [recordedBy, setRecordedBy] = useState("Cashier");
   const [recording, setRecording] = useState(false);
 
   if (!invoice) return null;
@@ -50,11 +52,11 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
   const handleRecordPayment = async () => {
     const amt = Number(paymentAmount);
     if (isNaN(amt) || amt <= 0) {
-      toast.error("Please enter a valid payment amount");
+      toast.error("Please enter a valid payment amount.");
       return;
     }
     if (amt > (invoice.balanceDue || 0)) {
-      toast.error(`Amount cannot exceed remaining balance of ₹${invoice.balanceDue}`);
+      toast.error("Paid amount cannot be greater than the total bill.");
       return;
     }
 
@@ -66,12 +68,15 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
           amount: amt,
           mode: paymentMode,
           trxRef: paymentRef || undefined,
+          notes: paymentNotes || undefined,
+          recordedBy: recordedBy || undefined,
         },
       });
       toast.success(`Payment of ₹${amt} recorded successfully`);
       setShowAddPaymentDialog(false);
       setPaymentAmount("");
       setPaymentRef("");
+      setPaymentNotes("");
       onUpdated?.();
     } catch (err: any) {
       toast.error(err?.message || "Failed to record payment");
@@ -263,6 +268,8 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
                           <th className="py-1.5">Sr.</th>
                           <th className="py-1.5">Date &amp; Time</th>
                           <th className="py-1.5">Mode</th>
+                          <th className="py-1.5">Recorded By</th>
+                          <th className="py-1.5">Notes / Ref</th>
                           <th className="py-1.5 text-right">Amount</th>
                         </tr>
                       </thead>
@@ -290,6 +297,12 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
                                   {p.mode || "UPI"}
                                 </span>
                               </td>
+                              <td className="py-2 text-muted-foreground">
+                                {p.recordedBy || "Cashier"}
+                              </td>
+                              <td className="py-2 text-muted-foreground truncate max-w-[140px]" title={p.notes || p.trxRef || ""}>
+                                {p.notes || p.trxRef || "—"}
+                              </td>
                               <td className="py-2 text-right font-mono font-bold">
                                 ₹{Number(p.amount).toFixed(2)}
                               </td>
@@ -299,7 +312,7 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
 
                         {paymentsList.length === 0 && (
                           <tr>
-                            <td colSpan={4} className="py-4 text-center text-muted-foreground italic">
+                            <td colSpan={6} className="py-4 text-center text-muted-foreground italic">
                               No payment recorded yet.
                             </td>
                           </tr>
@@ -452,6 +465,26 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
                 value={paymentRef}
                 onChange={(e) => setPaymentRef(e.target.value)}
                 className="font-mono text-sm"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Notes (Optional)</Label>
+              <Input
+                placeholder="e.g. Second installment / balance on next visit"
+                value={paymentNotes}
+                onChange={(e) => setPaymentNotes(e.target.value)}
+                className="text-xs"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Recorded By</Label>
+              <Input
+                placeholder="Cashier / Staff Name"
+                value={recordedBy}
+                onChange={(e) => setRecordedBy(e.target.value)}
+                className="text-xs"
               />
             </div>
           </div>

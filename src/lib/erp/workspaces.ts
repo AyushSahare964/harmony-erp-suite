@@ -435,7 +435,7 @@ export const WORKSPACES: Record<string, Workspace> = {
     id: "laboratory",
     icon: "FlaskConical",
     title: "Laboratory",
-    subtitle: "Orders, sample tracking and report status",
+    subtitle: "Orders, test profiles and diagnostic reports",
     kpis: [
       { label: "Pending reports", value: "8", trend: "2 urgent", trendTone: "down" },
       { label: "Orders today", value: "14", trend: "+3", trendTone: "up" },

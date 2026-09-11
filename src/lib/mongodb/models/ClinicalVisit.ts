@@ -17,13 +17,142 @@ export interface IPrescriptionLine {
   taxableAmount?: number | undefined;   // amount after discount, before tax
   gstRate: number;
   lineTotal: number;
+  // ── Stable Client ID and Idempotent Sync Tracking (§1.2 & §4.5) ──
+  id?: string | undefined;
+  sourceType?: "RX_ITEM" | "RX_CONSULT" | "RX_LAB" | null | undefined;
+  sourceId?: string | undefined;
+  rxSection?: string | undefined;
 }
 
 export interface IPaymentRecord {
+  id?: string | undefined;
+  paymentId?: string | undefined;
   mode: "UPI" | "Cash" | "Card" | "NetBanking" | "Cheque" | "Account Due";
   amount: number;
   trxRef?: string | undefined;
   timestamp: string;
+  recordedBy?: string | undefined;
+  notes?: string | undefined;
+}
+
+// ── Structured Prescription Clinical Schema Types (New_prescription_imp_plan.md) ──
+export interface IImmediateMedicine {
+  id: string;
+  medicineName: string;
+  itemCode?: string | undefined;
+  quantity: number;
+  unit: string;
+  customUnit?: string | undefined;
+  dosage: string;
+  instructions: string;
+  remarks?: string | undefined;
+  unitPrice?: number | undefined;
+}
+
+export interface IPrescribedMedicine {
+  id: string;
+  medicineName: string;
+  itemCode?: string | undefined;
+  quantity: number;
+  unit: string;
+  customUnit?: string | undefined;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  durationUnit?: string | undefined;
+  route: string;
+  instructions: string;
+  remarks?: string | undefined;
+  unitPrice?: number | undefined;
+}
+
+export interface IInjectable {
+  id: string;
+  name: string;
+  itemCode?: string | undefined;
+  dose: number;
+  doseUnit: string;
+  route: string;
+  quantity: number;
+  frequency?: string | undefined;
+  dateTimeAdministered: string;
+  instructions: string;
+  remarks?: string | undefined;
+  unitPrice?: number | undefined;
+}
+
+export interface IAnimalFoodItem {
+  id: string;
+  name: string;
+  itemCode?: string | undefined;
+  quantity: number;
+  unit: string;
+  frequency: string;
+  instructions: string;
+  remarks?: string | undefined;
+  unitPrice?: number | undefined;
+}
+
+export interface IPrescribedFoodItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  frequency: string;
+  instructions: string;
+  duration: string;
+  remarks?: string | undefined;
+}
+
+export interface IAccessoryItem {
+  id: string;
+  name: string;
+  itemCode?: string | undefined;
+  quantity: number;
+  remarks?: string | undefined;
+  unitPrice?: number | undefined;
+}
+
+export interface IFollowUpData {
+  required: boolean;
+  nextTreatmentDate?: string | undefined;
+  nextVaccineDate?: string | undefined;
+  nextDewormingDate?: string | undefined;
+  otherFollowUp?: {
+    type: string;
+    customType?: string | undefined;
+    date?: string | undefined;
+  } | undefined;
+}
+
+export interface IPrescriptionData {
+  prescriptionId?: string | undefined;
+  dateOfVisit?: string | undefined;
+  weight?: number | undefined;
+  weightUnit?: "kg" | "lb" | undefined;
+  bodyTemperature?: number | undefined;
+  temperatureUnit?: "°C" | "°F" | undefined;
+  previousHistory?: string | undefined;
+  symptomsText?: string | undefined;
+  symptomTags?: string[] | undefined;
+  clinicalFindings?: string[] | undefined;
+  clinicalFindingsOther?: string | undefined;
+  immediateMedicines?: IImmediateMedicine[] | undefined;
+  prescribedMedicines?: IPrescribedMedicine[] | undefined;
+  injectables?: IInjectable[] | undefined;
+  followUp?: IFollowUpData | undefined;
+  animalFood?: IAnimalFoodItem[] | undefined;
+  prescribedFood?: IPrescribedFoodItem[] | undefined;
+  accessories?: IAccessoryItem[] | undefined;
+  savedAt?: string | undefined;
+  // ── Versioning & Section-Level Tracking (§1.3, §1.10, §4.1) ──
+  version?: number | undefined;
+  sectionSavedAt?: Record<string, string> | undefined;
+  consultationFee?: number | undefined;
+  consultationFeePreset?: string | undefined;
+  followupRequired?: boolean | undefined;
+  followUpEntries?: Record<string, any> | undefined;
+  bloodTests?: Array<{ id: string; labTestId?: string; testName: string; status?: string }> | undefined;
 }
 
 export interface IClinicalVisit extends Document {
@@ -50,6 +179,10 @@ export interface IClinicalVisit extends Document {
     tempC?: number | undefined;
     heartRate?: number | undefined;
     complaint?: string | undefined;
+    weight?: number | undefined;
+    weightUnit?: "kg" | "lb" | undefined;
+    temp?: number | undefined;
+    tempUnit?: "°C" | "°F" | undefined;
   } | undefined;
   
   diagnosis?: string | undefined;
@@ -58,6 +191,8 @@ export interface IClinicalVisit extends Document {
   nextVisitDate?: string | undefined;
   nextVaccineDate?: string | undefined;
   nextDewormingDate?: string | undefined;
+  
+  prescriptionData?: IPrescriptionData | undefined;
   
   items: IPrescriptionLine[];
   
@@ -69,6 +204,8 @@ export interface IClinicalVisit extends Document {
   totalAmount: number;
   amountPaid: number;
   balanceDue: number;
+  pendingAmount?: number;
+  paymentStatus?: "Full" | "Partial" | "Unpaid";
   
   payments: IPaymentRecord[];
   
@@ -95,13 +232,21 @@ const PrescriptionLineSchema = new Schema<IPrescriptionLine>({
   taxableAmount: { type: Number },
   gstRate: { type: Number, default: 0 },
   lineTotal: { type: Number, required: true, default: 0 },
+  id: { type: String },
+  sourceType: { type: String, enum: ["RX_ITEM", "RX_CONSULT", "RX_LAB", null] },
+  sourceId: { type: String },
+  rxSection: { type: String },
 });
 
 const PaymentRecordSchema = new Schema<IPaymentRecord>({
+  id: { type: String },
+  paymentId: { type: String },
   mode: { type: String, required: true, enum: ["UPI", "Cash", "Card", "NetBanking", "Cheque", "Account Due"] },
   amount: { type: Number, required: true },
   trxRef: { type: String },
   timestamp: { type: String, required: true },
+  recordedBy: { type: String },
+  notes: { type: String },
 });
 
 const ClinicalVisitSchema = new Schema<IClinicalVisit>(
@@ -134,6 +279,10 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
       tempC: { type: Number },
       heartRate: { type: Number },
       complaint: { type: String },
+      weight: { type: Number },
+      weightUnit: { type: String, default: "kg" },
+      temp: { type: Number },
+      tempUnit: { type: String, default: "°C" },
     },
     
     diagnosis: { type: String },
@@ -142,6 +291,8 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
     nextVisitDate: { type: String },
     nextVaccineDate: { type: String },
     nextDewormingDate: { type: String },
+    
+    prescriptionData: { type: Schema.Types.Mixed },
     
     items: { type: [PrescriptionLineSchema], default: [] },
     
@@ -153,6 +304,12 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
     totalAmount: { type: Number, default: 0 },
     amountPaid: { type: Number, default: 0 },
     balanceDue: { type: Number, default: 0 },
+    pendingAmount: { type: Number, default: 0 },
+    paymentStatus: {
+      type: String,
+      enum: ["Full", "Partial", "Unpaid"],
+      default: "Full",
+    },
     
     payments: { type: [PaymentRecordSchema], default: [] },
     

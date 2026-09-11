@@ -92,7 +92,7 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
   const [gender, setGender] = useState("Male");
   const [breed, setBreed] = useState("");
   const [doctorName, setDoctorName] = useState("Dr. Rohit Sharma");
-  const [complaint, setComplaint] = useState("Routine consultation & health checkup");
+  const [complaint, setComplaint] = useState("");
   const [weightKg, setWeightKg] = useState("18.5");
   const [tempC, setTempC] = useState("38.5");
   const [hasAllergy, setHasAllergy] = useState(false);
@@ -215,7 +215,7 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
       setOwnerPhone("");
       setOwnerEmail("");
       setBreed("");
-      setComplaint("Routine consultation & health checkup");
+      setComplaint("");
       setHasAllergy(false);
       setAllergyInput("");
       setSelectedPatientId("new");

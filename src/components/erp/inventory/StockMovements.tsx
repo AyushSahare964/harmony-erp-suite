@@ -1,144 +1,178 @@
+/**
+ * StockMovements — Auditable Stock Adjustments & Transaction Ledger
+ * Supports all product categories: Medicines, Pet Food, and Accessories
+ */
+
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
-  ArrowDownCircle, ArrowUpCircle, Check, TrendingDown, TrendingUp,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Check,
+  TrendingDown,
+  TrendingUp,
+  RotateCcw,
+  ShoppingCart,
+  FileText,
+  Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useInventory } from "./useInventoryStore";
 
-const REMOVAL_REASONS = ["Wastage", "Damage", "Internal Use", "Theft", "Expiry Write-off", "Other"];
+const REMOVAL_REASONS = [
+  "Wastage",
+  "Damage",
+  "Internal Clinical Use",
+  "Theft / Pilferage",
+  "Expiry Write-off",
+  "Count Error Correction",
+  "Other",
+];
 
 // ─── Add Stock Panel ──────────────────────────────────────────────────────────
 function AddStockPanel() {
-  const { medicines, getBatches, addStock } = useInventory();
+  const { medicines, getBatches, addStock, getTotalQty } = useInventory();
   const activeMeds = medicines.filter((m) => m.status === "Active");
 
-  const [medicineId, setMedicineId] = useState("");
+  const [itemCode, setItemCode] = useState("");
   const [batchNo, setBatchNo] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [qty, setQty] = useState("");
-  const [supplierId, setSupplierId] = useState("");
+  const [supplierName, setSupplierName] = useState("");
+  const [poRef, setPoRef] = useState("");
 
   const existingBatches = useMemo(
-    () => (medicineId ? getBatches(medicineId) : []),
-    [medicineId, getBatches]
+    () => (itemCode ? getBatches(itemCode) : []),
+    [itemCode, getBatches]
   );
 
-  const selectedMed = activeMeds.find((m) => m.id === medicineId);
-
-  // Auto-fill existing batch data if batch number matches
-  const matchingBatch = useMemo(
-    () => existingBatches.find((b) => b.batchNo === batchNo),
-    [existingBatches, batchNo]
-  );
+  const selectedItem = activeMeds.find((m) => m.itemCode === itemCode);
 
   const reset = () => {
-    setMedicineId("");
+    setItemCode("");
     setBatchNo("");
     setExpiryDate("");
     setPurchasePrice("");
     setQty("");
-    setSupplierId("");
+    setSupplierName("");
+    setPoRef("");
   };
 
-  const submit = () => {
-    if (!medicineId || !batchNo.trim() || !expiryDate || !qty) {
-      toast.error("Please fill all required fields");
+  const submit = async () => {
+    if (!itemCode || !qty) {
+      toast.error("Please select a product and specify quantity");
       return;
     }
     const numQty = Number(qty);
-    if (!numQty || numQty <= 0) { toast.error("Quantity must be greater than 0"); return; }
+    if (!numQty || numQty <= 0) {
+      toast.error("Quantity must be greater than 0");
+      return;
+    }
 
-    const selected = activeMeds.find((m) => m.id === medicineId);
-    void addStock({
-      itemCode: medicineId,
-      itemName: selected?.name ?? "",
-      batchNo: batchNo.trim(),
-      manufacturingDate: "",
-      expiryDate,
-      purchasePricePerUnit: Number(purchasePrice) || 0,
-      receivedDate: new Date().toISOString().slice(0, 10),
-      receivedQty: numQty,
-      acceptedQty: numQty,
-      ...(supplierId.trim() ? { supplierId: supplierId.trim() } : {}),
-      actor: "Dr. Ananya Rao",
-    });
-    toast.success(`+${numQty} units added to stock`);
-    reset();
+    const effectiveBatchNo = batchNo.trim() || `GRN-${Date.now().toString().slice(-6)}`;
+    const effectiveExpiry = expiryDate || "2030-12-31";
+
+    try {
+      await addStock({
+        itemCode,
+        itemName: selectedItem?.name ?? "Item",
+        batchNo: effectiveBatchNo,
+        manufacturingDate: "",
+        expiryDate: effectiveExpiry,
+        purchasePricePerUnit: Number(purchasePrice) || selectedItem?.defaultPurchasePrice || 0,
+        receivedDate: new Date().toISOString().slice(0, 10),
+        receivedQty: numQty,
+        acceptedQty: numQty,
+        supplierName: supplierName.trim() || selectedItem?.defaultSupplierName || "Direct Supplier",
+        purchaseOrderRef: poRef.trim() || `PO-${Date.now().toString().slice(-6)}`,
+        actor: "Clinic Store In-Charge",
+      });
+      toast.success(`+${numQty} ${selectedItem?.unit || "units"} added to stock`);
+      reset();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to record stock addition");
+    }
   };
 
   return (
-    <div className="erp-card p-5 space-y-4">
+    <div className="erp-card p-5 space-y-4 border border-border">
       <div className="flex items-center gap-2">
-        <ArrowUpCircle className="size-5 text-success" />
-        <p className="font-semibold text-foreground">Add Stock (Purchase / Adjustment In)</p>
+        <ArrowUpCircle className="size-5 text-emerald-600" />
+        <div>
+          <p className="font-bold text-sm text-foreground">Add Stock (Purchase / Goods Inward)</p>
+          <p className="text-xs text-muted-foreground">Increases authoritative stock balance and records purchase in ledger</p>
+        </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {/* Medicine */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {/* Product Picker */}
         <div className="sm:col-span-2 space-y-1.5">
           <Label className="text-xs font-semibold">
-            Medicine <span className="text-destructive">*</span>
+            Product Item <span className="text-destructive">*</span>
           </Label>
-          <Select value={medicineId} onValueChange={setMedicineId}>
-            <SelectTrigger id="add-medicine"><SelectValue placeholder="Select medicine…" /></SelectTrigger>
-            <SelectContent>
+          <Select value={itemCode} onValueChange={(v) => {
+            setItemCode(v);
+            const found = activeMeds.find((m) => m.itemCode === v);
+            if (found) {
+              setPurchasePrice(String(found.defaultPurchasePrice || ""));
+              setSupplierName(found.defaultSupplierName || "");
+            }
+          }}>
+            <SelectTrigger id="add-item">
+              <SelectValue placeholder="Select medicine, food, or accessory…" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
               {activeMeds.map((m) => (
-                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                <SelectItem key={m.itemCode} value={m.itemCode}>
+                  [{m.productType || m.category}] {m.name} ({m.itemCode}) — {getTotalQty(m.itemCode)} in stock
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        {/* Batch No */}
+        {/* Batch / Lot Number */}
         <div className="space-y-1.5">
           <Label htmlFor="add-batch" className="text-xs font-semibold">
-            Batch No. <span className="text-destructive">*</span>
+            Batch / Lot No.
           </Label>
           <Input
             id="add-batch"
             value={batchNo}
             onChange={(e) => setBatchNo(e.target.value)}
-            placeholder="e.g. AMX-2026-01"
-            list="existing-batches"
+            placeholder={selectedItem?.productType === "MEDICINE" ? "e.g. AMX-2026-01" : "Optional for non-Rx"}
           />
-          {existingBatches.length > 0 && (
-            <datalist id="existing-batches">
-              {existingBatches.map((b) => <option key={b.id} value={b.batchNo} />)}
-            </datalist>
-          )}
-          {matchingBatch && (
-            <p className="text-xs text-warning">
-              Existing batch — current qty: {matchingBatch.qty} {selectedMed?.unit ?? ""}
-            </p>
-          )}
         </div>
 
         {/* Expiry Date */}
         <div className="space-y-1.5">
           <Label htmlFor="add-expiry" className="text-xs font-semibold">
-            Expiry Date <span className="text-destructive">*</span>
+            Expiry Date
           </Label>
           <Input
             id="add-expiry"
             type="date"
-            value={matchingBatch?.expiryDate ?? expiryDate}
+            value={expiryDate}
             onChange={(e) => setExpiryDate(e.target.value)}
-            disabled={!!matchingBatch}
           />
         </div>
 
         {/* Quantity */}
         <div className="space-y-1.5">
           <Label htmlFor="add-qty" className="text-xs font-semibold">
-            Quantity <span className="text-destructive">*</span>
+            Quantity Inward <span className="text-destructive">*</span>
           </Label>
           <Input
             id="add-qty"
@@ -146,39 +180,58 @@ function AddStockPanel() {
             min={1}
             value={qty}
             onChange={(e) => setQty(e.target.value)}
-            placeholder="0"
+            placeholder={`Quantity in ${selectedItem?.unit || "units"}`}
           />
         </div>
 
-        {/* Purchase Price */}
+        {/* Purchase Rate */}
         <div className="space-y-1.5">
-          <Label htmlFor="add-price" className="text-xs font-semibold">Purchase Price (₹)</Label>
+          <Label htmlFor="add-price" className="text-xs font-semibold">
+            Purchase Rate (₹ per unit)
+          </Label>
           <Input
             id="add-price"
             type="number"
             min={0}
             value={purchasePrice}
             onChange={(e) => setPurchasePrice(e.target.value)}
-            placeholder="0"
+            placeholder="0.00"
           />
         </div>
 
         {/* Supplier */}
-        <div className="sm:col-span-2 space-y-1.5">
-          <Label htmlFor="add-supplier" className="text-xs font-semibold">Supplier (optional)</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="add-supplier" className="text-xs font-semibold">Supplier Name</Label>
           <Input
             id="add-supplier"
-            value={supplierId}
-            onChange={(e) => setSupplierId(e.target.value)}
-            placeholder="e.g. SUP-01 or supplier name"
+            value={supplierName}
+            onChange={(e) => setSupplierName(e.target.value)}
+            placeholder="e.g. MedVet / PetNutri"
+          />
+        </div>
+
+        {/* PO Reference */}
+        <div className="space-y-1.5">
+          <Label htmlFor="add-poref" className="text-xs font-semibold">PO / Invoice Reference</Label>
+          <Input
+            id="add-poref"
+            value={poRef}
+            onChange={(e) => setPoRef(e.target.value)}
+            placeholder="e.g. PO-2026-081"
           />
         </div>
       </div>
 
-      <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={reset}>Clear</Button>
-        <Button onClick={submit} className="bg-success text-success-foreground hover:bg-success/90">
-          <ArrowUpCircle className="size-4 mr-1" /> Add Stock
+      <div className="flex justify-end gap-2 pt-1 border-t">
+        <Button variant="outline" size="sm" onClick={reset} className="text-xs">
+          Clear
+        </Button>
+        <Button
+          size="sm"
+          onClick={submit}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+        >
+          <ArrowUpCircle className="size-4 mr-1" /> Add Stock to Inventory
         </Button>
       </div>
     </div>
@@ -190,92 +243,105 @@ function RemoveStockPanel() {
   const { medicines, getBatches, getTotalQty, removeStock } = useInventory();
   const activeMeds = medicines.filter((m) => m.status === "Active");
 
-  const [medicineId, setMedicineId] = useState("");
+  const [itemCode, setItemCode] = useState("");
   const [batchId, setBatchId] = useState("");
   const [qty, setQty] = useState("");
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState("Damage");
+  const [remarks, setRemarks] = useState("");
 
   const batches = useMemo(
-    () => (medicineId ? getBatches(medicineId).filter((b) => b.qty > 0) : []),
-    [medicineId, getBatches]
+    () => (itemCode ? getBatches(itemCode).filter((b) => b.qty > 0) : []),
+    [itemCode, getBatches]
   );
 
+  const selectedItem = activeMeds.find((m) => m.itemCode === itemCode);
+  const totalQty = itemCode ? getTotalQty(itemCode) : 0;
   const selectedBatch = batches.find((b) => b.id === batchId);
-  const totalQty = medicineId ? getTotalQty(medicineId) : 0;
 
   const reset = () => {
-    setMedicineId("");
+    setItemCode("");
     setBatchId("");
     setQty("");
-    setReason("");
+    setReason("Damage");
+    setRemarks("");
   };
 
   const submit = () => {
-    if (!medicineId || !batchId || !qty || !reason) {
-      toast.error("All fields are required for stock removal");
+    if (!itemCode || !qty || !reason) {
+      toast.error("Please select a product, quantity, and reason");
       return;
     }
     const numQty = Number(qty);
-    if (!numQty || numQty <= 0) { toast.error("Quantity must be greater than 0"); return; }
-    if (selectedBatch && numQty > selectedBatch.qty) {
-      toast.error(`Cannot remove more than available batch quantity (${selectedBatch.qty})`);
+    if (!numQty || numQty <= 0) {
+      toast.error("Quantity must be greater than 0");
+      return;
+    }
+    if (numQty > totalQty && !selectedItem?.allowNegativeStock) {
+      toast.error(`Cannot remove more than available stock (${totalQty})`);
       return;
     }
 
     removeStock({
-      medicineId,
-      batchId,
+      medicineId: itemCode,
+      batchId: batchId || "DIRECT",
       qty: numQty,
-      reason,
-      actor: "Dr. Ananya Rao",
+      reason: `${reason}${remarks ? `: ${remarks}` : ""}`,
+      actor: "Authorized Staff",
     });
-    toast.success(`−${numQty} units removed from stock`);
+    toast.success(`−${numQty} ${selectedItem?.unit || "units"} removed from stock`);
     reset();
   };
 
   return (
-    <div className="erp-card p-5 space-y-4">
+    <div className="erp-card p-5 space-y-4 border border-border">
       <div className="flex items-center gap-2">
-        <ArrowDownCircle className="size-5 text-destructive" />
-        <p className="font-semibold text-foreground">Remove Stock (Adjustment Out)</p>
+        <ArrowDownCircle className="size-5 text-rose-600" />
+        <div>
+          <p className="font-bold text-sm text-foreground">Stock Adjustment / Write-Off (Outward)</p>
+          <p className="text-xs text-muted-foreground">Audited stock deduction for wastage, damage, or correction</p>
+        </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {/* Medicine */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {/* Product */}
         <div className="sm:col-span-2 space-y-1.5">
           <Label className="text-xs font-semibold">
-            Medicine <span className="text-destructive">*</span>
+            Product Item <span className="text-destructive">*</span>
           </Label>
-          <Select value={medicineId} onValueChange={(v) => { setMedicineId(v); setBatchId(""); }}>
-            <SelectTrigger id="remove-medicine"><SelectValue placeholder="Select medicine…" /></SelectTrigger>
-            <SelectContent>
+          <Select value={itemCode} onValueChange={(v) => { setItemCode(v); setBatchId(""); }}>
+            <SelectTrigger id="remove-item">
+              <SelectValue placeholder="Select item to adjust…" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
               {activeMeds.map((m) => {
-                const qty = getTotalQty(m.id);
+                const qtyAvail = getTotalQty(m.itemCode);
                 return (
-                  <SelectItem key={m.id} value={m.id} disabled={qty === 0}>
-                    {m.name} — {qty} available
+                  <SelectItem key={m.itemCode} value={m.itemCode} disabled={qtyAvail === 0}>
+                    [{m.productType || m.category}] {m.name} — {qtyAvail} {m.unit}s available
                   </SelectItem>
                 );
               })}
             </SelectContent>
           </Select>
-          {medicineId && (
-            <p className="text-xs text-muted-foreground">Total available: {totalQty} units across {batches.length} batch(es)</p>
+          {itemCode && (
+            <p className="text-[11px] text-muted-foreground">
+              Total authoritative balance: <strong>{totalQty} {selectedItem?.unit}s</strong>
+            </p>
           )}
         </div>
 
-        {/* Batch */}
+        {/* Batch if available */}
         {batches.length > 0 && (
           <div className="sm:col-span-2 space-y-1.5">
-            <Label className="text-xs font-semibold">
-              Batch <span className="text-destructive">*</span>
-            </Label>
+            <Label className="text-xs font-semibold">Specific Batch (Optional)</Label>
             <Select value={batchId} onValueChange={setBatchId}>
-              <SelectTrigger id="remove-batch"><SelectValue placeholder="Select batch…" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Auto-FIFO deduction or select batch" />
+              </SelectTrigger>
               <SelectContent>
                 {batches.map((b) => (
                   <SelectItem key={b.id} value={b.id}>
-                    {b.batchNo} — Exp: {b.expiryDate} — Qty: {b.qty}
+                    {b.batchNo} — Exp: {b.expiryDate} (Qty: {b.qty})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -286,97 +352,185 @@ function RemoveStockPanel() {
         {/* Quantity */}
         <div className="space-y-1.5">
           <Label htmlFor="remove-qty" className="text-xs font-semibold">
-            Quantity to Remove <span className="text-destructive">*</span>
+            Quantity to Deduct <span className="text-destructive">*</span>
           </Label>
           <Input
             id="remove-qty"
             type="number"
             min={1}
-            max={selectedBatch?.qty}
+            max={totalQty}
             value={qty}
             onChange={(e) => setQty(e.target.value)}
             placeholder="0"
           />
-          {selectedBatch && (
-            <p className="text-xs text-muted-foreground">Max: {selectedBatch.qty} units in this batch</p>
-          )}
         </div>
 
         {/* Reason */}
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold">
-            Reason <span className="text-destructive">*</span>
+            Reason for Adjustment <span className="text-destructive">*</span>
           </Label>
           <Select value={reason} onValueChange={setReason}>
-            <SelectTrigger id="remove-reason"><SelectValue placeholder="Select reason…" /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue placeholder="Select reason" />
+            </SelectTrigger>
             <SelectContent>
-              {REMOVAL_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              {REMOVAL_REASONS.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
+
+        {/* Remarks */}
+        <div className="sm:col-span-2 space-y-1.5">
+          <Label htmlFor="remove-remarks" className="text-xs font-semibold">Auditor Remarks</Label>
+          <Input
+            id="remove-remarks"
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            placeholder="e.g. Broken vial during shift change"
+          />
+        </div>
       </div>
 
-      <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={reset}>Clear</Button>
+      <div className="flex justify-end gap-2 pt-1 border-t">
+        <Button variant="outline" size="sm" onClick={reset} className="text-xs">
+          Clear
+        </Button>
         <Button
+          size="sm"
           onClick={submit}
-          variant="destructive"
-          className="active:scale-95"
+          className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold"
         >
-          <ArrowDownCircle className="size-4 mr-1" /> Remove Stock
+          <ArrowDownCircle className="size-4 mr-1" /> Post Stock Deduction
         </Button>
       </div>
     </div>
   );
 }
 
-// ─── Recent Movements Table ───────────────────────────────────────────────────
+// ─── Authoritative Transaction Ledger Table ──────────────────────────────────
 function MovementsLog() {
   const { ledger } = useInventory();
-  const manualMoves = ledger.filter(
-    (l) =>
-      l.movementType === "purchase_in" ||
-      l.movementType === "adjustment_in" ||
-      l.movementType === "adjustment_out" ||
-      l.movementType === "expiry_writeoff"
-  );
+  const [filterType, setFilterType] = useState("all");
+
+  const filteredLedger = useMemo(() => {
+    if (filterType === "all") return ledger;
+    if (filterType === "in") return ledger.filter((l) => l.movementType.includes("in"));
+    if (filterType === "out") return ledger.filter((l) => l.movementType === "sale_out");
+    if (filterType === "adjust")
+      return ledger.filter(
+        (l) =>
+          l.movementType.includes("adjustment") ||
+          l.movementType.includes("writeoff") ||
+          l.sourceType === "manual_adjustment"
+      );
+    return ledger;
+  }, [ledger, filterType]);
 
   return (
-    <div className="erp-card p-5 space-y-3">
-      <p className="section-label">Manual Movement History</p>
+    <div className="erp-card p-5 space-y-4 border border-border">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-bold text-foreground">Auditable Inventory Transaction Ledger</h4>
+          <p className="text-xs text-muted-foreground">
+            Complete, immutable trail of all stock mutations (Purchases, Clinical Billing, & Adjustments)
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Select value={filterType} onValueChange={setFilterType}>
+            <SelectTrigger className="h-8 w-36 text-xs">
+              <SelectValue placeholder="All Transactions" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Movements</SelectItem>
+              <SelectItem value="in">Purchases In</SelectItem>
+              <SelectItem value="out">Sales Deductions</SelectItem>
+              <SelectItem value="adjust">Manual Adjustments</SelectItem>
+            </SelectContent>
+          </Select>
+          <Badge variant="outline" className="text-xs font-mono">
+            {filteredLedger.length} entries
+          </Badge>
+        </div>
+      </div>
+
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-muted-foreground border-b border-border">
-              {["Time", "Medicine", "Batch", "Type", "Qty", "Reason", "Actor", "Ref"].map((h) => (
-                <th key={h} className={`pb-2 font-bold uppercase tracking-wide text-left px-2`}>{h}</th>
-              ))}
+        <table className="w-full text-left text-xs">
+          <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
+            <tr>
+              <th className="px-3 py-2.5">Date & Time</th>
+              <th className="px-3 py-2.5">Product Name</th>
+              <th className="px-3 py-2.5">Batch / Lot</th>
+              <th className="px-3 py-2.5">Movement Type</th>
+              <th className="px-3 py-2.5">Qty Change</th>
+              <th className="px-3 py-2.5">Balance After</th>
+              <th className="px-3 py-2.5">Reference / Doc</th>
+              <th className="px-3 py-2.5">Reason / Remarks</th>
+              <th className="px-3 py-2.5">Actor</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
-            {manualMoves.slice(0, 12).map((l) => (
-              <tr key={l.id} className="hover:bg-muted/40 transition-colors">
-                <td className="px-2 py-2 text-muted-foreground whitespace-nowrap">{l.createdAt}</td>
-                <td className="px-2 py-2 font-medium">{l.medicineName}</td>
-                <td className="px-2 py-2 font-mono text-muted-foreground">{l.batchNo}</td>
-                <td className="px-2 py-2">
-                  <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
-                    l.movementType.includes("in") ? "bg-success-soft text-success" : "bg-danger-soft text-destructive"
-                  }`}>
-                    {l.movementType.includes("in") ? <TrendingUp className="size-2.5" /> : <TrendingDown className="size-2.5" />}
-                    {l.movementType.replace(/_/g, " ").toUpperCase()}
-                  </span>
+          <tbody className="divide-y divide-border/60">
+            {filteredLedger.slice(0, 30).map((l) => {
+              const isIn = l.movementType.includes("in");
+              return (
+                <tr key={l.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
+                    {l.createdAt}
+                  </td>
+                  <td className="px-3 py-2.5 font-semibold text-foreground">
+                    {l.medicineName}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-muted-foreground">
+                    {l.batchNo || "DIRECT"}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[10px] font-bold ${
+                        isIn
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                      }`}
+                    >
+                      {isIn ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+                      {l.movementType.replace(/_/g, " ").toUpperCase()}
+                    </span>
+                  </td>
+                  <td
+                    className={`px-3 py-2.5 font-bold tabular-nums ${
+                      isIn
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-rose-600 dark:text-rose-400"
+                    }`}
+                  >
+                    {isIn ? "+" : "−"}{l.quantity}
+                  </td>
+                  <td className="px-3 py-2.5 font-bold tabular-nums text-foreground">
+                    {l.balanceAfter}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-muted-foreground">
+                    {l.sourceRef}
+                  </td>
+                  <td className="px-3 py-2.5 text-muted-foreground max-w-xs truncate">
+                    {l.reason || "Standard transaction"}
+                  </td>
+                  <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
+                    {l.actorName}
+                  </td>
+                </tr>
+              );
+            })}
+
+            {filteredLedger.length === 0 && (
+              <tr>
+                <td colSpan={9} className="py-8 text-center text-muted-foreground">
+                  No stock transactions match the filter.
                 </td>
-                <td className={`px-2 py-2 tabular-nums font-semibold ${l.movementType.includes("in") ? "text-success" : "text-destructive"}`}>
-                  {l.movementType.includes("in") ? "+" : "−"}{l.quantity}
-                </td>
-                <td className="px-2 py-2 text-muted-foreground">{l.reason ?? "—"}</td>
-                <td className="px-2 py-2 text-muted-foreground">{l.actorName}</td>
-                <td className="px-2 py-2 font-mono text-muted-foreground">{l.sourceRef}</td>
               </tr>
-            ))}
-            {manualMoves.length === 0 && (
-              <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">No manual movements yet.</td></tr>
             )}
           </tbody>
         </table>

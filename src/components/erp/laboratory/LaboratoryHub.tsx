@@ -18,7 +18,6 @@ import {
   Sparkles,
   Layers,
   Activity,
-  QrCode,
   SlidersHorizontal,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
@@ -33,12 +32,11 @@ import { CreateLabOrderModal } from "./CreateLabOrderModal";
 import { EnterLabResultsModal } from "./EnterLabResultsModal";
 import { LabReportPrintModal } from "./LabReportPrintModal";
 import { TestMasterCatalog } from "./TestMasterCatalog";
-import { SampleTracking } from "./SampleTracking";
 import { LabAnalytics } from "./LabAnalytics";
 import { listLabOrdersFn, createLabOrderFn, updateLabResultsFn } from "@/lib/mongodb/serverFns/laboratory";
 import { cn } from "@/lib/utils";
 
-type LabTab = "orders" | "catalog" | "samples" | "analytics";
+type LabTab = "orders" | "catalog" | "analytics";
 
 export function LaboratoryHub() {
   const [activeTab, setActiveTab] = useState<LabTab>("orders");
@@ -159,7 +157,7 @@ export function LaboratoryHub() {
             </span>
             <div>
               <h1 className="page-title text-xl font-bold text-foreground">Laboratory &amp; Diagnostics</h1>
-              <p className="text-xs text-muted-foreground">Orders, sample tracking, reference profiles, and digital diagnostic reports</p>
+              <p className="text-xs text-muted-foreground">Orders, reference profiles, and digital diagnostic reports</p>
             </div>
           </div>
 
@@ -229,17 +227,6 @@ export function LaboratoryHub() {
             <TestTube2 className="size-4" /> Test Master &amp; Profiles
           </button>
 
-          <button
-            onClick={() => setActiveTab("samples")}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all",
-              activeTab === "samples"
-                ? "bg-primary text-primary-foreground shadow-xs"
-                : "text-muted-foreground hover:bg-muted"
-            )}
-          >
-            <QrCode className="size-4" /> Sample Tracking &amp; Barcodes
-          </button>
 
           <button
             onClick={() => setActiveTab("analytics")}
@@ -416,12 +403,6 @@ export function LaboratoryHub() {
           </motion.div>
         )}
 
-        {/* ── TAB 3: SAMPLE TRACKING & BARCODES ───────────────────────────────── */}
-        {activeTab === "samples" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <SampleTracking />
-          </motion.div>
-        )}
 
         {/* ── TAB 4: EQUIPMENT & CALIBRATION ─────────────────────────────────── */}
         {activeTab === "analytics" && (

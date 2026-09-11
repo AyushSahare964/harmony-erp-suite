@@ -412,7 +412,7 @@ export function AdmitPatientPickerModal({
                           </div>
                           <p className="text-foreground font-medium text-xs pt-0.5">
                             <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-wider block">Complaint:</span>
-                            {apt.reason || "Routine Consultation"}
+                            {apt.reason || "General Checkup"}
                           </p>
                         </div>
                       </div>

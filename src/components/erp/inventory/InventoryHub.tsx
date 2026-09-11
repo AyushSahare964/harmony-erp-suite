@@ -1,21 +1,34 @@
+/**
+ * InventoryHub — Veterinary ERP Central Inventory & Procurement Hub
+ * Three Category Catalogues: Medicines, Food, Accessories
+ * Transaction-Driven Ledger & Real-Time Stock Engine
+ */
+
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Boxes, BookOpen, BarChart2, ArrowLeftRight, Link2, Bell, ArrowLeft, ShoppingBag,
+  Boxes,
+  Pill,
+  Bone,
+  Tag,
+  BarChart2,
+  ArrowLeftRight,
+  Bell,
+  ArrowLeft,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Shell } from "@/components/erp/Shell";
 
 import { InventoryProvider } from "./useInventoryStore";
 import { MedicineCatalogue } from "./MedicineCatalogue";
-import { FoodAccessoriesCatalogue } from "./FoodAccessoriesCatalogue";
+import { FoodCatalogue } from "./FoodCatalogue";
+import { AccessoriesCatalogue } from "./AccessoriesCatalogue";
 import { StockView } from "./StockView";
 import { StockMovements } from "./StockMovements";
-import { BillingSync } from "./BillingSync";
 import { AlertsPanel } from "./AlertsPanel";
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
-type TabId = "catalogue" | "food_accessories" | "stock" | "movements" | "billing" | "alerts";
+export type TabId = "catalogue" | "food" | "accessories" | "stock" | "movements" | "alerts";
 
 interface TabDef {
   id: TabId;
@@ -26,17 +39,17 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: "catalogue",       label: "Medicine Catalogue",      Icon: BookOpen,       badge: "12.4" },
-  { id: "food_accessories",label: "Food & Accessories",      Icon: ShoppingBag,    badge: "12.5" },
-  { id: "stock",           label: "Real-Time Stock",         Icon: BarChart2,      badge: "12.6" },
-  { id: "movements",       label: "Stock Movements",         Icon: ArrowLeftRight, badge: "12.7" },
-  { id: "billing",         label: "Billing Sync",            Icon: Link2,          badge: "12.8" },
-  { id: "alerts",          label: "Alerts",                  Icon: Bell,           badge: "12.9" },
+  { id: "catalogue",   label: "Medicine Catalogue",      Icon: Pill,           badge: "12.4" },
+  { id: "food",        label: "Food Catalogue",          Icon: Bone,           badge: "12.5" },
+  { id: "accessories", label: "Accessories Catalogue",   Icon: Tag,            badge: "12.6" },
+  { id: "stock",       label: "Real-Time Stock",         Icon: BarChart2,      badge: "12.7" },
+  { id: "movements",   label: "Stock Movements",         Icon: ArrowLeftRight, badge: "12.8" },
+  { id: "alerts",      label: "Alerts",                  Icon: Bell,           badge: "12.9" },
 ];
 
 // ─── Inner hub (needs InventoryProvider in scope) ─────────────────────────────
 function InventoryHubInner() {
-  const [activeTab, setActiveTab] = useState<TabId>("stock");
+  const [activeTab, setActiveTab] = useState<TabId>("catalogue");
 
   return (
     <Shell title="Inventory & Procurement">
@@ -52,14 +65,14 @@ function InventoryHubInner() {
             <motion.span
               whileHover={{ rotate: 8, scale: 1.05 }}
               transition={{ type: "spring", stiffness: 400, damping: 15 }}
-              className="flex size-11 items-center justify-center rounded-xl bg-primary-soft text-primary shadow-xs"
+              className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-xs"
             >
               <Boxes className="size-5" />
             </motion.span>
             <div>
               <h1 className="page-title">Inventory &amp; Procurement</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Medicine catalogue · Real-time stock · Add/Remove · Billing sync · Alerts
+                Medicines · Pet Food · Accessories · Authoritative Stock &amp; Movements Ledger
               </p>
             </div>
           </div>
@@ -117,12 +130,12 @@ function InventoryHubInner() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22, ease: "easeOut" }}
           >
-            {activeTab === "catalogue"        && <MedicineCatalogue />}
-            {activeTab === "food_accessories" && <FoodAccessoriesCatalogue />}
-            {activeTab === "stock"            && <StockView />}
-            {activeTab === "movements"        && <StockMovements />}
-            {activeTab === "billing"          && <BillingSync />}
-            {activeTab === "alerts"           && <AlertsPanel />}
+            {activeTab === "catalogue"   && <MedicineCatalogue />}
+            {activeTab === "food"        && <FoodCatalogue />}
+            {activeTab === "accessories" && <AccessoriesCatalogue />}
+            {activeTab === "stock"       && <StockView />}
+            {activeTab === "movements"   && <StockMovements />}
+            {activeTab === "alerts"      && <AlertsPanel />}
           </motion.div>
         </AnimatePresence>
       </motion.div>

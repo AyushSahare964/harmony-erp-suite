@@ -310,7 +310,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             module: "laboratory",
             icon: "FlaskConical",
             title: "Laboratory",
-            subtitle: "Orders, sample tracking and report status",
+            subtitle: "Orders, test profiles and diagnostic reports",
             metricLabel: "Pending reports",
             metricValue: "8",
             accent: "amber",

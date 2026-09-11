@@ -12,15 +12,24 @@ import {
   addItemFn,
   updateItemFn,
   deactivateItemFn,
+  toggleItemStatusFn,
   addStockFn,
   adjustStockFn,
   getBatchesFn,
   type InventoryItemRow,
   type StockBatchRow,
 } from "@/lib/mongodb/serverFns/inventory";
+import {
+  ALL_SEED_ITEMS,
+  type SeedItem,
+  type MedicineDetails,
+  type FoodDetails,
+  type AccessoryDetails,
+} from "./seedData";
 
 // ─── Data Types ───────────────────────────────────────────────────────────────
 
+export type ProductType = "MEDICINE" | "FOOD" | "ACCESSORY";
 export type MedicineCategory = "Medicine" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
 export type UnitOfMeasure =
   | "Tablet" | "ml" | "Vial" | "Box" | "Strip"
@@ -38,14 +47,16 @@ export interface UomConversion {
 
 export interface Medicine {
   // Identity
-  id: string;             // itemCode (M-0001)
+  id: string;             // itemCode (M-0001 / F-0001 / A-0001)
   itemCode: string;
+  sku?: string | undefined;
   name: string;
   genericName: string;
   brand: string;
   manufacturer: string;
   description: string;
   category: MedicineCategory;
+  productType?: ProductType | undefined;
   subGroup: string;
   hasVariants: boolean;
 
@@ -59,6 +70,8 @@ export interface Medicine {
   reorderLevel: number;
   reorderQty: number;
   safetyStock: number;
+  currentStock?: number | undefined;
+  minStockLevel?: number | undefined;
   storageLocation: string;
   batchTracking: boolean;
   serialTracking: boolean;
@@ -71,6 +84,13 @@ export interface Medicine {
   maxDiscountPct: number;
   valuationRate: number;
   lastPurchaseRate: number;
+  mrp?: number | undefined;
+  samplePriceNote?: string | undefined;
+
+  // Category-specific details
+  medicineDetails?: MedicineDetails | any;
+  foodDetails?: FoodDetails | any;
+  accessoryDetails?: AccessoryDetails | any;
 
   // Tax & Compliance
   gstRate: number;
@@ -177,26 +197,38 @@ export interface LedgerEntry {
 // ─── Helper: map InventoryItemRow → Medicine ─────────────────────────────────
 
 function mapToMedicine(raw: InventoryItemRow): Medicine {
+  const resolvedProductType: ProductType =
+    (raw.productType as ProductType) ||
+    (raw.category === "Food" || raw.category === "Animal Food"
+      ? "FOOD"
+      : raw.category === "Accessory" || raw.category === "Animal Accessories"
+      ? "ACCESSORY"
+      : "MEDICINE");
+
   return {
     id: raw.itemCode,
     itemCode: raw.itemCode,
+    sku: raw.sku,
     name: raw.name,
     genericName: raw.genericName,
     brand: raw.brand,
     manufacturer: raw.manufacturer,
     description: raw.description,
     category: raw.category as MedicineCategory,
+    productType: resolvedProductType,
     subGroup: raw.subGroup,
     hasVariants: raw.hasVariants,
     unit: raw.unit as UnitOfMeasure,
     purchaseUom: raw.purchaseUom,
     salesUom: raw.salesUom,
-    uomConversions: raw.uomConversions as UomConversion[],
+    uomConversions: (raw.uomConversions || []) as UomConversion[],
     maintainStock: raw.maintainStock,
     valuationMethod: raw.valuationMethod as ValuationMethod,
     reorderLevel: raw.reorderLevel,
     reorderQty: raw.reorderQty,
     safetyStock: raw.safetyStock,
+    currentStock: raw.currentStock ?? 0,
+    minStockLevel: raw.minStockLevel ?? raw.reorderLevel,
     storageLocation: raw.storageLocation,
     batchTracking: raw.batchTracking,
     serialTracking: raw.serialTracking,
@@ -207,6 +239,11 @@ function mapToMedicine(raw: InventoryItemRow): Medicine {
     maxDiscountPct: raw.maxDiscountPct,
     valuationRate: raw.valuationRate,
     lastPurchaseRate: raw.lastPurchaseRate,
+    mrp: raw.mrp ?? raw.defaultSalePrice,
+    samplePriceNote: (raw as any).samplePriceNote,
+    medicineDetails: raw.medicineDetails,
+    foodDetails: raw.foodDetails,
+    accessoryDetails: raw.accessoryDetails,
     gstRate: raw.gstRate,
     hsnCode: raw.hsnCode,
     taxCategory: raw.taxCategory,
@@ -273,6 +310,9 @@ function mapToBatch(raw: StockBatchRow): Batch {
 
 interface InventoryContextValue {
   medicines: Medicine[];
+  medicinesList: Medicine[];
+  foodList: Medicine[];
+  accessoriesList: Medicine[];
   batches: Batch[];
   ledger: LedgerEntry[];
   loadingItems: boolean;
@@ -280,6 +320,7 @@ interface InventoryContextValue {
   addMedicine: (m: Omit<Medicine, "id" | "itemCode" | "createdAt" | "status">) => Promise<void>;
   updateMedicine: (itemCode: string, patch: Partial<Medicine>) => Promise<void>;
   deactivateMedicine: (itemCode: string) => Promise<void>;
+  toggleStatus: (itemCode: string) => Promise<void>;
 
   addStock: (batchData: {
     itemCode: string;
@@ -323,7 +364,6 @@ interface InventoryContextValue {
     actor: string;
   }) => Promise<{ newQty: number; referenceNo: string }>;
 
-  // Legacy aliases (used by existing components)
   removeStock: (data: { medicineId: string; batchId: string; qty: number; reason: string; actor: string }) => void;
   recordSale: (data: { medicineId: string; qty: number; sourceRef: string; actor: string }) => { ok: boolean; error?: string };
 
@@ -339,8 +379,6 @@ interface InventoryContextValue {
 const InventoryContext = createContext<InventoryContextValue | null>(null);
 
 // ─── Seed Batches (in-memory only, for immediate display) ─────────────────────
-// These are the legacy batch records for the seeded items. When users add real
-// batches via the GRN form they are stored in MongoDB.
 const SEED_BATCHES: Batch[] = [
   { id: "B-0001", batchCode: "B-0001", medicineId: "M-0001", itemCode: "M-0001", itemName: "Amoxicillin 250mg", batchNo: "AMX-2024-01", manufacturingDate: "", expiryDate: "2026-11-30", supplierId: "SUP-01", supplierName: "MedVet Distributors", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-01-12", receivedQty: 100, acceptedQty: 100, rejectedQty: 0, rejectionReason: "", qty: 42, purchasePrice: 16, purchasePricePerUnit: 16, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 1600, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-01-12" },
   { id: "B-0002", batchCode: "B-0002", medicineId: "M-0001", itemCode: "M-0001", itemName: "Amoxicillin 250mg", batchNo: "AMX-2024-02", manufacturingDate: "", expiryDate: "2026-08-20", supplierId: "SUP-01", supplierName: "MedVet Distributors", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-01-12", receivedQty: 50, acceptedQty: 50, rejectedQty: 0, rejectionReason: "", qty: 8, purchasePrice: 16, purchasePricePerUnit: 16, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 800, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-01-12" },
@@ -353,17 +391,8 @@ const SEED_BATCHES: Batch[] = [
   { id: "B-0009", batchCode: "B-0009", medicineId: "M-0008", itemCode: "M-0008", itemName: "IV Catheter 20G", batchNo: "IVC-2025-02", manufacturingDate: "", expiryDate: "2028-01-01", supplierId: "SUP-03", supplierName: "CareSupplies", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-06-01", receivedQty: 50, acceptedQty: 50, rejectedQty: 0, rejectionReason: "", qty: 0, purchasePrice: 30, purchasePricePerUnit: 30, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 1500, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Exhausted", createdAt: "2025-06-01" },
   { id: "B-0010", batchCode: "B-0010", medicineId: "M-0009", itemCode: "M-0009", itemName: "Metronidazole 200mg", batchNo: "MTZ-2025-01", manufacturingDate: "", expiryDate: "2027-05-31", supplierId: "SUP-01", supplierName: "MedVet Distributors", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-01-01", receivedQty: 180, acceptedQty: 180, rejectedQty: 0, rejectionReason: "", qty: 180, purchasePrice: 5, purchasePricePerUnit: 5, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 900, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-01-01" },
   { id: "B-0011", batchCode: "B-0011", medicineId: "M-0009", itemCode: "M-0009", itemName: "Metronidazole 200mg", batchNo: "MTZ-2024-12", manufacturingDate: "", expiryDate: "2026-08-19", supplierId: "SUP-01", supplierName: "MedVet Distributors", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2024-12-01", receivedQty: 40, acceptedQty: 40, rejectedQty: 0, rejectionReason: "", qty: 40, purchasePrice: 5, purchasePricePerUnit: 5, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 200, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2024-12-01" },
-  // ── Animal Food ────────────────────────────────────────────────────────────
-  { id: "B-0012", batchCode: "B-0012", medicineId: "M-0016", itemCode: "M-0016", itemName: "Royal Canin Maxi Adult 4kg", batchNo: "RC-M-2025-01", manufacturingDate: "2025-01-01", expiryDate: "2027-01-01", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-08-01", receivedQty: 24, acceptedQty: 24, rejectedQty: 0, rejectionReason: "", qty: 24, purchasePrice: 1400, purchasePricePerUnit: 1400, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 33600, storageLocation: "Retail Shelf D1", qualityChecked: true, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-08-01" },
-  { id: "B-0013", batchCode: "B-0013", medicineId: "M-0017", itemCode: "M-0017", itemName: "Pedigree Adult Chicken 3kg", batchNo: "PED-2025-07", manufacturingDate: "2025-07-01", expiryDate: "2026-07-01", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-07-15", receivedQty: 30, acceptedQty: 30, rejectedQty: 0, rejectionReason: "", qty: 30, purchasePrice: 680, purchasePricePerUnit: 680, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 20400, storageLocation: "Retail Shelf D1", qualityChecked: true, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-07-15" },
-  { id: "B-0014", batchCode: "B-0014", medicineId: "M-0018", itemCode: "M-0018", itemName: "Hills Science Diet Kitten 1.58kg", batchNo: "HSD-2025-08", manufacturingDate: "2025-06-01", expiryDate: "2027-06-01", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-08-10", receivedQty: 20, acceptedQty: 20, rejectedQty: 0, rejectionReason: "", qty: 20, purchasePrice: 1850, purchasePricePerUnit: 1850, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 37000, storageLocation: "Retail Shelf D2", qualityChecked: true, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-08-10" },
-  { id: "B-0015", batchCode: "B-0015", medicineId: "M-0019", itemCode: "M-0019", itemName: "Whiskas Ocean Fish 1.2kg", batchNo: "WHK-2025-07", manufacturingDate: "2025-07-01", expiryDate: "2026-07-01", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-07-20", receivedQty: 36, acceptedQty: 36, rejectedQty: 0, rejectionReason: "", qty: 36, purchasePrice: 480, purchasePricePerUnit: 480, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 17280, storageLocation: "Retail Shelf D2", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-07-20" },
-  // ── Animal Accessories ──────────────────────────────────────────────────────
-  { id: "B-0016", batchCode: "B-0016", medicineId: "M-0020", itemCode: "M-0020", itemName: "Ergonomic Padded Dog Harness (L)", batchNo: "EPH-2025-05", manufacturingDate: "", expiryDate: "2030-01-01", supplierId: "SUP-05", supplierName: "PetCare Gear India", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-05-01", receivedQty: 15, acceptedQty: 15, rejectedQty: 0, rejectionReason: "", qty: 15, purchasePrice: 750, purchasePricePerUnit: 750, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 18, totalValue: 11250, storageLocation: "Retail Shelf A3", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-05-01" },
-  { id: "B-0017", batchCode: "B-0017", medicineId: "M-0021", itemCode: "M-0021", itemName: "Nylon Training Leash 6ft (Reflective)", batchNo: "NTL-2025-06", manufacturingDate: "", expiryDate: "2030-01-01", supplierId: "SUP-05", supplierName: "PetCare Gear India", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-06-01", receivedQty: 25, acceptedQty: 25, rejectedQty: 0, rejectionReason: "", qty: 25, purchasePrice: 220, purchasePricePerUnit: 220, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 18, totalValue: 5500, storageLocation: "Retail Shelf A3", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-06-01" },
-  { id: "B-0018", batchCode: "B-0018", medicineId: "M-0022", itemCode: "M-0022", itemName: "Orthopedic Memory Foam Pet Bed (XL)", batchNo: "OPB-2025-04", manufacturingDate: "", expiryDate: "2030-01-01", supplierId: "SUP-05", supplierName: "SleepWell Pets", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-04-15", receivedQty: 8, acceptedQty: 8, rejectedQty: 0, rejectionReason: "", qty: 8, purchasePrice: 1900, purchasePricePerUnit: 1900, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 18, totalValue: 15200, storageLocation: "Retail Display Front", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-04-15" },
-  { id: "B-0019", batchCode: "B-0019", medicineId: "M-0023", itemCode: "M-0023", itemName: "Stainless Steel Anti-Skid Feeding Bowl", batchNo: "SSB-2025-06", manufacturingDate: "", expiryDate: "2030-01-01", supplierId: "SUP-05", supplierName: "PetKitchen Supplies", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-06-10", receivedQty: 20, acceptedQty: 20, rejectedQty: 0, rejectionReason: "", qty: 20, purchasePrice: 350, purchasePricePerUnit: 350, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 18, totalValue: 7000, storageLocation: "Retail Shelf B2", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-06-10" },
-  { id: "B-0020", batchCode: "B-0020", medicineId: "M-0024", itemCode: "M-0024", itemName: "Hooded Feline Litter Box (Anti-Odour)", batchNo: "HLB-2025-05", manufacturingDate: "", expiryDate: "2030-01-01", supplierId: "SUP-05", supplierName: "CleanPet Tech", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-05-20", receivedQty: 10, acceptedQty: 10, rejectedQty: 0, rejectionReason: "", qty: 10, purchasePrice: 1100, purchasePricePerUnit: 1100, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 18, totalValue: 11000, storageLocation: "Retail Shelf C1", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-05-20" },
+  { id: "B-0012", batchCode: "B-0012", medicineId: "F-0001", itemCode: "F-0001", itemName: "Royal Canin Maxi Adult 4kg", batchNo: "RC-M-2025-01", manufacturingDate: "2025-01-01", expiryDate: "2027-01-01", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-08-01", receivedQty: 24, acceptedQty: 24, rejectedQty: 0, rejectionReason: "", qty: 24, purchasePrice: 1400, purchasePricePerUnit: 1400, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 33600, storageLocation: "Retail Shelf D1", qualityChecked: true, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-08-01" },
+  { id: "B-0013", batchCode: "B-0013", medicineId: "F-0002", itemCode: "F-0002", itemName: "Pedigree Adult Chicken 3kg", batchNo: "PED-2025-07", manufacturingDate: "2025-07-01", expiryDate: "2026-07-01", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-07-15", receivedQty: 30, acceptedQty: 30, rejectedQty: 0, rejectionReason: "", qty: 30, purchasePrice: 680, purchasePricePerUnit: 680, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 20400, storageLocation: "Retail Shelf D1", qualityChecked: true, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-07-15" },
 ];
 
 const SEED_LEDGER: LedgerEntry[] = [
@@ -377,31 +406,66 @@ const SEED_LEDGER: LedgerEntry[] = [
   { id: "L-0008", medicineId: "M-0008", medicineName: "IV Catheter 20G", batchId: "B-0009", batchNo: "IVC-2025-02", movementType: "sale_out", quantity: 50, sourceType: "invoice", sourceRef: "INV-20460", balanceAfter: 0, actorName: "Receptionist", createdAt: "2026-08-14 13:45" },
 ];
 
-// ─── Provider ─────────────────────────────────────────────────────────────────
+// ─── Fallback Medicines (All 52 seed items mapped) ───────────────────────────
 
-const FALLBACK_MEDICINES: Medicine[] = [
-  { id: "M-0001", itemCode: "M-0001", name: "Amoxicillin 250mg", genericName: "Amoxicillin", brand: "", manufacturer: "", description: "", category: "Medicine", subGroup: "", hasVariants: false, unit: "Tablet", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 50, reorderQty: 100, safetyStock: 20, storageLocation: "", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 24, defaultPurchasePrice: 16, minSalePrice: 18, maxDiscountPct: 10, valuationRate: 16, lastPurchaseRate: 16, gstRate: 12, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-01", defaultSupplierName: "MedVet Distributors", leadTimeDays: 7, minOrderQty: 50, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0002", itemCode: "M-0002", name: "Rabies Vaccine 1ml", genericName: "Rabies glycoprotein vaccine", brand: "", manufacturer: "", description: "", category: "Medicine", subGroup: "", hasVariants: false, unit: "Vial", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 20, reorderQty: 30, safetyStock: 5, storageLocation: "Cold Storage", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 480, defaultPurchasePrice: 340, minSalePrice: 380, maxDiscountPct: 5, valuationRate: 340, lastPurchaseRate: 340, gstRate: 5, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-02", defaultSupplierName: "BioPharm", leadTimeDays: 14, minOrderQty: 10, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0003", itemCode: "M-0003", name: "IV Fluid RL 500ml", genericName: "Ringer's Lactate", brand: "", manufacturer: "", description: "", category: "Medicine", subGroup: "", hasVariants: false, unit: "Bottle", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 30, reorderQty: 60, safetyStock: 10, storageLocation: "", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 65, defaultPurchasePrice: 42, minSalePrice: 50, maxDiscountPct: 10, valuationRate: 42, lastPurchaseRate: 42, gstRate: 5, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-03", defaultSupplierName: "CareSupplies", leadTimeDays: 3, minOrderQty: 24, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0004", itemCode: "M-0004", name: "Dexamethasone 4mg", genericName: "Dexamethasone", brand: "", manufacturer: "", description: "", category: "Medicine", subGroup: "", hasVariants: false, unit: "Vial", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 15, reorderQty: 30, safetyStock: 5, storageLocation: "", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 95, defaultPurchasePrice: 68, minSalePrice: 75, maxDiscountPct: 10, valuationRate: 68, lastPurchaseRate: 68, gstRate: 12, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-02", defaultSupplierName: "BioPharm", leadTimeDays: 7, minOrderQty: 10, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0005", itemCode: "M-0005", name: "Royal Canin Maxi 4kg", genericName: "Canine adult maintenance diet", brand: "Royal Canin", manufacturer: "Royal Canin", description: "", category: "Food", subGroup: "", hasVariants: false, unit: "Box", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 10, reorderQty: 20, safetyStock: 3, storageLocation: "", batchTracking: false, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 1850, defaultPurchasePrice: 1400, minSalePrice: 1600, maxDiscountPct: 5, valuationRate: 1400, lastPurchaseRate: 1400, gstRate: 5, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-04", defaultSupplierName: "PetNutri", leadTimeDays: 7, minOrderQty: 5, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0006", itemCode: "M-0006", name: "Tick & Flea Collar (L)", genericName: "Permethrin collar", brand: "", manufacturer: "", description: "", category: "Accessory", subGroup: "", hasVariants: false, unit: "Box", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 10, reorderQty: 20, safetyStock: 3, storageLocation: "", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 320, defaultPurchasePrice: 220, minSalePrice: 260, maxDiscountPct: 10, valuationRate: 220, lastPurchaseRate: 220, gstRate: 18, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-05", defaultSupplierName: "Supplier 05", leadTimeDays: 10, minOrderQty: 5, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0007", itemCode: "M-0007", name: "Deworming Syrup 30ml", genericName: "Pyrantel pamoate", brand: "", manufacturer: "", description: "", category: "Medicine", subGroup: "", hasVariants: false, unit: "Bottle", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 20, reorderQty: 40, safetyStock: 5, storageLocation: "", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 95, defaultPurchasePrice: 62, minSalePrice: 75, maxDiscountPct: 10, valuationRate: 62, lastPurchaseRate: 62, gstRate: 12, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-02", defaultSupplierName: "BioPharm", leadTimeDays: 7, minOrderQty: 12, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0008", itemCode: "M-0008", name: "IV Catheter 20G", genericName: "Peripheral IV catheter", brand: "", manufacturer: "", description: "", category: "Consumable", subGroup: "", hasVariants: false, unit: "Box", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 40, reorderQty: 100, safetyStock: 10, storageLocation: "", batchTracking: false, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 45, defaultPurchasePrice: 30, minSalePrice: 35, maxDiscountPct: 10, valuationRate: 30, lastPurchaseRate: 30, gstRate: 12, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-03", defaultSupplierName: "CareSupplies", leadTimeDays: 5, minOrderQty: 20, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0009", itemCode: "M-0009", name: "Metronidazole 200mg", genericName: "Metronidazole", brand: "", manufacturer: "", description: "", category: "Medicine", subGroup: "", hasVariants: false, unit: "Tablet", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 100, reorderQty: 200, safetyStock: 30, storageLocation: "", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 8, defaultPurchasePrice: 5, minSalePrice: 6, maxDiscountPct: 10, valuationRate: 5, lastPurchaseRate: 5, gstRate: 12, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-01", defaultSupplierName: "MedVet Distributors", leadTimeDays: 7, minOrderQty: 100, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2026-08-23" },
-  { id: "M-0010", itemCode: "M-0010", name: "Grooming Shampoo 500ml", genericName: "Medicated pet shampoo", brand: "", manufacturer: "", description: "", category: "Accessory", subGroup: "", hasVariants: false, unit: "Bottle", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 8, reorderQty: 15, safetyStock: 2, storageLocation: "", batchTracking: false, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 390, defaultPurchasePrice: 260, minSalePrice: 320, maxDiscountPct: 10, valuationRate: 260, lastPurchaseRate: 260, gstRate: 18, hsnCode: "", taxCategory: "", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-05", defaultSupplierName: "Supplier 05", leadTimeDays: 7, minOrderQty: 6, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "", isSalesItem: true, allowAlternativeItem: false, status: "Inactive", createdAt: "2026-08-23" },
-  // ── Animal Food ────────────────────────────────────────────────────────────
-  { id: "M-0016", itemCode: "M-0016", name: "Royal Canin Maxi Adult 4kg", genericName: "Canine adult maintenance diet", brand: "Royal Canin", manufacturer: "Royal Canin SAS", description: "Complete dry dog food for large breed adult dogs", category: "Animal Food", subGroup: "Dog Food", hasVariants: false, unit: "Box", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 8, reorderQty: 20, safetyStock: 3, storageLocation: "Retail Shelf D1", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 1850, defaultPurchasePrice: 1400, minSalePrice: 1600, maxDiscountPct: 5, valuationRate: 1400, lastPurchaseRate: 1400, gstRate: 5, hsnCode: "23091000", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-04", defaultSupplierName: "PetNutri", leadTimeDays: 7, minOrderQty: 5, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-08-01" },
-  { id: "M-0017", itemCode: "M-0017", name: "Pedigree Adult Chicken 3kg", genericName: "Canine adult chicken recipe", brand: "Pedigree", manufacturer: "Mars Petcare", description: "Complete nutrition dog food with real chicken", category: "Animal Food", subGroup: "Dog Food", hasVariants: false, unit: "Box", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 10, reorderQty: 25, safetyStock: 4, storageLocation: "Retail Shelf D1", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 890, defaultPurchasePrice: 680, minSalePrice: 750, maxDiscountPct: 5, valuationRate: 680, lastPurchaseRate: 680, gstRate: 5, hsnCode: "23091000", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-04", defaultSupplierName: "PetNutri", leadTimeDays: 5, minOrderQty: 10, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-07-15" },
-  { id: "M-0018", itemCode: "M-0018", name: "Hills Science Diet Kitten 1.58kg", genericName: "Feline kitten development diet", brand: "Hill's", manufacturer: "Hill's Pet Nutrition", description: "Precise nutrition scientifically formulated for kittens", category: "Animal Food", subGroup: "Cat Food", hasVariants: false, unit: "Box", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 6, reorderQty: 15, safetyStock: 2, storageLocation: "Retail Shelf D2", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 2400, defaultPurchasePrice: 1850, minSalePrice: 2100, maxDiscountPct: 5, valuationRate: 1850, lastPurchaseRate: 1850, gstRate: 5, hsnCode: "23091000", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-04", defaultSupplierName: "PetNutri", leadTimeDays: 10, minOrderQty: 3, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-08-10" },
-  { id: "M-0019", itemCode: "M-0019", name: "Whiskas Ocean Fish 1.2kg", genericName: "Feline adult ocean fish recipe", brand: "Whiskas", manufacturer: "Mars Petcare", description: "Complete dry cat food with ocean fish", category: "Animal Food", subGroup: "Cat Food", hasVariants: false, unit: "Box", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FEFO", reorderLevel: 12, reorderQty: 30, safetyStock: 5, storageLocation: "Retail Shelf D2", batchTracking: true, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 650, defaultPurchasePrice: 480, minSalePrice: 550, maxDiscountPct: 5, valuationRate: 480, lastPurchaseRate: 480, gstRate: 5, hsnCode: "23091000", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-04", defaultSupplierName: "PetNutri", leadTimeDays: 5, minOrderQty: 12, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-07-20" },
-  // ── Animal Accessories ──────────────────────────────────────────────────────
-  { id: "M-0020", itemCode: "M-0020", name: "Ergonomic Padded Dog Harness (L)", genericName: "No-pull canine chest harness", brand: "PawShield", manufacturer: "PetCare Gear", description: "Reflective breathable padded harness for medium-large breeds", category: "Animal Accessories", subGroup: "Gear", hasVariants: true, unit: "Piece", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FIFO", reorderLevel: 5, reorderQty: 15, safetyStock: 2, storageLocation: "Retail Shelf A3", batchTracking: false, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 1250, defaultPurchasePrice: 750, minSalePrice: 1050, maxDiscountPct: 10, valuationRate: 750, lastPurchaseRate: 750, gstRate: 18, hsnCode: "42010000", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-05", defaultSupplierName: "PetCare Gear India", leadTimeDays: 5, minOrderQty: 5, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-05-01" },
-  { id: "M-0021", itemCode: "M-0021", name: "Nylon Training Leash 6ft (Reflective)", genericName: "Heavy-duty dog walking leash", brand: "PawShield", manufacturer: "PetCare Gear", description: "Shock absorbing padded handle with metal carabiner", category: "Animal Accessories", subGroup: "Gear", hasVariants: false, unit: "Piece", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FIFO", reorderLevel: 8, reorderQty: 20, safetyStock: 3, storageLocation: "Retail Shelf A3", batchTracking: false, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 450, defaultPurchasePrice: 220, minSalePrice: 380, maxDiscountPct: 10, valuationRate: 220, lastPurchaseRate: 220, gstRate: 18, hsnCode: "42010000", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-05", defaultSupplierName: "PetCare Gear India", leadTimeDays: 5, minOrderQty: 10, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-06-01" },
-  { id: "M-0022", itemCode: "M-0022", name: "Orthopedic Memory Foam Pet Bed (XL)", genericName: "Joint support orthopedic pet mattress", brand: "ComfyPaws", manufacturer: "SleepWell Pets", description: "Waterproof lining with washable plush cover for arthritic pets", category: "Animal Accessories", subGroup: "Comfort", hasVariants: true, unit: "Piece", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FIFO", reorderLevel: 3, reorderQty: 8, safetyStock: 1, storageLocation: "Retail Display Front", batchTracking: false, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 3200, defaultPurchasePrice: 1900, minSalePrice: 2800, maxDiscountPct: 5, valuationRate: 1900, lastPurchaseRate: 1900, gstRate: 18, hsnCode: "94049000", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-05", defaultSupplierName: "SleepWell Pets", leadTimeDays: 7, minOrderQty: 2, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-04-15" },
-  { id: "M-0023", itemCode: "M-0023", name: "Stainless Steel Anti-Skid Feeding Bowl", genericName: "Heavy duty non-tip pet bowl", brand: "DinePaws", manufacturer: "PetKitchen", description: "Rust-proof hygienic feeding bowl with rubber ring", category: "Animal Accessories", subGroup: "Feeding", hasVariants: false, unit: "Unit", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FIFO", reorderLevel: 8, reorderQty: 20, safetyStock: 2, storageLocation: "Retail Shelf B2", batchTracking: false, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 650, defaultPurchasePrice: 350, minSalePrice: 520, maxDiscountPct: 10, valuationRate: 350, lastPurchaseRate: 350, gstRate: 18, hsnCode: "73239390", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-05", defaultSupplierName: "PetKitchen Supplies", leadTimeDays: 5, minOrderQty: 6, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-06-10" },
-  { id: "M-0024", itemCode: "M-0024", name: "Hooded Feline Litter Box (Anti-Odour)", genericName: "Cat litter box with carbon filter", brand: "PurrClean", manufacturer: "CleanPet Tech", description: "Enclosed privacy litter box with door flap and scoop", category: "Animal Accessories", subGroup: "Hygiene", hasVariants: false, unit: "Unit", purchaseUom: "", salesUom: "", uomConversions: [], maintainStock: true, valuationMethod: "FIFO", reorderLevel: 4, reorderQty: 10, safetyStock: 1, storageLocation: "Retail Shelf C1", batchTracking: false, serialTracking: false, allowNegativeStock: false, defaultSalePrice: 1850, defaultPurchasePrice: 1100, minSalePrice: 1550, maxDiscountPct: 5, valuationRate: 1100, lastPurchaseRate: 1100, gstRate: 18, hsnCode: "39249090", taxCategory: "Standard", isZeroRated: false, isExempt: false, isImport: false, defaultSupplierId: "SUP-05", defaultSupplierName: "CleanPet Tech", leadTimeDays: 7, minOrderQty: 3, purchaseAccount: "", expenseAccount: "", incomeAccount: "", costCenter: "Retail", isSalesItem: true, allowAlternativeItem: false, status: "Active", createdAt: "2025-05-20" },
-];
+const FALLBACK_MEDICINES: Medicine[] = ALL_SEED_ITEMS.map((item) => ({
+  id: item.itemCode,
+  itemCode: item.itemCode,
+  sku: item.sku,
+  name: item.name,
+  genericName: item.genericName,
+  brand: item.brand,
+  manufacturer: item.manufacturer,
+  description: item.description,
+  category: (item.productType === "MEDICINE" ? "Medicine" : item.productType === "FOOD" ? "Food" : "Accessory") as MedicineCategory,
+  productType: item.productType,
+  subGroup: item.subGroup,
+  hasVariants: item.hasVariants,
+  unit: item.unit as UnitOfMeasure,
+  purchaseUom: item.purchaseUom,
+  salesUom: item.salesUom,
+  uomConversions: (item.uomConversions || []) as UomConversion[],
+  maintainStock: item.maintainStock,
+  valuationMethod: item.valuationMethod as ValuationMethod,
+  reorderLevel: item.reorderLevel,
+  reorderQty: item.reorderQty,
+  safetyStock: item.safetyStock,
+  currentStock: item.currentStock,
+  minStockLevel: item.minStockLevel,
+  storageLocation: item.storageLocation,
+  batchTracking: item.batchTracking,
+  serialTracking: item.serialTracking,
+  allowNegativeStock: item.allowNegativeStock,
+  defaultSalePrice: item.defaultSalePrice,
+  defaultPurchasePrice: item.defaultPurchasePrice,
+  minSalePrice: item.minSalePrice,
+  maxDiscountPct: item.maxDiscountPct,
+  valuationRate: item.valuationRate,
+  lastPurchaseRate: item.lastPurchaseRate,
+  mrp: item.mrp,
+  samplePriceNote: item.samplePriceNote,
+  gstRate: item.gstRate,
+  hsnCode: item.hsnCode,
+  taxCategory: item.taxCategory,
+  isZeroRated: item.isZeroRated,
+  isExempt: item.isExempt,
+  isImport: item.isImport,
+  defaultSupplierId: item.defaultSupplierId,
+  defaultSupplierName: item.defaultSupplierName,
+  leadTimeDays: item.leadTimeDays,
+  minOrderQty: item.minOrderQty,
+  purchaseAccount: item.purchaseAccount,
+  expenseAccount: item.expenseAccount,
+  incomeAccount: item.incomeAccount,
+  costCenter: item.costCenter,
+  isSalesItem: item.isSalesItem,
+  allowAlternativeItem: item.allowAlternativeItem,
+  medicineDetails: item.medicineDetails,
+  foodDetails: item.foodDetails,
+  accessoryDetails: item.accessoryDetails,
+  status: item.status as MedicineStatus,
+  createdAt: "2026-08-23",
+}));
 
 export function InventoryProvider({ children }: { children: ReactNode }) {
   const [medicines, setMedicines] = useState<Medicine[]>(FALLBACK_MEDICINES);
@@ -444,11 +508,15 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   // ── Computed helpers ──────────────────────────────────────────────────────
   const getTotalQty = useCallback(
-    (itemCode: string) =>
-      batches
-        .filter((b) => b.itemCode === itemCode && b.status === "Active")
-        .reduce((s, b) => s + b.qty, 0),
-    [batches]
+    (itemCode: string) => {
+      const activeBatches = batches.filter((b) => b.itemCode === itemCode && b.status === "Active");
+      if (activeBatches.length > 0) {
+        return activeBatches.reduce((s, b) => s + b.qty, 0);
+      }
+      const med = medicines.find((m) => m.itemCode === itemCode);
+      return med?.currentStock ?? 0;
+    },
+    [batches, medicines]
   );
 
   const getBatchesForItem = useCallback(
@@ -483,10 +551,23 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  // ── Category Lists ────────────────────────────────────────────────────────
+  const medicinesList = useMemo(
+    () => medicines.filter((m) => m.productType === "MEDICINE" || (!m.productType && m.category === "Medicine")),
+    [medicines]
+  );
+  const foodList = useMemo(
+    () => medicines.filter((m) => m.productType === "FOOD" || m.category === "Food" || m.category === "Animal Food"),
+    [medicines]
+  );
+  const accessoriesList = useMemo(
+    () => medicines.filter((m) => m.productType === "ACCESSORY" || m.category === "Accessory" || m.category === "Animal Accessories"),
+    [medicines]
+  );
+
   // ── CRUD — Items ─────────────────────────────────────────────────────────
   const addMedicine = useCallback(
     async (m: Omit<Medicine, "id" | "itemCode" | "createdAt" | "status">) => {
-      // Optimistic: add placeholder with temp id
       const tempId = `TEMP-${Date.now()}`;
       const tempItem: Medicine = {
         ...m,
@@ -501,10 +582,28 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const raw = await addItemFn({ data: m as any });
         const newItem = mapToMedicine(raw);
-        // Replace temp with real
         setMedicines((prev) => prev.map((x) => (x.id === tempId ? newItem : x)));
+
+        // If initial stock > 0, generate opening ledger
+        if ((m.currentStock ?? 0) > 0) {
+          const openEntry: LedgerEntry = {
+            id: `L-OPEN-${Date.now()}`,
+            medicineId: newItem.itemCode,
+            medicineName: newItem.name,
+            batchId: "OPENING",
+            batchNo: "OPENING-STOCK",
+            movementType: "purchase_in",
+            quantity: m.currentStock!,
+            sourceType: "manual_adjustment",
+            sourceRef: "OPENING-BAL",
+            balanceAfter: m.currentStock!,
+            actorName: "System",
+            createdAt: new Date().toISOString().replace("T", " ").slice(0, 16),
+            reason: "Initial opening stock recorded on item creation",
+          };
+          setLedger((prev) => [openEntry, ...prev]);
+        }
       } catch (err) {
-        // Rollback
         setMedicines((prev) => prev.filter((x) => x.id !== tempId));
         throw err;
       }
@@ -514,14 +613,12 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   const updateMedicine = useCallback(
     async (itemCode: string, patch: Partial<Medicine>) => {
-      // Optimistic update
       setMedicines((prev) =>
         prev.map((m) => (m.itemCode === itemCode ? { ...m, ...patch } : m))
       );
       try {
         await updateItemFn({ data: { itemCode, patch: patch as Record<string, unknown> } });
       } catch (err) {
-        // Re-fetch to restore
         void refetchItems();
         throw err;
       }
@@ -542,6 +639,24 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
       }
     },
     [refetchItems]
+  );
+
+  const toggleStatus = useCallback(
+    async (itemCode: string) => {
+      const item = medicines.find((m) => m.itemCode === itemCode);
+      if (!item) return;
+      const newStatus = item.status === "Active" ? "Inactive" : "Active";
+      setMedicines((prev) =>
+        prev.map((m) => (m.itemCode === itemCode ? { ...m, status: newStatus } : m))
+      );
+      try {
+        await toggleItemStatusFn({ data: { itemCode } });
+      } catch (err) {
+        void refetchItems();
+        throw err;
+      }
+    },
+    [medicines, refetchItems]
   );
 
   // ── CRUD — Stock ─────────────────────────────────────────────────────────
@@ -578,7 +693,17 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         const newBatch = mapToBatch(raw);
         setBatches((prev) => [...prev, newBatch]);
 
+        // Update medicine currentStock
+        setMedicines((prev) =>
+          prev.map((m) =>
+            m.itemCode === batchData.itemCode
+              ? { ...m, currentStock: (m.currentStock ?? 0) + batchData.acceptedQty }
+              : m
+          )
+        );
+
         // Add ledger entry locally
+        const prevBal = medicines.find((m) => m.itemCode === batchData.itemCode)?.currentStock ?? 0;
         const entry: LedgerEntry = {
           id: `L-${Date.now()}`,
           medicineId: batchData.itemCode,
@@ -589,7 +714,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
           quantity: batchData.acceptedQty,
           sourceType: "purchase",
           sourceRef: batchData.purchaseOrderRef || `GRN-${Date.now()}`,
-          balanceAfter: batchData.acceptedQty,
+          balanceAfter: prevBal + batchData.acceptedQty,
           actorName: batchData.actor,
           createdAt: new Date().toISOString().replace("T", " ").slice(0, 16),
         };
@@ -599,7 +724,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     },
-    []
+    [medicines]
   );
 
   const adjustStock = useCallback(
@@ -613,8 +738,17 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             : b
         )
       );
+      const isPositive = data.movementType === "adjustment_in" || data.movementType === "transfer";
+      const delta = isPositive ? data.adjustedQty : -data.adjustedQty;
+      setMedicines((prev) =>
+        prev.map((m) =>
+          m.itemCode === data.itemCode
+            ? { ...m, currentStock: Math.max(0, (m.currentStock ?? 0) + delta) }
+            : m
+        )
+      );
+
       // Add ledger entry
-      const isIn = data.movementType === "adjustment_in" || data.movementType === "transfer";
       const entry: LedgerEntry = {
         id: `L-${Date.now()}`,
         medicineId: data.itemCode,
@@ -630,7 +764,6 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         createdAt: data.dateTime,
         reason: `${data.reasonCode}: ${data.remarks}`,
       };
-      void isIn;
       setLedger((prev) => [entry, ...prev]);
       return result;
     },
@@ -640,7 +773,6 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   // ── Legacy shims (used by existing child components) ─────────────────────
   const removeStock = useCallback(
     (data: { medicineId: string; batchId: string; qty: number; reason: string; actor: string }) => {
-      // Fire-and-forget adjustment for legacy callers
       void adjustStock({
         itemCode: data.medicineId,
         itemName: medicines.find((m) => m.id === data.medicineId)?.name ?? "Unknown",
@@ -660,36 +792,72 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   const recordSale = useCallback(
     (data: { medicineId: string; qty: number; sourceRef: string; actor: string }): { ok: boolean; error?: string } => {
-      const available = batches
+      const availableBatches = batches
         .filter((b) => b.itemCode === data.medicineId && b.qty > 0 && b.status === "Active")
         .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
-      const totalAvail = available.reduce((s, b) => s + b.qty, 0);
-      if (totalAvail < data.qty) {
+      const batchAvail = availableBatches.reduce((s, b) => s + b.qty, 0);
+      const med = medicines.find((m) => m.itemCode === data.medicineId);
+      const totalAvail = batchAvail > 0 ? batchAvail : (med?.currentStock ?? 0);
+
+      if (totalAvail < data.qty && !med?.allowNegativeStock) {
         return { ok: false, error: `Only ${totalAvail} units available` };
       }
+
       // Optimistic local update (real sale goes through billing module)
-      let remaining = data.qty;
-      const updated = batches.map((b) => {
-        if (remaining <= 0 || b.itemCode !== data.medicineId || b.qty === 0 || b.status !== "Active") return b;
-        const take = Math.min(b.qty, remaining);
-        remaining -= take;
-        return { ...b, qty: b.qty - take };
-      });
-      setBatches(updated);
+      if (availableBatches.length > 0) {
+        let remaining = data.qty;
+        const updated = batches.map((b) => {
+          if (remaining <= 0 || b.itemCode !== data.medicineId || b.qty === 0 || b.status !== "Active") return b;
+          const take = Math.min(b.qty, remaining);
+          remaining -= take;
+          return { ...b, qty: b.qty - take };
+        });
+        setBatches(updated);
+      }
+
+      const newStock = Math.max(0, (med?.currentStock ?? totalAvail) - data.qty);
+      setMedicines((prev) =>
+        prev.map((m) =>
+          m.itemCode === data.medicineId
+            ? { ...m, currentStock: newStock }
+            : m
+        )
+      );
+
+      const entry: LedgerEntry = {
+        id: `L-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        medicineId: data.medicineId,
+        medicineName: med?.name || "Item",
+        batchId: availableBatches[0]?.id || "DIRECT",
+        batchNo: availableBatches[0]?.batchNo || "DIRECT",
+        movementType: "sale_out",
+        quantity: data.qty,
+        sourceType: "invoice",
+        sourceRef: data.sourceRef,
+        balanceAfter: newStock,
+        actorName: data.actor || "System",
+        createdAt: new Date().toISOString().replace("T", " ").slice(0, 16),
+      };
+      setLedger((prev) => [entry, ...prev]);
+
       return { ok: true };
     },
-    [batches]
+    [batches, medicines]
   );
 
   const value = useMemo<InventoryContextValue>(
     () => ({
       medicines,
+      medicinesList,
+      foodList,
+      accessoriesList,
       batches,
       ledger,
       loadingItems,
       addMedicine,
       updateMedicine,
       deactivateMedicine,
+      toggleStatus,
       addStock,
       adjustStock,
       removeStock,
@@ -702,8 +870,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
       refetchBatches,
     }),
     [
-      medicines, batches, ledger, loadingItems,
-      addMedicine, updateMedicine, deactivateMedicine,
+      medicines, medicinesList, foodList, accessoriesList, batches, ledger, loadingItems,
+      addMedicine, updateMedicine, deactivateMedicine, toggleStatus,
       addStock, adjustStock, removeStock, recordSale,
       getTotalQty, getBatchesForItem, getStockStatus, getExpiryStatus,
       refetchItems, refetchBatches,
@@ -718,12 +886,16 @@ export function useInventory(): InventoryContextValue {
   if (!ctx) {
     return {
       medicines: [],
+      medicinesList: [],
+      foodList: [],
+      accessoriesList: [],
       batches: [],
       ledger: [],
       loadingItems: false,
       addMedicine: async () => {},
       updateMedicine: async () => {},
       deactivateMedicine: async () => {},
+      toggleStatus: async () => {},
       addStock: async () => {},
       adjustStock: async (data: any) => ({ newQty: 0, referenceNo: "" }),
       removeStock: () => {},

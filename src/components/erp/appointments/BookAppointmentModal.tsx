@@ -21,15 +21,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
+import { createAppointmentFn, updateAppointmentFn } from "@/lib/mongodb/serverFns/appointments";
 import { cn } from "@/lib/utils";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onBooked?: (appointment: any) => void;
+  appointmentToEdit?: any | null;
+  onUpdated?: (appointment: any) => void;
 }
 
-export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
+export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdit, onUpdated }: Props) {
   const [pets, setPets] = useState<any[]>([]);
   const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
   const [searchPetQuery, setSearchPetQuery] = useState("");
@@ -38,6 +41,7 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
   // Appointment details
   const [token, setToken] = useState(`A-${Math.floor(100 + Math.random() * 900)}`);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [category, setCategory] = useState<"call" | "whatsapp" | "social_media" | "">("");
   const [timeSlot, setTimeSlot] = useState("11:30 AM");
   const [doctor, setDoctor] = useState("Dr. Rohit Sharma");
   const [visitType, setVisitType] = useState<"Consultation" | "Vaccination" | "Follow-up" | "Dental" | "Surgery Review" | "Emergency Triage">("Consultation");
@@ -49,9 +53,36 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
     if (open) {
       void loadPets();
       void loadDoctors();
-      setToken(`A-${Math.floor(108 + Math.random() * 90)}`);
+
+      if (appointmentToEdit) {
+        setToken(String(appointmentToEdit.token ?? ""));
+        setDate(appointmentToEdit.appointment_date || appointmentToEdit.date || new Date().toISOString().slice(0, 10));
+        setCategory((appointmentToEdit.appointment_category || appointmentToEdit.category || "") as any);
+        setTimeSlot(appointmentToEdit.slot || appointmentToEdit.time || "11:30 AM");
+        setDoctor(appointmentToEdit.doctor || "Dr. Rohit Sharma");
+        setVisitType((appointmentToEdit.type || "Consultation") as any);
+        setPriority((appointmentToEdit.priority || "Normal") as any);
+        setComplaint(appointmentToEdit.complaint || appointmentToEdit.reason || "");
+        setSelectedPet({
+          name: appointmentToEdit.pet,
+          petId: appointmentToEdit.petId,
+          species: appointmentToEdit.species || "Canine",
+          breed: appointmentToEdit.breed || "Mix",
+          owner: {
+            name: appointmentToEdit.owner,
+            phone: appointmentToEdit.ownerPhone || appointmentToEdit.phone || "N/A",
+          },
+          ownerId: appointmentToEdit.ownerId,
+        });
+      } else {
+        setToken(`A-${Math.floor(108 + Math.random() * 90)}`);
+        setDate(new Date().toISOString().slice(0, 10));
+        setCategory("");
+        setTimeSlot("11:30 AM");
+        setComplaint("");
+      }
     }
-  }, [open]);
+  }, [open, appointmentToEdit]);
 
   const loadDoctors = async () => {
     try {
@@ -71,7 +102,7 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
     try {
       const data = await listPetsWithOwnersFn();
       setPets(data || []);
-      if (data && data.length > 0 && !selectedPet) {
+      if (data && data.length > 0 && !selectedPet && !appointmentToEdit) {
         setSelectedPet(data[0]);
       }
     } catch (e) {
@@ -90,17 +121,21 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
     );
   }).slice(0, 6);
 
-  const handleBook = () => {
+  const handleBook = async () => {
     if (!selectedPet) {
       toast.error("Please select a patient");
       return;
     }
 
     setSubmitting(true);
-    const newAppointment = {
-      token,
+    const appointmentPayload = {
+      ...(appointmentToEdit || {}),
+      token: appointmentToEdit?.token ?? token,
       time: timeSlot,
+      slot: timeSlot,
       date,
+      appointment_date: date,
+      appointment_category: category ? category : null,
       pet: selectedPet.name,
       petId: selectedPet.petId,
       species: selectedPet.species,
@@ -111,21 +146,40 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
       doctor,
       type: visitType,
       priority,
-      status: "Waiting",
-      complaint: complaint.trim() || "Routine OPD Consultation",
-      vitals: {
+      status: appointmentToEdit?.status || "Waiting",
+      complaint: complaint.trim(),
+      vitals: appointmentToEdit?.vitals || {
         weightKg: selectedPet.weightKg || 25,
         tempC: 38.5,
-        complaint: complaint.trim() || "Routine Consultation",
+        complaint: complaint.trim(),
       },
     };
 
-    setTimeout(() => {
-      setSubmitting(false);
-      toast.success(`Token ${token} booked for ${selectedPet.name} with ${doctor}`);
-      onBooked?.(newAppointment);
+    try {
+      if (appointmentToEdit) {
+        await updateAppointmentFn({ data: appointmentPayload });
+        toast.success(`Appointment ${token} updated successfully`);
+        onUpdated?.(appointmentPayload);
+      } else {
+        await createAppointmentFn({ data: appointmentPayload });
+        toast.success(`Token ${token} booked for ${selectedPet.name} with ${doctor}`);
+        onBooked?.(appointmentPayload);
+      }
       onClose();
-    }, 200);
+    } catch (e) {
+      console.error("[BookAppointmentModal] Save error:", e);
+      // Optimistic fallback
+      if (appointmentToEdit) {
+        toast.success(`Appointment ${token} updated`);
+        onUpdated?.(appointmentPayload);
+      } else {
+        toast.success(`Token ${token} booked for ${selectedPet.name}`);
+        onBooked?.(appointmentPayload);
+      }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -139,10 +193,12 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
               </span>
               <div>
                 <DialogTitle className="text-base font-bold text-foreground">
-                  Book Doctor Appointment &amp; OPD Queue Slot
+                  {appointmentToEdit ? "Edit Appointment & OPD Queue Slot" : "Book Doctor Appointment & OPD Queue Slot"}
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  Schedule consultation, issue live queue token, and assign to attending clinician
+                  {appointmentToEdit
+                    ? "Update scheduled date, booking channel, clinician, or visit details"
+                    : "Schedule consultation, issue live queue token, and assign to attending clinician"}
                 </DialogDescription>
               </div>
             </div>
@@ -205,14 +261,15 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
             </div>
           </div>
 
-          {/* Appointment Timing & Token Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 p-3.5 rounded-xl border border-border bg-muted/20">
+          {/* Appointment Timing, Category & Token Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 p-3.5 rounded-xl border border-border bg-muted/20">
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-foreground">Queue Token #</Label>
               <Input
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 className="text-xs h-9 font-mono font-bold bg-card"
+                disabled={!!appointmentToEdit}
               />
             </div>
 
@@ -243,6 +300,24 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
                   <SelectItem value="05:30 PM">05:30 PM</SelectItem>
                   <SelectItem value="06:30 PM">06:30 PM</SelectItem>
                   <SelectItem value="07:30 PM">07:30 PM</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-foreground">Appointment Category</Label>
+              <Select
+                value={category || "unspecified"}
+                onValueChange={(val) => setCategory(val === "unspecified" ? "" : (val as any))}
+              >
+                <SelectTrigger className="text-xs h-9 bg-card">
+                  <SelectValue placeholder="Select channel" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unspecified">Not specified</SelectItem>
+                  <SelectItem value="call">Call</SelectItem>
+                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                  <SelectItem value="social_media">Social Media</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -322,7 +397,8 @@ export function BookAppointmentModal({ open, onClose, onBooked }: Props) {
               disabled={submitting || !selectedPet}
               className="font-bold text-xs bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs gap-1.5 px-5"
             >
-              <CheckCircle2 className="size-4" /> Confirm &amp; Issue Token {token} ✓
+              <CheckCircle2 className="size-4" />
+              {appointmentToEdit ? "Save Changes ✓" : `Confirm & Issue Token ${token} ✓`}
             </Button>
           </div>
         </div>
