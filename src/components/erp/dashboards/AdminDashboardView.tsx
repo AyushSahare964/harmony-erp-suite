@@ -225,8 +225,8 @@ export function AdminDashboardView({
                   <p className="text-xs font-bold text-foreground">Dues & Reminders</p>
                 </div>
                 <div className="space-y-1.5 text-xs">
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Vaccinations Due</span><span className="font-mono font-semibold">{vaccineDue || "—"}</span></div>
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Follow-ups Scheduled</span><span className="font-mono font-semibold">{followupDue || "—"}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Vaccinations Due</span><span className="font-mono font-semibold">{vaccineDue || "â€”"}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Follow-ups Scheduled</span><span className="font-mono font-semibold">{followupDue || "â€”"}</span></div>
                   <div className="flex items-center justify-between"><span className="text-amber-600 font-semibold">Medicines Expiring</span><span className="font-mono font-semibold text-amber-600">{expiringSoon.length}</span></div>
                 </div>
                 <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => void navigate({ to: "/m/$moduleId", params: { moduleId: "inventory" } })}>View All</Button>
@@ -266,7 +266,7 @@ export function AdminDashboardView({
               <div className="flex items-center gap-2">
                 <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity className="size-4" /></span>
                 <div>
-                  <h3 className="text-sm font-bold text-foreground">Treatment Queue — Today</h3>
+                  <h3 className="text-sm font-bold text-foreground">Treatment Queue â€” Today</h3>
                   <p className="text-[11px] text-muted-foreground">Live OPD admissions and consultation status</p>
                 </div>
               </div>
@@ -288,7 +288,7 @@ export function AdminDashboardView({
                     const sb = statusBadge(v);
                     return (
                       <tr key={v.visitId} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-2.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{formatDisplayDate(v.date || v.createdAt) || "—"}</td>
+                        <td className="py-2.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{formatDisplayDate(v.date || v.createdAt) || "â€”"}</td>
                         <td className="py-2.5 pr-3"><p className="font-semibold text-foreground">{v.petName}</p><p className="text-[10px] text-muted-foreground">{v.ownerName}</p></td>
                         <td className="py-2.5 pr-3 max-w-[150px]"><p className="truncate text-muted-foreground">{v.vitals?.complaint || v.diagnosis || "OPD Visit"}</p></td>
                         <td className="py-2.5 pr-3"><span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border", sb.cls)}>{sb.label}</span></td>
@@ -360,7 +360,7 @@ export function AdminDashboardView({
                 {labTestCounts.map(([name, cnt]) => <HorizBar key={name} label={name} value={cnt} max={labMax} color="bg-violet-500" />)}
               </div>
             ) : !loadingFacilities && <p className="text-xs text-muted-foreground italic">No lab orders recorded.</p>}
-            {loadingFacilities && <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" /> Loading lab data…</div>}
+            {loadingFacilities && <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" /> Loading lab dataâ€¦</div>}
           </div>
 
           {/* Boarding */}
@@ -413,7 +413,7 @@ export function AdminDashboardView({
                 </table>
               </div>
             )}
-            {loadingFacilities && <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" /> Loading boarding data…</div>}
+            {loadingFacilities && <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" /> Loading boarding dataâ€¦</div>}
           </div>
 
           {/* Swimming */}
@@ -444,7 +444,7 @@ export function AdminDashboardView({
                 ))}
               </div>
             )}
-            {loadingFacilities && <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" /> Loading session data…</div>}
+            {loadingFacilities && <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" /> Loading session dataâ€¦</div>}
           </div>
 
         </div>
