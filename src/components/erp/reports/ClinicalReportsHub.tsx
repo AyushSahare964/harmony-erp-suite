@@ -107,6 +107,7 @@ export function ClinicalReportsHub() {
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showQuotationModal, setShowQuotationModal] = useState(false);
 
   // Fetch Analytics Data
   const loadAnalytics = useCallback(async () => {
