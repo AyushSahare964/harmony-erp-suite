@@ -417,12 +417,7 @@ const SEED_BILLING_INVOICES = [
 
 async function ensureBillingSeeded() {
   await connectDB();
-  const count = await ClinicalVisit.countDocuments();
-  if (count === 0) {
-    for (const v of SEED_BILLING_INVOICES) {
-      await ClinicalVisit.findOneAndUpdate({ visitId: v.visitId }, { $setOnInsert: v }, { upsert: true });
-    }
-  }
+  // Auto-seeding disabled to preserve clean database state
 }
 
 // ─── Input Schemas ────────────────────────────────────────────────────────────

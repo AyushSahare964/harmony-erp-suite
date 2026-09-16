@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { toast } from "sonner";
+import { formatDisplayTime } from "@/lib/utils/dateUtils";
 
 /* ─── Types ──────────────────────────────────────────────────────── */
 type GatewayStatus = "created" | "captured" | "failed" | "refunded";
@@ -310,8 +311,8 @@ export function RazorpayGateway() {
       id: crypto.randomUUID(),
       invoiceNo, ownerName: owner, amount, orderId, paymentId,
       signature: "sha256_verified", gatewayStatus: "captured",
-      method, createdAt: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
-      capturedAt: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+      method, createdAt: formatDisplayTime(new Date()),
+      capturedAt: formatDisplayTime(new Date()),
     };
     setPayments(prev => [newPayment, ...prev]);
     toast.success(`${invoiceNo} paid via Razorpay — webhook confirmed`);

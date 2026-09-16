@@ -4,14 +4,22 @@ export interface ISupplier extends Document {
   name: string;
   contactPerson?: string;
   phone?: string;
+  mobileNo?: string;
   email?: string;
   gstin?: string;
+  panNo?: string;
   address?: string;
   city?: string;
   state?: string;
+  pincode?: string;
+  country?: string;
+  bankName?: string;
+  bankAccountNo?: string;
+  ifscCode?: string;
+  remarks?: string;
   creditDays: number;
   openingBalance: number;
-  openingBalanceType: "Cr" | "Dr";
+  openingBalanceType: "Cr" | "Dr" | "Debit" | "Credit";
   openingBalanceDate?: string;
   isActive: boolean;
   createdAt: Date;
@@ -23,14 +31,22 @@ const SupplierSchema = new Schema<ISupplier>(
     name: { type: String, required: true, trim: true },
     contactPerson: { type: String, default: "" },
     phone: { type: String, default: "" },
+    mobileNo: { type: String, default: "" },
     email: { type: String, default: "" },
     gstin: { type: String, default: "" },
+    panNo: { type: String, default: "" },
     address: { type: String, default: "" },
     city: { type: String, default: "" },
-    state: { type: String, default: "" },
+    state: { type: String, default: "Maharashtra" },
+    pincode: { type: String, default: "" },
+    country: { type: String, default: "India" },
+    bankName: { type: String, default: "" },
+    bankAccountNo: { type: String, default: "" },
+    ifscCode: { type: String, default: "" },
+    remarks: { type: String, default: "" },
     creditDays: { type: Number, default: 30 },
     openingBalance: { type: Number, default: 0 },
-    openingBalanceType: { type: String, enum: ["Cr", "Dr"], default: "Cr" },
+    openingBalanceType: { type: String, default: "Debit" },
     openingBalanceDate: { type: String, default: "" },
     isActive: { type: Boolean, default: true },
   },
@@ -54,8 +70,5 @@ const SEED_SUPPLIERS = [
 ];
 
 export async function seedSuppliers(): Promise<void> {
-  const count = await SupplierModel.countDocuments();
-  if (count === 0) {
-    await SupplierModel.insertMany(SEED_SUPPLIERS);
-  }
+  // Auto-seeding disabled to preserve clean database state
 }

@@ -376,3 +376,133 @@ export function fmtVoucherNo(prefix: string, seq: number, isoDate?: string): str
   return `${prefix}/${fyShort}/${String(seq).padStart(4, "0")}`;
 }
 
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Finance module display helpers (implementation plan §3).
+ * Every user-facing date in the billing module goes through one of these.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const MONTH_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const;
+
+/**
+ * Format a timestamp as DD/MM/YYYY HH:mm (24-hour).
+ * Use for payment times, audit entries and posted-at stamps.
+ *
+ * @example formatDisplayDateTime("2026-09-16T14:35:09.000Z") → "16/09/2026 14:35"
+ */
+export function formatDisplayDateTime(
+  input: string | Date | null | undefined
+): string {
+  if (!input) return "";
+
+  const date = input instanceof Date ? input : new Date(input);
+  if (isNaN(date.getTime())) {
+    // Not a parseable timestamp — fall back to the date-only formatter so we
+    // still render something sensible rather than "Invalid Date".
+    return formatDisplayDate(input);
+  }
+
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
+/**
+ * Format just the time portion as HH:mm (24-hour).
+ *
+ * @example formatDisplayTime("2026-09-16T14:35:00") → "14:35"
+ */
+export function formatDisplayTime(input: string | Date | null | undefined): string {
+  if (!input) return "";
+  const date = input instanceof Date ? input : new Date(input);
+  if (isNaN(date.getTime())) return "";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Compact DD/MM for chart axes, where the year is implied by the range.
+ *
+ * @example formatDayMonth("2026-09-16") → "16/09"
+ */
+export function formatDayMonth(input: string | Date | null | undefined): string {
+  const full = formatDisplayDate(input);
+  return full ? full.slice(0, 5) : "";
+}
+
+/**
+ * Batch expiry. Drug packs print MM/YYYY; we show the full date only when the
+ * day is actually known and meaningful.
+ *
+ * @example formatExpiry("2027-03")    → "03/2027"
+ * @example formatExpiry("2027-03-31") → "31/03/2027"
+ */
+export function formatExpiry(input: string | null | undefined): string {
+  if (!input) return "";
+  const str = String(input).trim();
+
+  // Month-only precision, e.g. "2027-03"
+  const monthOnly = str.match(/^(\d{4})-(\d{2})$/);
+  if (monthOnly) return `${monthOnly[2]}/${monthOnly[1]}`;
+
+  return formatDisplayDate(str);
+}
+
+/**
+ * "16 Sep 2026" — for print templates and report headers where a slash-heavy
+ * line would be hard to scan. Never use this in a data table.
+ */
+export function formatLongDate(input: string | Date | null | undefined): string {
+  const iso = input instanceof Date ? toISODate(input) : String(input ?? "").slice(0, 10);
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return formatDisplayDate(input);
+  const monthIdx = parseInt(m[2]!, 10) - 1;
+  return `${m[3]} ${MONTH_ABBR[monthIdx] ?? m[2]} ${m[1]}`;
+}
+
+/**
+ * Render a period filter for a report header.
+ *
+ * @example formatRangeLabel("2026-09-01", "2026-09-16") → "01/09/2026 – 16/09/2026"
+ */
+export function formatRangeLabel(from: string, to: string): string {
+  if (!from && !to) return "All dates";
+  if (from === to) return formatDisplayDate(from);
+  return `${formatDisplayDate(from)} – ${formatDisplayDate(to)}`;
+}
+
+/**
+ * Whole days between two ISO dates (to − from). Negative when `to` precedes
+ * `from`. Used for invoice ageing and expiry warnings.
+ *
+ * @example daysBetweenISO("2026-09-01", "2026-09-16") → 15
+ */
+export function daysBetweenISO(fromIso: string, toIso: string): number {
+  if (!fromIso || !toIso) return 0;
+  const a = new Date(fromIso.slice(0, 10) + "T00:00:00").getTime();
+  const b = new Date(toIso.slice(0, 10) + "T00:00:00").getTime();
+  if (isNaN(a) || isNaN(b)) return 0;
+  return Math.round((b - a) / 86400000);
+}
+
+/** Age in days of a document, relative to today (IST). */
+export function ageInDays(isoDate: string): number {
+  return daysBetweenISO(isoDate, todayIST());
+}
+
+export type AgeingBucket = "0-30" | "31-60" | "61-90" | "90+";
+
+/** Receivable / payable ageing bucket for an invoice date. */
+export function ageingBucket(isoDate: string, asOfIso?: string): AgeingBucket {
+  const days = daysBetweenISO(isoDate, asOfIso ?? todayIST());
+  if (days <= 30) return "0-30";
+  if (days <= 60) return "31-60";
+  if (days <= 90) return "61-90";
+  return "90+";
+}

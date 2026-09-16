@@ -84,14 +84,14 @@ export const listSupplierPaymentsFn = createServerFn({ method: "GET" })
     const from = data?.from ?? today.slice(0, 7) + "-01";
     const to = data?.to ?? today;
     const filter: Record<string, any> = { paymentDate: { $gte: from, $lte: to } };
-    if (data?.supplierId) filter.supplierId = data.supplierId;
-    if (data?.status && data.status !== "ALL") filter.status = data.status;
-    else if (!data?.status) filter.status = "ACTIVE";
+    if (data?.supplierId) filter["supplierId"] = data.supplierId;
+    if (data?.status && data.status !== "ALL") filter["status"] = data.status;
+    else if (!data?.status) filter["status"] = "ACTIVE";
     if (data?.mode) filter["paymentLines.mode"] = data.mode;
     if (data?.q) {
       const q = data.q.trim();
       const re = { $regex: q, $options: "i" };
-      filter.$or = [{ voucherNo: re }, { supplierName: re }, { remarks: re }];
+      filter["$or"] = [{ voucherNo: re }, { supplierName: re }, { remarks: re }];
     }
     const docs = await SupplierPaymentModel.find(filter).sort({ paymentDate: -1, createdAt: -1 }).lean();
     return docs.map(toPaymentRow);
@@ -183,7 +183,7 @@ export const createSupplierPaymentFn = createServerFn({ method: "POST" })
       allocations,
       status: "ACTIVE",
     };
-    if (data.remarks) docData.remarks = data.remarks;
+    if (data.remarks) docData["remarks"] = data.remarks;
 
     const doc: any = await SupplierPaymentModel.create(docData);
     return { ok: true, _id: String(doc._id), voucherNo };
@@ -353,11 +353,11 @@ export const getSupplierLedgerFn = createServerFn({ method: "GET" })
       supplier: {
         _id: String(supplier._id),
         name: supplier.name,
-        phone: supplier.phone,
-        gstin: supplier.gstin,
+        ...(supplier.phone ? { phone: supplier.phone } : {}),
+        ...(supplier.gstin ? { gstin: supplier.gstin } : {}),
         creditDays: supplier.creditDays ?? 30,
         openingBalance: supplier.openingBalance ?? 0,
-        openingBalanceType: supplier.openingBalanceType ?? "Cr",
+        openingBalanceType: (supplier.openingBalanceType === "Debit" || supplier.openingBalanceType === "Dr") ? "Dr" : "Cr",
       },
       openingBalance,
       openingBalanceType,
@@ -372,7 +372,7 @@ export const getSupplierLedgerFn = createServerFn({ method: "GET" })
 export interface PayablesAgeingRow {
   supplierId: string;
   supplierName: string;
-  phone?: string;
+  phone?: string | undefined;
   creditDays: number;
   totalOutstanding: number;
   current: number; // 0-30 days
@@ -397,7 +397,7 @@ export const getPayablesSummaryFn = createServerFn({ method: "GET" })
       map[id] = {
         supplierId: id,
         supplierName: s.name,
-        phone: s.phone,
+        ...(s.phone ? { phone: s.phone } : {}),
         creditDays: s.creditDays ?? 30,
         totalOutstanding: s.openingBalance && s.openingBalanceType === "Cr" ? s.openingBalance : 0,
         current: 0,

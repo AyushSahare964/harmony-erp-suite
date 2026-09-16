@@ -51,7 +51,7 @@ interface BillAllocationRow {
   internalRef: string;
   billNumber: string;
   billDate: string;
-  dueDate?: string;
+  dueDate?: string | undefined;
   grandTotal: number;
   amountPaid: number;
   balance: number;
@@ -63,8 +63,8 @@ export function PaymentOutTab({
   initialSupplierId,
   initialBillId,
 }: {
-  initialSupplierId?: string;
-  initialBillId?: string;
+  initialSupplierId?: string | undefined;
+  initialBillId?: string | undefined;
 }) {
   const [viewMode, setViewMode] = useState<"RECORD" | "HISTORY">("RECORD");
   const [suppliers, setSuppliers] = useState<SupplierMasterRow[]>([]);
@@ -102,7 +102,7 @@ export function PaymentOutTab({
       .then(([sups, accs]) => {
         setSuppliers(sups);
         setAccounts(accs);
-        if (sups.length > 0 && !selectedSupplierId) {
+        if (sups.length > 0 && !selectedSupplierId && sups[0]) {
           setSelectedSupplierId(sups[0]._id);
         }
       })
@@ -254,8 +254,9 @@ export function PaymentOutTab({
 
   // Synchronize payment lines with totalAllocated
   const handleSyncPaymentLines = () => {
-    if (paymentLines.length === 1 && totalAllocated > 0) {
-      setPaymentLines([{ ...paymentLines[0], amount: totalAllocated }]);
+    const firstLine = paymentLines[0];
+    if (paymentLines.length === 1 && totalAllocated > 0 && firstLine) {
+      setPaymentLines([{ ...firstLine, amount: totalAllocated }]);
     }
   };
 

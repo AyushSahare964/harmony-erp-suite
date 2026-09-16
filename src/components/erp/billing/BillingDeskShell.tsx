@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Shell } from "@/components/erp/Shell";
+import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/dateUtils";
 
 export type BillingMenuId =
   | "dashboard"
@@ -63,26 +64,12 @@ export function BillingDeskShell({
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
-      setCurrentTime(
-        now.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: false,
-        })
-      );
-      setCurrentDate(
-        now.toLocaleDateString("en-IN", {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        })
-      );
+      setCurrentTime(formatDisplayTime(now));
+      setCurrentDate(formatDisplayDate(now));
     };
 
     updateTime();
-    const interval = setInterval(updateTime, 1000);
+    const interval = setInterval(updateTime, 30_000);
     return () => clearInterval(interval);
   }, []);
 

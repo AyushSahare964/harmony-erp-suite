@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { toast } from "sonner";
+import { todayDisplay } from "@/lib/utils/dateUtils";
 
 /* ─── Catalogue ─────────────────────────────────────────────────── */
 const PRODUCTS = [
@@ -152,7 +153,7 @@ function NewBillDialog({
     petName: pet?.name ?? "Walk-in",
     ownerName: pet?.owner ?? "—",
     status,
-    createdAt: new Date().toLocaleDateString("en-IN"),
+    createdAt: todayDisplay(),
     grandTotal,
     lines,
   });
@@ -438,7 +439,7 @@ export function ManualBilling() {
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "Bills today", value: String(bills.filter(b => b.createdAt === new Date().toLocaleDateString("en-IN")).length || bills.length) },
+          { label: "Bills today", value: String(bills.filter(b => b.createdAt === todayDisplay()).length || bills.length) },
           { label: "Finalized", value: String(bills.filter(b => b.status === "Finalized").length) },
           { label: "Drafts", value: String(bills.filter(b => b.status === "Draft").length), warn: true },
           { label: "Total collected", value: `₹${bills.filter(b => b.status === "Finalized").reduce((s, b) => s + b.grandTotal, 0).toLocaleString("en-IN")}` },

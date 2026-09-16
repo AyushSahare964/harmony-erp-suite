@@ -4,6 +4,7 @@ import { connectDB } from "@/lib/mongodb/client";
 import { Owner, type IOwner } from "@/lib/mongodb/models/Owner";
 import { Pet, type IPet } from "@/lib/mongodb/models/Pet";
 import { nextSeq, peekNextSeq } from "./counters";
+import { syncPartyForOwner } from "./parties";
 
 function toPlain<T>(v: any): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -12,7 +13,9 @@ function toPlain<T>(v: any): T {
 // ─── Max Seq Helpers ──────────────────────────────────────────────────────────
 
 async function maxOwnerSeq(): Promise<number> {
-  const latest = (await Owner.findOne({}).sort({ ownerId: -1 }).lean()) as { ownerId?: string } | null;
+  const latest = (await Owner.findOne({}).sort({ ownerId: -1 }).lean()) as {
+    ownerId?: string;
+  } | null;
   if (!latest?.ownerId) return 0;
   const num = parseInt(latest.ownerId.replace(/^[^\d]+/, ""), 10);
   return isNaN(num) ? 0 : num;
@@ -28,38 +31,224 @@ async function maxPetSeq(): Promise<number> {
 // ─── Seed Data ────────────────────────────────────────────────────────────────
 
 const SEED_OWNERS = [
-  { ownerId: "OWN-0001", name: "Atul Bhise", phone: "9823011221", altPhone: "9823011222", email: "atul.bhise@gmail.com", address: "Dharampeth, Nagpur", city: "Nagpur", gender: "Male", dob: "1988-05-14", outstandingBalance: 0, preferredPaymentMode: "UPI" },
-  { ownerId: "OWN-0002", name: "Abhilash Bhusari", phone: "9823044556", email: "abhilash.b@yahoo.com", address: "Ramdaspeth, Nagpur", city: "Nagpur", gender: "Male", dob: "1992-11-20", outstandingBalance: -20, preferredPaymentMode: "Cash" },
-  { ownerId: "OWN-0003", name: "Ambarish Deshpande", phone: "9422188776", email: "ambarish.d@rediffmail.com", address: "Civil Lines, Nagpur", city: "Nagpur", gender: "Male", dob: "1985-02-18", outstandingBalance: 0, preferredPaymentMode: "Card" },
-  { ownerId: "OWN-0004", name: "Arthlekha Gaikwad", phone: "9765432100", email: "arthlekha.g@gmail.com", address: "Perfect Society, Nagpur", city: "Nagpur", gender: "Female", dob: "1996-07-29", outstandingBalance: 0, preferredPaymentMode: "UPI" },
-  { ownerId: "OWN-0005", name: "Abhilash Gupta", phone: "9822998877", email: "abhilash.gupta@gmail.com", address: "Pratap Nagar, Nagpur", city: "Nagpur", gender: "Male", dob: "1990-09-03", outstandingBalance: 0, preferredPaymentMode: "UPI" },
-  { ownerId: "OWN-0006", name: "Tariq Hussain", phone: "+91 90000 11111", email: "tariq.h@gmail.com", address: "Sadar, Nagpur", city: "Nagpur", gender: "Male", dob: "1984-03-12", outstandingBalance: 0, preferredPaymentMode: "UPI" },
-  { ownerId: "OWN-0007", name: "Nalini Prasad", phone: "+91 90000 22222", email: "nalini.p@gmail.com", address: "Manish Nagar, Nagpur", city: "Nagpur", gender: "Female", dob: "1991-08-25", outstandingBalance: 0, preferredPaymentMode: "UPI" },
-  { ownerId: "OWN-0008", name: "Deepika Iyer", phone: "+91 90000 33333", email: "deepika.iyer@gmail.com", address: "Wardha Road, Nagpur", city: "Nagpur", gender: "Female", dob: "1993-12-10", outstandingBalance: 0, preferredPaymentMode: "Card" },
+  {
+    ownerId: "OWN-0001",
+    name: "Atul Bhise",
+    phone: "9823011221",
+    altPhone: "9823011222",
+    email: "atul.bhise@gmail.com",
+    address: "Dharampeth, Nagpur",
+    city: "Nagpur",
+    gender: "Male",
+    dob: "1988-05-14",
+    outstandingBalance: 0,
+    preferredPaymentMode: "UPI",
+  },
+  {
+    ownerId: "OWN-0002",
+    name: "Abhilash Bhusari",
+    phone: "9823044556",
+    email: "abhilash.b@yahoo.com",
+    address: "Ramdaspeth, Nagpur",
+    city: "Nagpur",
+    gender: "Male",
+    dob: "1992-11-20",
+    outstandingBalance: -20,
+    preferredPaymentMode: "Cash",
+  },
+  {
+    ownerId: "OWN-0003",
+    name: "Ambarish Deshpande",
+    phone: "9422188776",
+    email: "ambarish.d@rediffmail.com",
+    address: "Civil Lines, Nagpur",
+    city: "Nagpur",
+    gender: "Male",
+    dob: "1985-02-18",
+    outstandingBalance: 0,
+    preferredPaymentMode: "Card",
+  },
+  {
+    ownerId: "OWN-0004",
+    name: "Arthlekha Gaikwad",
+    phone: "9765432100",
+    email: "arthlekha.g@gmail.com",
+    address: "Perfect Society, Nagpur",
+    city: "Nagpur",
+    gender: "Female",
+    dob: "1996-07-29",
+    outstandingBalance: 0,
+    preferredPaymentMode: "UPI",
+  },
+  {
+    ownerId: "OWN-0005",
+    name: "Abhilash Gupta",
+    phone: "9822998877",
+    email: "abhilash.gupta@gmail.com",
+    address: "Pratap Nagar, Nagpur",
+    city: "Nagpur",
+    gender: "Male",
+    dob: "1990-09-03",
+    outstandingBalance: 0,
+    preferredPaymentMode: "UPI",
+  },
+  {
+    ownerId: "OWN-0006",
+    name: "Tariq Hussain",
+    phone: "+91 90000 11111",
+    email: "tariq.h@gmail.com",
+    address: "Sadar, Nagpur",
+    city: "Nagpur",
+    gender: "Male",
+    dob: "1984-03-12",
+    outstandingBalance: 0,
+    preferredPaymentMode: "UPI",
+  },
+  {
+    ownerId: "OWN-0007",
+    name: "Nalini Prasad",
+    phone: "+91 90000 22222",
+    email: "nalini.p@gmail.com",
+    address: "Manish Nagar, Nagpur",
+    city: "Nagpur",
+    gender: "Female",
+    dob: "1991-08-25",
+    outstandingBalance: 0,
+    preferredPaymentMode: "UPI",
+  },
+  {
+    ownerId: "OWN-0008",
+    name: "Deepika Iyer",
+    phone: "+91 90000 33333",
+    email: "deepika.iyer@gmail.com",
+    address: "Wardha Road, Nagpur",
+    city: "Nagpur",
+    gender: "Female",
+    dob: "1993-12-10",
+    outstandingBalance: 0,
+    preferredPaymentMode: "Card",
+  },
 ];
 
 const SEED_PETS = [
-  { petId: "PET-0001", ownerId: "OWN-0001", name: "Bozo", species: "Canine" as const, breed: "Golden Retriever", gender: "Male" as const, ageYears: 4, weightKg: 28.5, sterilizationStatus: "Sterilized" as const, allergies: [], status: "Active" as const, color: "Golden" },
-  { petId: "PET-0002", ownerId: "OWN-0002", name: "XYZ", species: "Feline" as const, breed: "Persian Cat", gender: "Female" as const, ageYears: 2, weightKg: 4.2, sterilizationStatus: "Intact" as const, allergies: [], status: "Active" as const, color: "White" },
-  { petId: "PET-0003", ownerId: "OWN-0003", name: "Bruno", species: "Canine" as const, breed: "German Shepherd", gender: "Male" as const, ageYears: 5, dob: "2021-06-22", weightKg: 34.0, sterilizationStatus: "Intact" as const, allergies: ["Penicillin"], status: "Active" as const, color: "Black & Tan" },
-  { petId: "PET-0004", ownerId: "OWN-0004", name: "Tittu", species: "Canine" as const, breed: "Labrador Retriever", gender: "Male" as const, ageYears: 3, weightKg: 31.0, sterilizationStatus: "Sterilized" as const, allergies: [], status: "Vaccination due" as const, color: "Chocolate" },
-  { petId: "PET-0005", ownerId: "OWN-0005", name: "Jimmy", species: "Canine" as const, breed: "Pug", gender: "Male" as const, ageYears: 6, weightKg: 8.5, sterilizationStatus: "Sterilized" as const, allergies: [], status: "Active" as const, color: "Fawn" },
-  { petId: "PET-0006", ownerId: "OWN-0006", name: "Bruno", species: "Canine" as const, breed: "Rottweiler", gender: "Male" as const, ageYears: 4, weightKg: 38.0, sterilizationStatus: "Intact" as const, allergies: [], status: "Active" as const, color: "Black" },
-  { petId: "PET-0007", ownerId: "OWN-0007", name: "Simba", species: "Feline" as const, breed: "Maine Coon", gender: "Male" as const, ageYears: 2, weightKg: 7.2, sterilizationStatus: "Sterilized" as const, allergies: [], status: "Active" as const, color: "Orange Tabby" },
-  { petId: "PET-0008", ownerId: "OWN-0008", name: "Coco", species: "Canine" as const, breed: "Shih Tzu", gender: "Female" as const, ageYears: 7, weightKg: 6.8, sterilizationStatus: "Spayed Female" as const, allergies: ["NSAIDs"], status: "Vaccination due" as const, color: "White & Brown" },
+  {
+    petId: "PET-0001",
+    ownerId: "OWN-0001",
+    name: "Bozo",
+    species: "Canine" as const,
+    breed: "Golden Retriever",
+    gender: "Male" as const,
+    ageYears: 4,
+    weightKg: 28.5,
+    sterilizationStatus: "Sterilized" as const,
+    allergies: [],
+    status: "Active" as const,
+    color: "Golden",
+  },
+  {
+    petId: "PET-0002",
+    ownerId: "OWN-0002",
+    name: "XYZ",
+    species: "Feline" as const,
+    breed: "Persian Cat",
+    gender: "Female" as const,
+    ageYears: 2,
+    weightKg: 4.2,
+    sterilizationStatus: "Intact" as const,
+    allergies: [],
+    status: "Active" as const,
+    color: "White",
+  },
+  {
+    petId: "PET-0003",
+    ownerId: "OWN-0003",
+    name: "Bruno",
+    species: "Canine" as const,
+    breed: "German Shepherd",
+    gender: "Male" as const,
+    ageYears: 5,
+    dob: "2021-06-22",
+    weightKg: 34.0,
+    sterilizationStatus: "Intact" as const,
+    allergies: ["Penicillin"],
+    status: "Active" as const,
+    color: "Black & Tan",
+  },
+  {
+    petId: "PET-0004",
+    ownerId: "OWN-0004",
+    name: "Tittu",
+    species: "Canine" as const,
+    breed: "Labrador Retriever",
+    gender: "Male" as const,
+    ageYears: 3,
+    weightKg: 31.0,
+    sterilizationStatus: "Sterilized" as const,
+    allergies: [],
+    status: "Vaccination due" as const,
+    color: "Chocolate",
+  },
+  {
+    petId: "PET-0005",
+    ownerId: "OWN-0005",
+    name: "Jimmy",
+    species: "Canine" as const,
+    breed: "Pug",
+    gender: "Male" as const,
+    ageYears: 6,
+    weightKg: 8.5,
+    sterilizationStatus: "Sterilized" as const,
+    allergies: [],
+    status: "Active" as const,
+    color: "Fawn",
+  },
+  {
+    petId: "PET-0006",
+    ownerId: "OWN-0006",
+    name: "Bruno",
+    species: "Canine" as const,
+    breed: "Rottweiler",
+    gender: "Male" as const,
+    ageYears: 4,
+    weightKg: 38.0,
+    sterilizationStatus: "Intact" as const,
+    allergies: [],
+    status: "Active" as const,
+    color: "Black",
+  },
+  {
+    petId: "PET-0007",
+    ownerId: "OWN-0007",
+    name: "Simba",
+    species: "Feline" as const,
+    breed: "Maine Coon",
+    gender: "Male" as const,
+    ageYears: 2,
+    weightKg: 7.2,
+    sterilizationStatus: "Sterilized" as const,
+    allergies: [],
+    status: "Active" as const,
+    color: "Orange Tabby",
+  },
+  {
+    petId: "PET-0008",
+    ownerId: "OWN-0008",
+    name: "Coco",
+    species: "Canine" as const,
+    breed: "Shih Tzu",
+    gender: "Female" as const,
+    ageYears: 7,
+    weightKg: 6.8,
+    sterilizationStatus: "Spayed Female" as const,
+    allergies: ["NSAIDs"],
+    status: "Vaccination due" as const,
+    color: "White & Brown",
+  },
 ];
 
 async function ensureCRMSeeded() {
   await connectDB();
-  const count = await Owner.countDocuments();
-  if (count === 0) {
-    for (const o of SEED_OWNERS) {
-      await Owner.findOneAndUpdate({ ownerId: o.ownerId }, { $setOnInsert: o }, { upsert: true });
-    }
-    for (const p of SEED_PETS) {
-      await Pet.findOneAndUpdate({ petId: p.petId }, { $setOnInsert: p }, { upsert: true });
-    }
-  }
+  // Auto-seeding disabled to preserve clean database state
 }
 
 // ─── Input Schemas ────────────────────────────────────────────────────────────
@@ -98,7 +287,9 @@ const PetDraftInputZ = z.object({
   chronicConditions: z.array(z.string()).optional().default([]),
   dietPreference: z.string().optional(),
   medicalNotes: z.string().optional(),
-  status: z.enum(["Active", "Vaccination due", "Under treatment", "Deceased", "Transferred", "Inactive"]).default("Active"),
+  status: z
+    .enum(["Active", "Vaccination due", "Under treatment", "Deceased", "Transferred", "Inactive"])
+    .default("Active"),
   nextVaccineDate: z.string().optional(),
   nextDewormingDate: z.string().optional(),
 });
@@ -196,7 +387,11 @@ export const listPetsWithOwnersFn = createServerFn({ method: "GET" }).handler(as
 
     const result = pets.map((p: any) => ({
       ...p,
-      owner: ownerMap.get(p.ownerId) || { name: "Unknown Owner", phone: "N/A", outstandingBalance: 0 },
+      owner: ownerMap.get(p.ownerId) || {
+        name: "Unknown Owner",
+        phone: "N/A",
+        outstandingBalance: 0,
+      },
     }));
 
     return toPlain<any[]>(result);
@@ -205,7 +400,11 @@ export const listPetsWithOwnersFn = createServerFn({ method: "GET" }).handler(as
     const ownerMap = new Map(SEED_OWNERS.map((o) => [o.ownerId, o]));
     const result = SEED_PETS.map((p) => ({
       ...p,
-      owner: ownerMap.get(p.ownerId) || { name: "Unknown Owner", phone: "N/A", outstandingBalance: 0 },
+      owner: ownerMap.get(p.ownerId) || {
+        name: "Unknown Owner",
+        phone: "N/A",
+        outstandingBalance: 0,
+      },
     }));
     return toPlain<any[]>(result);
   }
@@ -218,6 +417,11 @@ export const createOwnerFn = createServerFn({ method: "POST" })
     const ownerId = await nextSeq("owner", "OWN", 4, maxOwnerSeq);
     const docPayload: any = { ...data, ownerId };
     const newOwner = await Owner.create(docPayload);
+    // Keep the finance-side Party record in step — a new owner otherwise has
+    // no ledger and never appears in the billing module's customer list.
+    await syncPartyForOwner({ ...data, ownerId }).catch((err) =>
+      console.error("[CRM] syncPartyForOwner failed for", ownerId, err),
+    );
     return toPlain<any>(newOwner.toObject ? newOwner.toObject() : newOwner);
   });
 
@@ -239,7 +443,6 @@ export const getPetFn = createServerFn({ method: "GET" })
     return toPlain<any>(pet);
   });
 
-
 export const createOwnerWithMultiplePetsFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => CreateOwnerWithMultiplePetsInputZ.parse(data))
   .handler(async ({ data }: { data: z.infer<typeof CreateOwnerWithMultiplePetsInputZ> }) => {
@@ -247,6 +450,9 @@ export const createOwnerWithMultiplePetsFn = createServerFn({ method: "POST" })
     // 1. Create owner with auto-generated ID
     const ownerId = await nextSeq("owner", "OWN", 4, maxOwnerSeq);
     const ownerDoc = await Owner.create({ ...data.owner, ownerId });
+    await syncPartyForOwner({ ...(data.owner as any), ownerId }).catch((err) =>
+      console.error("[CRM] syncPartyForOwner failed for", ownerId, err),
+    );
 
     // 2. Create all linked pets with sequential auto-generated Pet IDs
     const createdPets = [];
@@ -273,7 +479,7 @@ export const updatePetFn = createServerFn({ method: "POST" })
     const updated = await Pet.findOneAndUpdate(
       { petId: data.petId },
       { $set: data.updates },
-      { new: true }
+      { new: true },
     ).lean();
     return toPlain<any>(updated);
   });
@@ -285,8 +491,32 @@ export const updateOwnerFn = createServerFn({ method: "POST" })
     const updated = await Owner.findOneAndUpdate(
       { ownerId: data.ownerId },
       { $set: data.updates },
-      { new: true }
+      { new: true },
     ).lean();
+    if (updated) {
+      const u = updated as unknown as IOwner;
+      await syncPartyForOwner({
+        ownerId: u.ownerId,
+        name: u.name,
+        phone: u.phone,
+        altPhone: u.altPhone,
+        email: u.email,
+        address: u.address,
+        city: u.city,
+        gstin: u.gstin,
+        pan: u.pan,
+        stateCode: u.stateCode,
+        billingAddress: u.billingAddress,
+        pin: u.pin,
+        creditAllowed: u.creditAllowed,
+        creditLimit: u.creditLimit,
+        openingBalance: u.openingBalance,
+        openingType: u.openingType,
+        dob: u.dob,
+        anniversary: u.anniversary,
+        status: u.status,
+      }).catch((err) => console.error("[CRM] syncPartyForOwner failed for", u.ownerId, err));
+    }
     return toPlain<any>(updated);
   });
 

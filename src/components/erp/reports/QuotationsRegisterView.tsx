@@ -27,8 +27,8 @@ import { formatDisplayDate } from "@/lib/utils/dateUtils";
 
 interface Props {
   onNewQuotation?: () => void;
-  onConvertToInvoice?: (quotation: any) => void;
-  onViewQuotation?: (quotation: any) => void;
+  onConvertToInvoice?: ((quotation: any) => void) | undefined;
+  onViewQuotation?: ((quotation: any) => void) | undefined;
 }
 
 export function QuotationsRegisterView({ onNewQuotation, onConvertToInvoice, onViewQuotation }: Props) {
@@ -330,8 +330,11 @@ export function QuotationsRegisterView({ onNewQuotation, onConvertToInvoice, onV
                       className="cursor-pointer transition-colors hover:bg-muted/30 group"
                       onClick={() => onViewQuotation?.(q)}
                     >
-                      <td className="px-4 py-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
-                        {q.quotationNo}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800">
+                          <span className="px-1 py-0.2 rounded text-[9px] font-black bg-indigo-600 text-white">QTN</span>
+                          <span>{q.quotationNo}</span>
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                         {formatDisplayDate(q.date)}

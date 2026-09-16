@@ -14,11 +14,13 @@ export interface ExpenseCategoryRow {
   isActive: boolean;
 }
 
-export const listExpenseCategoriesFn = createServerFn({ method: "GET" })
-  .handler(async (): Promise<ExpenseCategoryRow[]> => {
+export const listExpenseCategoriesFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<ExpenseCategoryRow[]> => {
     await connectDB();
     await seedExpenseCategories();
-    const docs = await ExpenseCategoryModel.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }).lean();
+    const docs = await ExpenseCategoryModel.find({ isActive: true })
+      .sort({ sortOrder: 1, name: 1 })
+      .lean();
     return docs.map((d) => ({
       _id: String(d._id),
       name: d.name,
@@ -26,10 +28,11 @@ export const listExpenseCategoriesFn = createServerFn({ method: "GET" })
       sortOrder: d.sortOrder,
       isActive: d.isActive,
     }));
-  });
+  },
+);
 
-export const listAllExpenseCategoriesFn = createServerFn({ method: "GET" })
-  .handler(async (): Promise<ExpenseCategoryRow[]> => {
+export const listAllExpenseCategoriesFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<ExpenseCategoryRow[]> => {
     await connectDB();
     await seedExpenseCategories();
     const docs = await ExpenseCategoryModel.find({}).sort({ sortOrder: 1, name: 1 }).lean();
@@ -40,22 +43,25 @@ export const listAllExpenseCategoriesFn = createServerFn({ method: "GET" })
       sortOrder: d.sortOrder,
       isActive: d.isActive,
     }));
-  });
+  },
+);
 
 export const saveExpenseCategoryFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) =>
-    z.object({
-      _id: z.string().optional(),
-      name: z.string().min(1).max(80),
-      nature: z.enum(["BUSINESS", "PERSONAL"]).default("BUSINESS"),
-      sortOrder: z.number().optional(),
-      isActive: z.boolean().optional(),
-    }).parse(raw)
+    z
+      .object({
+        _id: z.string().optional(),
+        name: z.string().min(1).max(80),
+        nature: z.enum(["BUSINESS", "PERSONAL"]).default("BUSINESS"),
+        sortOrder: z.number().optional(),
+        isActive: z.boolean().optional(),
+      })
+      .parse(raw),
   )
   .handler(async ({ data }): Promise<{ ok: boolean }> => {
     await connectDB();
     if (data._id) {
-      const updateData: Record<string, any> = {
+      const updateData: any = {
         name: data.name,
         nature: data.nature,
       };
@@ -63,7 +69,7 @@ export const saveExpenseCategoryFn = createServerFn({ method: "POST" })
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
       await ExpenseCategoryModel.findByIdAndUpdate(data._id, updateData);
     } else {
-      const createData: Record<string, any> = {
+      const createData: any = {
         name: data.name,
         nature: data.nature,
       };
@@ -84,11 +90,13 @@ export interface PaymentAccountRow {
   isActive: boolean;
 }
 
-export const listPaymentAccountsFn = createServerFn({ method: "GET" })
-  .handler(async (): Promise<PaymentAccountRow[]> => {
+export const listPaymentAccountsFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<PaymentAccountRow[]> => {
     await connectDB();
     await seedPaymentAccounts();
-    const docs = await PaymentAccountModel.find({ isActive: true }).sort({ type: 1, name: 1 }).lean();
+    const docs = await PaymentAccountModel.find({ isActive: true })
+      .sort({ type: 1, name: 1 })
+      .lean();
     return docs.map((d) => ({
       _id: String(d._id),
       name: d.name,
@@ -96,17 +104,20 @@ export const listPaymentAccountsFn = createServerFn({ method: "GET" })
       isDefault: d.isDefault,
       isActive: d.isActive,
     }));
-  });
+  },
+);
 
 export const savePaymentAccountFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) =>
-    z.object({
-      _id: z.string().optional(),
-      name: z.string().min(1).max(80),
-      type: z.enum(["CASH", "BANK"]),
-      isDefault: z.boolean().optional(),
-      isActive: z.boolean().optional(),
-    }).parse(raw)
+    z
+      .object({
+        _id: z.string().optional(),
+        name: z.string().min(1).max(80),
+        type: z.enum(["CASH", "BANK"]),
+        isDefault: z.boolean().optional(),
+        isActive: z.boolean().optional(),
+      })
+      .parse(raw),
   )
   .handler(async ({ data }): Promise<{ ok: boolean }> => {
     await connectDB();
@@ -114,7 +125,7 @@ export const savePaymentAccountFn = createServerFn({ method: "POST" })
       // Un-default all other bank accounts
       await PaymentAccountModel.updateMany({ type: "BANK" }, { isDefault: false });
     }
-    const updateData: Record<string, any> = {
+    const updateData: any = {
       name: data.name,
       type: data.type,
     };
@@ -132,6 +143,7 @@ export const savePaymentAccountFn = createServerFn({ method: "POST" })
 // ─── Suppliers Master ─────────────────────────────────────────────────────────
 
 import { SupplierModel, seedSuppliers } from "@/lib/mongodb/models/Supplier";
+import { syncPartyForSupplier } from "./parties";
 
 export interface SupplierMasterRow {
   _id: string;
@@ -147,8 +159,8 @@ export interface SupplierMasterRow {
   isActive: boolean;
 }
 
-export const listSuppliersFn = createServerFn({ method: "GET" })
-  .handler(async (): Promise<SupplierMasterRow[]> => {
+export const listSuppliersFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<SupplierMasterRow[]> => {
     await connectDB();
     await seedSuppliers();
     const docs = await SupplierModel.find({ isActive: true }).sort({ name: 1 }).lean();
@@ -162,48 +174,81 @@ export const listSuppliersFn = createServerFn({ method: "GET" })
       address: d.address || "",
       creditDays: d.creditDays ?? 30,
       openingBalance: d.openingBalance ?? 0,
-      openingBalanceType: d.openingBalanceType ?? "Cr",
+      openingBalanceType:
+        d.openingBalanceType === "Debit" || d.openingBalanceType === "Dr" ? "Dr" : "Cr",
       isActive: d.isActive,
     }));
-  });
+  },
+);
 
 export const saveSupplierFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) =>
-    z.object({
-      _id: z.string().optional(),
-      name: z.string().min(1).max(120),
-      contactPerson: z.string().optional(),
-      phone: z.string().optional(),
-      email: z.string().optional(),
-      gstin: z.string().optional(),
-      address: z.string().optional(),
-      creditDays: z.number().optional(),
-      openingBalance: z.number().optional(),
-      openingBalanceType: z.enum(["Cr", "Dr"]).optional(),
-      isActive: z.boolean().optional(),
-    }).parse(raw)
+    z
+      .object({
+        _id: z.string().optional(),
+        name: z.string().min(1).max(120),
+        contactPerson: z.string().optional(),
+        phone: z.string().optional(),
+        mobileNo: z.string().optional(),
+        email: z.string().optional(),
+        gstin: z.string().optional(),
+        panNo: z.string().optional(),
+        address: z.string().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        pincode: z.string().optional(),
+        country: z.string().optional(),
+        bankName: z.string().optional(),
+        bankAccountNo: z.string().optional(),
+        ifscCode: z.string().optional(),
+        remarks: z.string().optional(),
+        creditDays: z.number().optional(),
+        openingBalance: z.number().optional(),
+        openingBalanceType: z.string().optional(),
+        isActive: z.boolean().optional(),
+      })
+      .parse(raw),
   )
   .handler(async ({ data }): Promise<{ ok: boolean; _id: string }> => {
     await connectDB();
-    const updateData: Record<string, any> = {
+    const updateData: any = {
       name: data.name,
     };
     if (data.contactPerson !== undefined) updateData.contactPerson = data.contactPerson;
     if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.mobileNo !== undefined) updateData.mobileNo = data.mobileNo;
     if (data.email !== undefined) updateData.email = data.email;
     if (data.gstin !== undefined) updateData.gstin = data.gstin;
+    if (data.panNo !== undefined) updateData.panNo = data.panNo;
     if (data.address !== undefined) updateData.address = data.address;
+    if (data.city !== undefined) updateData.city = data.city;
+    if (data.state !== undefined) updateData.state = data.state;
+    if (data.pincode !== undefined) updateData.pincode = data.pincode;
+    if (data.country !== undefined) updateData.country = data.country;
+    if (data.bankName !== undefined) updateData.bankName = data.bankName;
+    if (data.bankAccountNo !== undefined) updateData.bankAccountNo = data.bankAccountNo;
+    if (data.ifscCode !== undefined) updateData.ifscCode = data.ifscCode;
+    if (data.remarks !== undefined) updateData.remarks = data.remarks;
     if (data.creditDays !== undefined) updateData.creditDays = data.creditDays;
     if (data.openingBalance !== undefined) updateData.openingBalance = data.openingBalance;
-    if (data.openingBalanceType !== undefined) updateData.openingBalanceType = data.openingBalanceType;
+    if (data.openingBalanceType !== undefined)
+      updateData.openingBalanceType = data.openingBalanceType;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
+    let supplierId: string;
     if (data._id) {
       await SupplierModel.findByIdAndUpdate(data._id, updateData);
-      return { ok: true, _id: data._id };
+      supplierId = data._id;
     } else {
       const doc = await SupplierModel.create(updateData);
-      return { ok: true, _id: String(doc._id) };
+      supplierId = String(doc._id);
     }
-  });
 
+    // Keep the finance-side Party record in step — a new/edited supplier
+    // otherwise has no ledger and is invisible to Payment Out allocation.
+    await syncPartyForSupplier({ ...data, supplierRefId: supplierId }).catch((err) =>
+      console.error("[Masters] syncPartyForSupplier failed for", supplierId, err),
+    );
+
+    return { ok: true, _id: supplierId };
+  });

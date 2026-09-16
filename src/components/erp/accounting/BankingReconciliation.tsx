@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { toast } from "sonner";
+import { todayDisplay } from "@/lib/utils/dateUtils";
 import {
   createAccountFn,
   getAccountsFn,
@@ -122,7 +123,7 @@ function AddBankDialog({
         ledgerBalance: bal,
         statementBalance: bal,
         uncollectedAmount: 0,
-        lastReconciled: new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+        lastReconciled: todayDisplay(),
         status: "Reconciled",
       };
       toast.success(`Bank account added & saved to MongoDB (GL: ${code})`);

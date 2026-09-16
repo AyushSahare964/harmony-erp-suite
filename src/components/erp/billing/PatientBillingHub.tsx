@@ -4,8 +4,9 @@ import { Shell } from "@/components/erp/Shell";
 import { listInvoicesFn } from "@/lib/mongodb/serverFns/billing";
 import { InventoryProvider } from "@/components/erp/inventory/useInventoryStore";
 
-// One-Page Dashboard Component
+// One-Page Dashboard Component & Right Rail
 import { BillingDeskDashboard } from "./BillingDeskDashboard";
+import { RightRail } from "./RightRail";
 
 // Modals
 import { InvoiceDetailModal } from "./InvoiceDetailModal";
@@ -15,6 +16,10 @@ import { BillingReminderModal } from "./BillingReminderModal";
 import { PaymentInModal } from "./PaymentInModal";
 import { SupplierBillFormModal } from "@/components/erp/accounting/SupplierBillFormModal";
 import { ExpenseFormModal } from "@/components/erp/accounting/ExpenseFormModal";
+import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
+import { NewSupplierModal } from "@/components/erp/accounting/NewSupplierModal";
+import { DailySummaryModal } from "./DailySummaryModal";
+import { StockSummaryModal } from "./StockSummaryModal";
 
 function PatientBillingHubInner() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -29,7 +34,15 @@ function PatientBillingHubInner() {
   const [showPaymentInModal, setShowPaymentInModal] = useState(false);
   const [payInvoiceNo, setPayInvoiceNo] = useState<string | undefined>(undefined);
 
-  // Full Patient Bill Details Modal (Preserved as requested!)
+  // Direct Client Intake & Supplier modals (No duplicate 'double double' party forms)
+  const [showPetOwnerModal, setShowPetOwnerModal] = useState(false);
+  const [showNewSupplierModal, setShowNewSupplierModal] = useState(false);
+
+  // Summary Modals
+  const [showDailySummary, setShowDailySummary] = useState(false);
+  const [showStockSummary, setShowStockSummary] = useState(false);
+
+  // Full Patient Bill Details Modal
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
 
   const loadInvoices = useCallback(async () => {
@@ -49,10 +62,9 @@ function PatientBillingHubInner() {
     void loadInvoices();
   }, [loadInvoices]);
 
-  // Keyboard shortcuts for high-speed counter billing
+  // Keyboard shortcuts for high-speed counter billing (Plan §5.7)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing inside an input or textarea
       const target = e.target as HTMLElement;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
         return;
@@ -72,7 +84,7 @@ function PatientBillingHubInner() {
         setShowExpenseModal(true);
       } else if (e.altKey && (e.key === "c" || e.key === "C")) {
         e.preventDefault();
-        setShowNewInvoiceModal(true);
+        setShowPetOwnerModal(true);
       } else if (e.altKey && (e.key === "r" || e.key === "R")) {
         e.preventDefault();
         setShowReminderModal(true);
@@ -89,34 +101,51 @@ function PatientBillingHubInner() {
 
   return (
     <Shell title="Billing Desk — Real Care Small Animal Clinic">
-      <div className="mx-auto max-w-[1600px]">
-        {/* ── Single Unified One-Page Module: Dashboard, Actions, Insights & Patient Invoices Table ── */}
-        <BillingDeskDashboard
-          invoices={invoices}
-          loading={loading}
-          onRefresh={loadInvoices}
+      <div className="flex gap-4 items-start mx-auto max-w-[1720px]">
+        {/* ── Main Scrolling Dashboard Area ── */}
+        <div className="flex-1 min-w-0">
+          <BillingDeskDashboard
+            invoices={invoices}
+            loading={loading}
+            onRefresh={loadInvoices}
+            onNewInvoice={() => setShowNewInvoiceModal(true)}
+            onNewQuotation={() => setShowQuotationModal(true)}
+            onAddPurchase={() => setShowPurchaseBillModal(true)}
+            onAddExpense={() => setShowExpenseModal(true)}
+            onPaymentIn={(invoiceNo) => {
+              setPayInvoiceNo(invoiceNo);
+              setShowPaymentInModal(true);
+            }}
+            onPaymentOut={() => setShowExpenseModal(true)}
+            onAddCustomer={() => setShowPetOwnerModal(true)}
+            onAddSupplier={() => setShowNewSupplierModal(true)}
+            onAddReminder={() => setShowReminderModal(true)}
+            onViewInvoice={(invoice) => setSelectedInvoice(invoice)}
+            onConvertToInvoice={(quotation) => {
+              setShowNewInvoiceModal(true);
+              toast.success(`Converting quotation ${quotation.quotationNo} for ${quotation.petName} to Live Invoice!`);
+            }}
+          />
+        </div>
+
+        {/* ── Right Rail (Narrow Icon Rail from Plan §5.2) ── */}
+        <RightRail
           onNewInvoice={() => setShowNewInvoiceModal(true)}
           onNewQuotation={() => setShowQuotationModal(true)}
           onAddPurchase={() => setShowPurchaseBillModal(true)}
           onAddExpense={() => setShowExpenseModal(true)}
-          onPaymentIn={(invoiceNo) => {
-            setPayInvoiceNo(invoiceNo);
+          onAddCustomer={() => setShowPetOwnerModal(true)}
+          onAddReminder={() => setShowReminderModal(true)}
+          onPaymentIn={() => {
+            setPayInvoiceNo(undefined);
             setShowPaymentInModal(true);
           }}
           onPaymentOut={() => setShowExpenseModal(true)}
-          onAddCustomer={() => {
-            setShowNewInvoiceModal(true);
-            toast.info("Quick add new pet owner directly while creating an invoice!");
-          }}
-          onAddReminder={() => setShowReminderModal(true)}
-          onViewInvoice={(invoice) => setSelectedInvoice(invoice)}
-          onConvertToInvoice={(quotation) => {
-            setShowNewInvoiceModal(true);
-            toast.success(`Converting quotation ${quotation.quotationNo} for ${quotation.petName} to Live Invoice!`);
-          }}
+          onOpenDailySummary={() => setShowDailySummary(true)}
+          onOpenStockSummary={() => setShowStockSummary(true)}
         />
 
-        {/* ── 1. Full Patient Bill Detail Modal (Line items, print, WhatsApp, payment settlement) ── */}
+        {/* ── 1. Full Patient Bill Detail Modal ── */}
         {selectedInvoice && (
           <InvoiceDetailModal
             open={!!selectedInvoice}
@@ -127,14 +156,14 @@ function PatientBillingHubInner() {
           />
         )}
 
-        {/* ── 2. New Sales Invoice Modal (F2 / Alt+N) ── */}
+        {/* ── 2. New Sales Invoice Modal (Matches Image 4) ── */}
         <NewSalesInvoiceModal
           open={showNewInvoiceModal}
           onClose={() => setShowNewInvoiceModal(false)}
-          onCreated={loadInvoices}
+          onInvoiceCreated={loadInvoices}
         />
 
-        {/* ── 3. Medical Quotation & Cost Estimate Modal (Alt+Q) ── */}
+        {/* ── 3. Medical Quotation & Cost Estimate Modal ── */}
         <QuotationModal
           open={showQuotationModal}
           onClose={() => setShowQuotationModal(false)}
@@ -145,28 +174,28 @@ function PatientBillingHubInner() {
           }}
         />
 
-        {/* ── 4. Billing Reminders & Dues Modal (Alt+R) ── */}
+        {/* ── 4. Billing Reminders & Dues Modal ── */}
         <BillingReminderModal
           open={showReminderModal}
           onClose={() => setShowReminderModal(false)}
           invoices={invoices}
         />
 
-        {/* ── 5. Add Supplier Purchase Bill Modal (Alt+P) ── */}
+        {/* ── 5. Add Supplier Purchase Bill Modal (Matches Image 2) ── */}
         <SupplierBillFormModal
           open={showPurchaseBillModal}
           onClose={() => setShowPurchaseBillModal(false)}
           onSuccess={loadInvoices}
         />
 
-        {/* ── 6. Add Clinic Expense Modal (Alt+E) ── */}
+        {/* ── 6. Add Clinic Expense Modal ── */}
         <ExpenseFormModal
           open={showExpenseModal}
           onClose={() => setShowExpenseModal(false)}
           onSuccess={loadInvoices}
         />
 
-        {/* ── 7. Payment In / Receipt Collection Modal (Alt+I) ── */}
+        {/* ── 7. Payment In / Receipt Collection Modal ── */}
         <PaymentInModal
           open={showPaymentInModal}
           onClose={() => {
@@ -176,6 +205,38 @@ function PatientBillingHubInner() {
           invoices={invoices}
           initialInvoiceNo={payInvoiceNo}
           onSuccess={loadInvoices}
+        />
+
+        {/* ── 8. Register New Pet & Owner Modal (Direct Clinic Client Registration) ── */}
+        <OwnerPetRegistrationModal
+          open={showPetOwnerModal}
+          onClose={() => setShowPetOwnerModal(false)}
+          onRegistered={({ owner, pets: registeredPets }) => {
+            toast.success(`Client "${owner.name}" (${registeredPets.length} pet${registeredPets.length === 1 ? "" : "s"}) registered successfully!`);
+            void loadInvoices();
+          }}
+        />
+
+        {/* ── 9. Daily Till Summary Modal ── */}
+        <DailySummaryModal
+          open={showDailySummary}
+          onClose={() => setShowDailySummary(false)}
+          invoices={invoices}
+        />
+
+        {/* ── 10. Stock Summary Modal ── */}
+        <StockSummaryModal
+          open={showStockSummary}
+          onClose={() => setShowStockSummary(false)}
+        />
+
+        {/* ── 11. New Supplier Profile Modal (Matches Image 2) ── */}
+        <NewSupplierModal
+          open={showNewSupplierModal}
+          onClose={() => setShowNewSupplierModal(false)}
+          onSuccess={(sup) => {
+            toast.success(`Supplier "${sup.name}" added to clinic suppliers!`);
+          }}
         />
       </div>
     </Shell>

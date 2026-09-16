@@ -9,7 +9,7 @@ function toPlain<T>(v: any): T {
 
 const SEED_QUOTATIONS = [
   {
-    quotationNo: "EST-2026-7876",
+    quotationNo: "QTN-2026-7876",
     date: "2026-09-12",
     validUntil: "2026-09-27",
     petName: "Bruno",
@@ -49,7 +49,7 @@ const SEED_QUOTATIONS = [
     createdAt: new Date().toISOString(),
   },
   {
-    quotationNo: "EST-2026-7412",
+    quotationNo: "QTN-2026-7412",
     date: "2026-09-10",
     validUntil: "2026-09-25",
     petName: "Milo",
@@ -82,14 +82,9 @@ const SEED_QUOTATIONS = [
 
 export const listQuotationsFn = createServerFn({ method: "GET" })
   .validator((d: { query?: string } | undefined) => d || {})
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<any[]> => {
     try {
       await connectDB();
-      const count = await Quotation.countDocuments();
-      if (count === 0) {
-        await Quotation.insertMany(SEED_QUOTATIONS);
-      }
-
       const q = data?.query?.trim();
       const filter: any = {};
       if (q) {
@@ -102,10 +97,10 @@ export const listQuotationsFn = createServerFn({ method: "GET" })
       }
 
       const docs = await Quotation.find(filter).sort({ createdAt: -1 }).lean();
-      return toPlain(docs);
+      return toPlain<any[]>(docs);
     } catch (err) {
       console.error("[listQuotationsFn] Error:", err);
-      return SEED_QUOTATIONS;
+      return [];
     }
   });
 
@@ -113,35 +108,46 @@ export const createQuotationFn = createServerFn({ method: "POST" })
   .validator(
     (d: {
       quotationNo: string;
+      quotationType?: string;
       date: string;
       validUntil: string;
+      linkTo?: string;
       petName: string;
       species?: string;
       breed?: string;
       ownerName: string;
       ownerPhone?: string;
       doctorName?: string;
+      address?: string;
+      placeOfSupply?: string;
+      clientGstin?: string;
       items: any[];
       subtotal: number;
       totalDiscount: number;
       totalGst: number;
+      shippingCosts?: number;
       grandTotal: number;
+      quotationReference?: string;
+      deliveryTerms?: string;
+      remarks?: string;
       notes?: string;
       status?: string;
     }) => d
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<any> => {
     try {
       await connectDB();
       const created = await Quotation.create({
         ...data,
-        status: data.status || "Draft",
-      });
-      return toPlain(created);
+        quotationType: (data.quotationType as "GST" | "Non-GST" | "Bill of Supply") || "GST",
+        linkTo: (data.linkTo as "Counter Sale" | "Client Account" | "Patient CRM") || "Counter Sale",
+        status: (data.status as "Draft" | "Sent" | "Expired" | "Accepted" | "Converted") || "Draft",
+      } as any);
+      return toPlain<any>(created);
     } catch (err: any) {
       console.error("[createQuotationFn] Error:", err);
       // Fallback: Return created object
-      return toPlain(data);
+      return toPlain<any>(data);
     }
   });
 
@@ -153,10 +159,10 @@ export const updateQuotationStatusFn = createServerFn({ method: "POST" })
       convertedInvoiceNo?: string;
     }) => d
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<any> => {
     try {
       await connectDB();
-      const updated = await Quotation.findOneAndUpdate(
+      const updated = await (Quotation as any).findOneAndUpdate(
         { quotationNo: data.quotationNo },
         {
           $set: {
@@ -166,7 +172,7 @@ export const updateQuotationStatusFn = createServerFn({ method: "POST" })
         },
         { new: true }
       ).lean();
-      return toPlain(updated);
+      return toPlain<any>(updated);
     } catch (err) {
       console.error("[updateQuotationStatusFn] Error:", err);
       return null;

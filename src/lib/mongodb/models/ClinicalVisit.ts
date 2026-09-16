@@ -1,7 +1,15 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPrescriptionLine {
-  lineType: "Vaccine" | "Consultation" | "Pharmacy" | "Procedure" | "Diagnostic" | "Service" | "Food" | "Accessory";
+  lineType:
+    | "Vaccine"
+    | "Consultation"
+    | "Pharmacy"
+    | "Procedure"
+    | "Diagnostic"
+    | "Service"
+    | "Food"
+    | "Accessory";
   itemCode?: string | undefined;
   batchNo?: string | undefined;
   name: string;
@@ -12,9 +20,9 @@ export interface IPrescriptionLine {
   discountPercent: number;
   // ── Per-line discount audit fields (REQ-DISC-05) ──
   discountType?: "percentage" | "fixed" | undefined;
-  discountValue?: number | undefined;   // raw user-entered value
-  discountAmount?: number | undefined;  // computed monetary discount (stored for audit)
-  taxableAmount?: number | undefined;   // amount after discount, before tax
+  discountValue?: number | undefined; // raw user-entered value
+  discountAmount?: number | undefined; // computed monetary discount (stored for audit)
+  taxableAmount?: number | undefined; // amount after discount, before tax
   gstRate: number;
   lineTotal: number;
   // ── Stable Client ID and Idempotent Sync Tracking (§1.2 & §4.5) ──
@@ -118,11 +126,13 @@ export interface IFollowUpData {
   nextTreatmentDate?: string | undefined;
   nextVaccineDate?: string | undefined;
   nextDewormingDate?: string | undefined;
-  otherFollowUp?: {
-    type: string;
-    customType?: string | undefined;
-    date?: string | undefined;
-  } | undefined;
+  otherFollowUp?:
+    | {
+        type: string;
+        customType?: string | undefined;
+        date?: string | undefined;
+      }
+    | undefined;
 }
 
 export interface IPrescriptionData {
@@ -153,7 +163,8 @@ export interface IPrescriptionData {
   followupRequired?: boolean | undefined;
   laboratoryRequired?: boolean | undefined;
   followUpEntries?: Record<string, any> | undefined;
-  bloodTests?: Array<{ id: string; labTestId?: string; testName: string; status?: string }> | undefined;
+  bloodTests?:
+    Array<{ id: string; labTestId?: string; testName: string; status?: string }> | undefined;
 }
 
 export interface IClinicalVisit extends Document {
@@ -172,31 +183,33 @@ export interface IClinicalVisit extends Document {
   ownerPhone: string;
   doctorName: string;
   receptionistName: string;
-  
+
   status: "Admitted" | "In Consultation" | "Diagnosed" | "Billed" | "Paid" | "Closed";
-  
-  vitals?: {
-    weightKg?: number | undefined;
-    tempC?: number | undefined;
-    heartRate?: number | undefined;
-    complaint?: string | undefined;
-    weight?: number | undefined;
-    weightUnit?: "kg" | "lb" | undefined;
-    temp?: number | undefined;
-    tempUnit?: "°C" | "°F" | undefined;
-  } | undefined;
-  
+
+  vitals?:
+    | {
+        weightKg?: number | undefined;
+        tempC?: number | undefined;
+        heartRate?: number | undefined;
+        complaint?: string | undefined;
+        weight?: number | undefined;
+        weightUnit?: "kg" | "lb" | undefined;
+        temp?: number | undefined;
+        tempUnit?: "°C" | "°F" | undefined;
+      }
+    | undefined;
+
   diagnosis?: string | undefined;
   clinicalNotes?: string | undefined;
-  
+
   nextVisitDate?: string | undefined;
   nextVaccineDate?: string | undefined;
   nextDewormingDate?: string | undefined;
-  
+
   prescriptionData?: IPrescriptionData | undefined;
-  
+
   items: IPrescriptionLine[];
-  
+
   subtotal: number;
   billDiscount: number;
   taxableAmount: number;
@@ -207,18 +220,48 @@ export interface IClinicalVisit extends Document {
   balanceDue: number;
   pendingAmount?: number;
   paymentStatus?: "Full" | "Partial" | "Unpaid";
-  
+
   payments: IPaymentRecord[];
-  
+
+  /** Once billing is migrated onto SalesDoc, these mirror its posted state so
+   *  existing clinical screens keep reading a totalAmount/balanceDue here
+   *  without needing to know SalesDoc exists (plan D2). SalesDoc is the
+   *  source of truth; these fields are written by postSalesDocFn only. */
+  salesDocNo?: string | undefined;
+  salesDocId?: string | undefined;
+  /** Rx edits made after the linked invoice was already posted — a posted
+   *  document is never silently mutated, so these queue for the biller to
+   *  resolve via a new invoice or a credit note (plan §8 rule 3). */
+  pendingAddendum?:
+    | Array<{
+        sourceRef: string;
+        description: string;
+        addedAt: string;
+      }>
+    | undefined;
+
   inventoryDeducted: boolean;
   accountingPosted: boolean;
-  
+
   createdAt: Date;
   updatedAt: Date;
 }
 
 const PrescriptionLineSchema = new Schema<IPrescriptionLine>({
-  lineType: { type: String, required: true, enum: ["Vaccine", "Consultation", "Pharmacy", "Procedure", "Diagnostic", "Service", "Food", "Accessory"] },
+  lineType: {
+    type: String,
+    required: true,
+    enum: [
+      "Vaccine",
+      "Consultation",
+      "Pharmacy",
+      "Procedure",
+      "Diagnostic",
+      "Service",
+      "Food",
+      "Accessory",
+    ],
+  },
   itemCode: { type: String },
   batchNo: { type: String },
   name: { type: String, required: true },
@@ -242,7 +285,11 @@ const PrescriptionLineSchema = new Schema<IPrescriptionLine>({
 const PaymentRecordSchema = new Schema<IPaymentRecord>({
   id: { type: String },
   paymentId: { type: String },
-  mode: { type: String, required: true, enum: ["UPI", "Cash", "Card", "NetBanking", "Cheque", "Account Due"] },
+  mode: {
+    type: String,
+    required: true,
+    enum: ["UPI", "Cash", "Card", "NetBanking", "Cheque", "Account Due"],
+  },
   amount: { type: Number, required: true },
   trxRef: { type: String },
   timestamp: { type: String, required: true },
@@ -267,14 +314,14 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
     ownerPhone: { type: String, required: true },
     doctorName: { type: String, default: "Dr. Rohit Sharma" },
     receptionistName: { type: String, default: "Front Desk" },
-    
+
     status: {
       type: String,
       enum: ["Admitted", "In Consultation", "Diagnosed", "Billed", "Paid", "Closed"],
       default: "Admitted",
       index: true,
     },
-    
+
     vitals: {
       weightKg: { type: Number },
       tempC: { type: Number },
@@ -285,18 +332,18 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
       temp: { type: Number },
       tempUnit: { type: String, default: "°C" },
     },
-    
+
     diagnosis: { type: String },
     clinicalNotes: { type: String },
-    
+
     nextVisitDate: { type: String },
     nextVaccineDate: { type: String },
     nextDewormingDate: { type: String },
-    
+
     prescriptionData: { type: Schema.Types.Mixed },
-    
+
     items: { type: [PrescriptionLineSchema], default: [] },
-    
+
     subtotal: { type: Number, default: 0 },
     billDiscount: { type: Number, default: 0 },
     taxableAmount: { type: Number, default: 0 },
@@ -311,13 +358,30 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
       enum: ["Full", "Partial", "Unpaid"],
       default: "Full",
     },
-    
+
     payments: { type: [PaymentRecordSchema], default: [] },
-    
+
+    salesDocNo: { type: String, default: "", index: true },
+    salesDocId: { type: String, default: "" },
+    pendingAddendum: {
+      type: [
+        {
+          sourceRef: { type: String, required: true },
+          description: { type: String, default: "" },
+          addedAt: { type: String, default: "" },
+        },
+      ],
+      default: [],
+    },
+
     inventoryDeducted: { type: Boolean, default: false },
     accountingPosted: { type: Boolean, default: false },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-export const ClinicalVisit = (mongoose.models["ClinicalVisit"] || mongoose.model<IClinicalVisit>("ClinicalVisit", ClinicalVisitSchema)) as mongoose.Model<IClinicalVisit>;
+export const ClinicalVisit = (mongoose.models["ClinicalVisit"] ||
+  mongoose.model<IClinicalVisit>(
+    "ClinicalVisit",
+    ClinicalVisitSchema,
+  )) as mongoose.Model<IClinicalVisit>;

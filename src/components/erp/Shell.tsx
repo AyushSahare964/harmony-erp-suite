@@ -314,7 +314,7 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-card/90 backdrop-blur-md px-4 lg:px-6">
-      <button className="lg:hidden p-1.5 rounded-lg hover:bg-muted" onClick={onMenu} aria-label="Open navigation">
+      <button className="lg:hidden p-1.5 rounded-lg hover:bg-muted" onClick={onMenu} aria-label="Open navigation" suppressHydrationWarning>
         <Menu className="size-5" />
       </button>
 
@@ -336,6 +336,7 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
           whileTap={{ scale: 0.95 }}
           className="relative rounded-lg p-2 hover:bg-muted transition-colors" 
           aria-label="Notifications"
+          suppressHydrationWarning
         >
           <Bell className="size-[1.05rem]" />
           <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[0.6rem] font-bold text-destructive-foreground">
@@ -462,6 +463,7 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
               className="absolute right-4 top-4 rounded-lg bg-card p-2 shadow-md"
               onClick={() => setOpen(false)}
               aria-label="Close navigation"
+              suppressHydrationWarning
             >
               <X className="size-5" />
             </motion.button>

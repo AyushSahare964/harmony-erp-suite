@@ -119,13 +119,13 @@ export const listPurchaseBillsFn = createServerFn({ method: "GET" })
     const from = data?.from ?? today.slice(0, 7) + "-01";
     const to = data?.to ?? today;
     const filter: Record<string, any> = { billDate: { $gte: from, $lte: to } };
-    if (data?.supplierId) filter.supplierId = data.supplierId;
-    if (data?.status && data.status !== "ALL") filter.status = data.status;
-    else if (!data?.status) filter.status = { $ne: "VOID" };
+    if (data?.supplierId) filter["supplierId"] = data.supplierId;
+    if (data?.status && data.status !== "ALL") filter["status"] = data.status;
+    else if (!data?.status) filter["status"] = { $ne: "VOID" };
     if (data?.q) {
       const q = data.q.trim();
       const re = { $regex: q, $options: "i" };
-      filter.$or = [{ internalRef: re }, { billNumber: re }, { supplierName: re }];
+      filter["$or"] = [{ internalRef: re }, { billNumber: re }, { supplierName: re }];
     }
     const docs = await PurchaseBillModel.find(filter).sort({ billDate: -1, createdAt: -1 }).lean();
     return docs.map(toBillRow);
@@ -231,13 +231,13 @@ export const createPurchaseBillFn = createServerFn({ method: "POST" })
         taxAmount: it.taxAmount,
         lineTotal: it.lineTotal,
       };
-      if (it.inventoryItemId) itemDoc.inventoryItemId = it.inventoryItemId;
-      if (it.expenseCategoryId) itemDoc.expenseCategoryId = it.expenseCategoryId;
-      if (it.hsnCode) itemDoc.hsnCode = it.hsnCode;
-      if (it.batchNo) itemDoc.batchNo = it.batchNo;
-      if (it.expiryDate) itemDoc.expiryDate = it.expiryDate;
-      if (it.unit) itemDoc.unit = it.unit;
-      if (it.mrp !== undefined) itemDoc.mrp = it.mrp;
+      if (it.inventoryItemId) itemDoc["inventoryItemId"] = it.inventoryItemId;
+      if (it.expenseCategoryId) itemDoc["expenseCategoryId"] = it.expenseCategoryId;
+      if (it.hsnCode) itemDoc["hsnCode"] = it.hsnCode;
+      if (it.batchNo) itemDoc["batchNo"] = it.batchNo;
+      if (it.expiryDate) itemDoc["expiryDate"] = it.expiryDate;
+      if (it.unit) itemDoc["unit"] = it.unit;
+      if (it.mrp !== undefined) itemDoc["mrp"] = it.mrp;
       return itemDoc;
     });
 
@@ -261,9 +261,9 @@ export const createPurchaseBillFn = createServerFn({ method: "POST" })
       status,
       items,
     };
-    if (data.dueDate) billData.dueDate = data.dueDate;
-    if (data.remarks) billData.remarks = data.remarks;
-    if (data.attachmentUrl) billData.attachmentUrl = data.attachmentUrl;
+    if (data.dueDate) billData["dueDate"] = data.dueDate;
+    if (data.remarks) billData["remarks"] = data.remarks;
+    if (data.attachmentUrl) billData["attachmentUrl"] = data.attachmentUrl;
 
     const billDoc: any = await PurchaseBillModel.create(billData);
     const billId = String(billDoc._id);

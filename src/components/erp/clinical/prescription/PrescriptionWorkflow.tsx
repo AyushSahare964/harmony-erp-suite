@@ -47,6 +47,7 @@ import type { IPrescriptionData } from "@/lib/mongodb/models/ClinicalVisit";
 
 export interface PrescriptionWorkflowProps {
   visit: any;
+  prescriptionData?: IPrescriptionData | null;
   petDetails?: any;
   catalogItems?: any[];
   onSavePrescription?: (prescriptionData: IPrescriptionData, billableLines: any[]) => Promise<void>;
@@ -59,6 +60,8 @@ export interface PrescriptionWorkflowProps {
   onViewHistory?: () => void;
   pastVisits?: any[];
   onJumpSectionsChange?: (sections: SectionJumpItem[]) => void;
+  onVisitUpdated?: (updatedVisit: any) => void;
+  onPrescriptionDataChange?: (rxData: IPrescriptionData) => void;
 }
 
 const CLINICAL_FINDINGS_OPTIONS = [
@@ -147,6 +150,7 @@ function serializeSectionState(sectionKey: string, data: any): string {
 
 export function PrescriptionWorkflow({
   visit,
+  prescriptionData,
   petDetails,
   catalogItems = [],
   onSavePrescription,
@@ -159,8 +163,10 @@ export function PrescriptionWorkflow({
   onViewHistory,
   pastVisits = [],
   onJumpSectionsChange,
+  onVisitUpdated,
+  onPrescriptionDataChange,
 }: PrescriptionWorkflowProps) {
-  const initialRx: IPrescriptionData = visit?.prescriptionData || {};
+  const initialRx: IPrescriptionData = prescriptionData || visit?.prescriptionData || {};
 
   // Patient details (Read-only reception data)
   const patientName = visit?.petName || petDetails?.name || "Patient";
@@ -210,6 +216,35 @@ export function PrescriptionWorkflow({
   );
   const [findingSearchQuery, setFindingSearchQuery] = useState("");
   const [findingsDropdownOpen, setFindingsDropdownOpen] = useState(false);
+
+  // Sync state whenever visit or prescriptionData changes from server/parent
+  useEffect(() => {
+    const rx = prescriptionData || visit?.prescriptionData || {};
+    if (rx.version) {
+      setVersion(rx.version);
+      versionRef.current = rx.version;
+    }
+    if (rx.previousHistory !== undefined || visit?.clinicalNotes !== undefined) {
+      const hist = rx.previousHistory ?? visit?.clinicalNotes ?? "";
+      if (hist) setPreviousHistory(hist);
+    }
+    if (rx.symptomsText !== undefined || visit?.vitals?.complaint !== undefined) {
+      const symp = rx.symptomsText ?? visit?.vitals?.complaint ?? "";
+      if (symp) setSymptomsText(symp);
+    }
+    if (rx.clinicalFindings && rx.clinicalFindings.length > 0) {
+      setClinicalFindings(rx.clinicalFindings);
+    }
+    if (rx.clinicalFindingsOther !== undefined) {
+      setClinicalFindingsOther(rx.clinicalFindingsOther);
+    }
+    if (rx.consultationFee !== undefined && rx.consultationFee !== null) {
+      setConsultationFee(Number(rx.consultationFee));
+    }
+    if (rx.sectionSavedAt) {
+      setSectionSavedAt(rx.sectionSavedAt);
+    }
+  }, [visit?.visitId, visit?.clinicalNotes, visit?.vitals?.complaint, prescriptionData, visit?.prescriptionData]);
 
   // Initial values computed stably
   const initialImmediate = useMemo<InventoryItemLine[]>(() => {
@@ -583,9 +618,28 @@ export function PrescriptionWorkflow({
       }));
       setSectionStatus((prev) => ({ ...prev, [sectionKey]: "saved" }));
 
-      if (res.visit?.items) {
-        onSyncLines?.(res.visit.items);
+      if (res.visit) {
+        onVisitUpdated?.(res.visit);
+        if (res.visit.items) {
+          onSyncLines?.(res.visit.items);
+        }
       }
+
+      const sectionFriendlyNames: Record<string, string> = {
+        HISTORY: "Previous History",
+        SYMPTOMS: "Symptoms",
+        FINDINGS: "Clinical Findings",
+        IMMEDIATE_MED: "Immediate Medicines",
+        PRESCRIBED_MED: "Prescribed Medicines",
+        INJECTABLE: "Injectables",
+        FEE: "Consultation Fee",
+        FOLLOWUP: "Follow-up",
+        LABORATORY: "Laboratory Tests",
+        ANIMAL_FOOD: "Animal Food",
+        PRESCRIBED_FOOD: "Prescribed Diet",
+        ACCESSORY: "Accessories",
+      };
+      toast.success(`${sectionFriendlyNames[sectionKey] || sectionKey} saved successfully!`);
     } catch (err: any) {
       setSectionStatus((prev) => ({ ...prev, [sectionKey]: "error" }));
       if (err.message?.includes("CONFLICT_VERSION")) {
@@ -810,7 +864,17 @@ export function PrescriptionWorkflow({
             <div className="space-y-3">
               <Textarea
                 value={previousHistory}
-                onChange={(e) => setPreviousHistory(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPreviousHistory(val);
+                  onPrescriptionDataChange?.({
+                    ...initialRx,
+                    previousHistory: val,
+                  });
+                }}
+                onBlur={() => {
+                  if (isHistoryDirty) void handleSaveHistory();
+                }}
                 placeholder="Enter previous medical history / clinical background for this visit..."
                 rows={3}
                 className="text-xs resize-y bg-background"
@@ -865,7 +929,17 @@ export function PrescriptionWorkflow({
           >
             <Textarea
               value={symptomsText}
-              onChange={(e) => setSymptomsText(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSymptomsText(val);
+                onPrescriptionDataChange?.({
+                  ...initialRx,
+                  symptomsText: val,
+                });
+              }}
+              onBlur={() => {
+                if (isSymptomsDirty) void handleSaveSymptoms();
+              }}
               placeholder="Enter presenting symptoms (e.g. Vomiting and loss of appetite since yesterday)..."
               rows={3}
               className="text-xs resize-y bg-background"

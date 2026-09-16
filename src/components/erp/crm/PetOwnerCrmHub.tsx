@@ -895,7 +895,10 @@ export function PetOwnerCrmHub() {
               setSelectedVisit(null);
             }}
             visit={selectedVisit}
-            onVisitFinalized={() => {
+            onVisitFinalized={(updatedVisit) => {
+              if (updatedVisit) {
+                setSelectedVisit(updatedVisit);
+              }
               void loadData();
             }}
           />

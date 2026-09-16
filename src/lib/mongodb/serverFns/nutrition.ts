@@ -18,12 +18,6 @@ const SEED_FEEDING_PLANS = [
 export const listFeedingPlansFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
-    const count = await ErpRow.countDocuments({ moduleId: "nutrition_plans" });
-    if (count === 0) {
-      for (const item of SEED_FEEDING_PLANS) {
-        await ErpRow.create({ moduleId: "nutrition_plans", data: item });
-      }
-    }
     const docs = await ErpRow.find({ moduleId: "nutrition_plans" }).sort({ createdAt: -1 }).lean();
     return toPlain(docs.map((d) => d.data));
   });

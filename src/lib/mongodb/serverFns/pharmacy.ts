@@ -18,12 +18,6 @@ const SEED_RETAIL_BILLS = [
 export const listRetailSalesFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
-    const count = await ErpRow.countDocuments({ moduleId: "retail_sales" });
-    if (count === 0) {
-      for (const item of SEED_RETAIL_BILLS) {
-        await ErpRow.create({ moduleId: "retail_sales", data: item });
-      }
-    }
     const docs = await ErpRow.find({ moduleId: "retail_sales" }).sort({ createdAt: -1 }).lean();
     return toPlain(docs.map((d) => d.data));
   });

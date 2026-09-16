@@ -23,7 +23,7 @@ export function StockSummaryModal({ open, onClose }: StockSummaryModalProps) {
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    getItemsFn({ status: "Active" })
+    getItemsFn({ data: { status: "Active" } })
       .then((data) => setItems(data || []))
       .catch((err) => console.error("Failed to load inventory for stock summary:", err))
       .finally(() => setLoading(false));
@@ -130,7 +130,7 @@ export function StockSummaryModal({ open, onClose }: StockSummaryModalProps) {
                     const qty = (it as any).currentStock ?? 0;
                     const isOut = qty <= 0;
                     return (
-                      <tr key={String(it._id)} className="hover:bg-muted/30">
+                      <tr key={it.itemCode} className="hover:bg-muted/30">
                         <td className="px-4 py-2.5 font-medium text-foreground">{it.name}</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{(it as any).category || "Medicine"}</td>
                         <td className="px-4 py-2.5 text-right font-bold tabular-nums">

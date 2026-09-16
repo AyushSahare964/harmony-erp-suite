@@ -288,7 +288,11 @@ function Dashboard() {
               setSelectedVisit(null);
             }}
             visit={selectedVisit}
-            onVisitFinalized={() => {
+            onVisitFinalized={(updatedVisit) => {
+              if (updatedVisit) {
+                setSelectedVisit(updatedVisit);
+                setVisits((prev) => prev.map((v) => (v.visitId === updatedVisit.visitId ? updatedVisit : v)));
+              }
               void loadVisits();
             }}
           />

@@ -21,12 +21,6 @@ const appointmentCategoryEnum = z.enum(["call", "whatsapp", "social_media"]).nul
 export const listAppointmentsFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
-    const count = await ErpRow.countDocuments({ moduleId: "appointments" });
-    if (count === 0) {
-      for (const item of SEED_APPOINTMENTS) {
-        await ErpRow.create({ moduleId: "appointments", data: item });
-      }
-    }
     const docs = await ErpRow.find({ moduleId: "appointments" }).sort({ createdAt: -1 }).lean();
     return toPlain(
       docs.map((d: any) => ({
@@ -124,5 +118,23 @@ export const updateAppointmentStatusFn = createServerFn({ method: "POST" })
       { moduleId: "appointments", $or: orClauses },
       { $set: { "data.status": data.status } }
     );
+    return true;
+  });
+
+export const deleteAppointmentFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => z.object({ token: z.union([z.number(), z.string()]) }).parse(raw))
+  .handler(async ({ data }): Promise<boolean> => {
+    await connectDB();
+    const token = data.token;
+    const numToken = Number(token);
+    const orClauses: any[] = [{ "data.token": token }, { "data.token": String(token) }];
+    if (!Number.isNaN(numToken)) {
+      orClauses.push({ "data.token": numToken });
+    }
+
+    await ErpRow.deleteMany({
+      moduleId: "appointments",
+      $or: orClauses,
+    });
     return true;
   });

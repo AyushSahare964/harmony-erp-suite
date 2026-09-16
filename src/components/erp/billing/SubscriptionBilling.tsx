@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { toast } from "sonner";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
 
 /* ─── Types ──────────────────────────────────────────────────────── */
 interface SubscriptionPlan {
@@ -121,8 +122,8 @@ function NewSubscriptionDialog({
     if (!plan || !pet) return;
     const start = new Date(startDate);
     const endMs = start.getTime() + (plan.validityDays ?? 30) * 86400000;
-    const endDate = new Date(endMs).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" });
-    const startLabel = start.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const endDate = formatDisplayDate(new Date(endMs));
+    const startLabel = formatDisplayDate(start);
 
     const sub: Subscription = {
       id: crypto.randomUUID(),

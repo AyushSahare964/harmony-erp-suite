@@ -31,7 +31,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useErp } from "@/lib/erp/store";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
-import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn, savePrescriptionFn } from "@/lib/mongodb/serverFns/clinical";
+import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn, savePrescriptionFn, getVisitByIdFn } from "@/lib/mongodb/serverFns/clinical";
 import { PrescriptionWorkflow } from "./prescription/PrescriptionWorkflow";
 import { SectionJumpBar, DEFAULT_RX_JUMP_SECTIONS, type SectionJumpItem } from "./prescription/SectionJumpBar";
 import type { IPrescriptionData } from "@/lib/mongodb/models/ClinicalVisit";
@@ -92,7 +92,16 @@ const FALLBACK_CATALOG = [
 
 export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: VisitWorkspaceProps) {
   const { currentUser, role } = useErp();
-  const activeDoctorName = visit?.doctorName || currentUser?.fullName || role?.person || "Dr. Rohit Sharma";
+  const [activeVisit, setActiveVisit] = useState<any>(visit);
+
+  useEffect(() => {
+    setActiveVisit(visit);
+    if (visit?.prescriptionData) {
+      setPrescriptionData(visit.prescriptionData);
+    }
+  }, [visit]);
+
+  const activeDoctorName = activeVisit?.doctorName || visit?.doctorName || currentUser?.fullName || role?.person || "Dr. Rohit Sharma";
 
   const [catalogItems, setCatalogItems] = useState<any[]>(FALLBACK_CATALOG);
   const [petDetails, setPetDetails] = useState<any>(null);
@@ -199,13 +208,61 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const [showInvoicePrint, setShowInvoicePrint] = useState(false);
   const [finalizedVisit, setFinalizedVisit] = useState<any | null>(null);
 
+  const loadFreshVisit = async (visitId: string) => {
+    try {
+      const fresh = await getVisitByIdFn({ data: { visitId } });
+      if (fresh) {
+        setActiveVisit(fresh);
+        if (fresh.prescriptionData) {
+          setPrescriptionData(fresh.prescriptionData);
+        }
+        if (fresh.clinicalNotes) setClinicalNotes(fresh.clinicalNotes);
+        if (fresh.diagnosis) setDiagnosis(fresh.diagnosis);
+        if (fresh.nextVisitDate) setNextVisitDate(fresh.nextVisitDate);
+        if (fresh.nextDewormingDate) setNextDewormingDate(fresh.nextDewormingDate);
+        if (fresh.vitals) {
+          const w = fresh.vitals.weight ?? fresh.vitals.weightKg;
+          if (w !== undefined) setWeightKg(String(w));
+          const t = fresh.vitals.temp ?? fresh.vitals.tempC;
+          if (t !== undefined) setTempC(String(t));
+          if (fresh.vitals.complaint) setComplaint(fresh.vitals.complaint);
+        }
+        if (fresh.items && fresh.items.length > 0) {
+          setLines(fresh.items.map((l: any, idx: number) => ({
+            id: l.id || `line-${idx + 1}`,
+            lineType: l.lineType || "Pharmacy",
+            itemCode: l.itemCode,
+            batchNo: l.batchNo,
+            name: l.name,
+            dosageInstructions: l.dosageInstructions,
+            quantity: Number(l.quantity) || 1,
+            unitPrice: Number(l.unitPrice) || 0,
+            discountPercent: Number(l.discountPercent) || 0,
+            discountType: l.discountType || "percentage",
+            discountValue: l.discountValue ?? l.discountPercent ?? 0,
+            discountAmount: l.discountAmount,
+            taxableAmount: l.taxableAmount,
+            gstRate: Number(l.gstRate) || 0,
+            lineTotal: l.lineTotal,
+            sourceType: l.sourceType,
+            sourceId: l.sourceId,
+            rxSection: l.rxSection,
+          })));
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load fresh visit from MongoDB:", e);
+    }
+  };
+
   useEffect(() => {
     if (open) {
       void loadCatalog();
+      if (visit?.visitId) void loadFreshVisit(visit.visitId);
       if (visit?.petId) void loadPetDetails(visit.petId);
       if (visit?.petId || visit?.petName) void loadPatientHistory();
     }
-  }, [open, visit?.petId, visit?.petName]);
+  }, [open, visit?.visitId, visit?.petId, visit?.petName]);
 
   const loadCatalog = async () => {
     try {
@@ -947,30 +1004,31 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
     setIsFinalizing(true);
     try {
+      const effectiveRx = prescriptionData || activeVisit?.prescriptionData || visit?.prescriptionData;
       const payload = {
-        visitId: visit.visitId || `V-${Math.floor(1000 + Math.random() * 9000)}`,
-        petId: visit.petId || "PET-0001",
-        petName: visit.petName || "Patient",
-        species: visit.species || "Canine",
-        breed: visit.breed || "Standard",
-        ownerId: visit.ownerId || "OWN-0001",
-        ownerName: visit.ownerName || "Client",
-        ownerPhone: visit.ownerPhone || "N/A",
-        branch: visit.branch || "Main Clinic",
-        billType: (visit.billType as "GST" | "Non-GST") || billType,
-        doctorName: visit.doctorName || activeDoctorName,
-        diagnosis: diagnosis.trim() || (prescriptionData?.clinicalFindings && prescriptionData.clinicalFindings.length > 0 ? `Findings: ${prescriptionData.clinicalFindings.join(", ")}` : "Clinical Examination Completed"),
-        clinicalNotes: clinicalNotes.trim() || (prescriptionData?.previousHistory ? `History: ${prescriptionData.previousHistory}` : ""),
-        nextVisitDate: nextVisitDate || prescriptionData?.followUp?.nextTreatmentDate || undefined,
-        nextVaccineDate: prescriptionData?.followUp?.nextVaccineDate || undefined,
-        nextDewormingDate: nextDewormingDate || prescriptionData?.followUp?.nextDewormingDate || undefined,
-        prescriptionData: prescriptionData || visit?.prescriptionData,
+        visitId: activeVisit?.visitId || visit.visitId || `V-${Math.floor(1000 + Math.random() * 9000)}`,
+        petId: activeVisit?.petId || visit.petId || "PET-0001",
+        petName: activeVisit?.petName || visit.petName || "Patient",
+        species: activeVisit?.species || visit.species || "Canine",
+        breed: activeVisit?.breed || visit.breed || "Standard",
+        ownerId: activeVisit?.ownerId || visit.ownerId || "OWN-0001",
+        ownerName: activeVisit?.ownerName || visit.ownerName || "Client",
+        ownerPhone: activeVisit?.ownerPhone || visit.ownerPhone || "N/A",
+        branch: activeVisit?.branch || visit.branch || "Main Clinic",
+        billType: (activeVisit?.billType as "GST" | "Non-GST") || (visit.billType as "GST" | "Non-GST") || billType,
+        doctorName: activeVisit?.doctorName || visit.doctorName || activeDoctorName,
+        diagnosis: diagnosis.trim() || (effectiveRx?.clinicalFindings && effectiveRx.clinicalFindings.length > 0 ? `Findings: ${effectiveRx.clinicalFindings.join(", ")}` : "Clinical Examination Completed"),
+        clinicalNotes: clinicalNotes.trim() || (effectiveRx?.previousHistory ? `History: ${effectiveRx.previousHistory}` : ""),
+        nextVisitDate: nextVisitDate || effectiveRx?.followUp?.nextTreatmentDate || undefined,
+        nextVaccineDate: effectiveRx?.followUp?.nextVaccineDate || undefined,
+        nextDewormingDate: nextDewormingDate || effectiveRx?.followUp?.nextDewormingDate || undefined,
+        prescriptionData: effectiveRx,
         vitals: {
-          weight: prescriptionData?.weight ? Number(prescriptionData.weight) : (visit?.vitals?.weight ? Number(visit.vitals.weight) : undefined),
-          weightUnit: (prescriptionData?.weightUnit as "kg" | "lb") || visit?.vitals?.weightUnit || "kg",
-          temp: prescriptionData?.bodyTemperature ? Number(prescriptionData.bodyTemperature) : (visit?.vitals?.temp ? Number(visit.vitals.temp) : undefined),
-          tempUnit: (prescriptionData?.temperatureUnit as "°C" | "°F") || visit?.vitals?.tempUnit || "°C",
-          complaint: prescriptionData?.symptomsText || complaint || visit?.vitals?.complaint,
+          weight: effectiveRx?.weight ? Number(effectiveRx.weight) : (activeVisit?.vitals?.weight ? Number(activeVisit.vitals.weight) : (visit?.vitals?.weight ? Number(visit.vitals.weight) : undefined)),
+          weightUnit: (effectiveRx?.weightUnit as "kg" | "lb") || activeVisit?.vitals?.weightUnit || visit?.vitals?.weightUnit || "kg",
+          temp: effectiveRx?.bodyTemperature ? Number(effectiveRx.bodyTemperature) : (activeVisit?.vitals?.temp ? Number(activeVisit.vitals.temp) : (visit?.vitals?.temp ? Number(visit.vitals.temp) : undefined)),
+          tempUnit: (effectiveRx?.temperatureUnit as "°C" | "°F") || activeVisit?.vitals?.tempUnit || visit?.vitals?.tempUnit || "°C",
+          complaint: effectiveRx?.symptomsText || complaint || activeVisit?.vitals?.complaint || visit?.vitals?.complaint,
         },
         items: lines.map((l) => {
           const applyGst = billType === "GST";
@@ -1123,75 +1181,75 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
         {/* ── Main Scrollable Body ──────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {tab === "consultation" && (
-            <div className="space-y-5">
-              {/* Prominent Bold Highlighted Allergies Warning Banner */}
-              {Boolean(
-                (visit?.allergies && (Array.isArray(visit.allergies) ? visit.allergies.length > 0 : String(visit.allergies).trim().length > 0)) ||
-                (petDetails?.allergies && (Array.isArray(petDetails.allergies) ? petDetails.allergies.length > 0 : String(petDetails.allergies).trim().length > 0))
-              ) && (
-                <div className="rounded-2xl p-4 bg-destructive text-destructive-foreground border-2 border-destructive shadow-lg flex items-start gap-3.5 animate-pulse">
-                  <AlertTriangle className="size-6 text-white shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <h4 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
-                      <span>⚠ CRITICAL ALLERGY ALERT</span>
-                      <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-mono font-bold">SAFETY WARNING</span>
-                    </h4>
-                    <p className="text-xs font-bold text-white/95 leading-relaxed">
-                      Patient has documented allergies:{" "}
-                      <span className="underline decoration-wavy font-extrabold text-yellow-300 text-sm">
-                        {Array.isArray(visit?.allergies) && visit.allergies.length > 0
-                          ? visit.allergies.join(", ")
-                          : Array.isArray(petDetails?.allergies)
-                          ? petDetails.allergies.join(", ")
-                          : String(visit?.allergies || petDetails?.allergies)}
-                      </span>
-                    </p>
-                    <p className="text-[10px] font-semibold text-white/80">
-                      Check contraindications before prescribing NSAIDs, specific antibiotics, or anaesthetics.
-                    </p>
-                  </div>
+          <div className={cn("space-y-5", tab !== "consultation" && "hidden")}>
+            {/* Prominent Bold Highlighted Allergies Warning Banner */}
+            {Boolean(
+              (visit?.allergies && (Array.isArray(visit.allergies) ? visit.allergies.length > 0 : String(visit.allergies).trim().length > 0)) ||
+              (petDetails?.allergies && (Array.isArray(petDetails.allergies) ? petDetails.allergies.length > 0 : String(petDetails.allergies).trim().length > 0))
+            ) && (
+              <div className="rounded-2xl p-4 bg-destructive text-destructive-foreground border-2 border-destructive shadow-lg flex items-start gap-3.5 animate-pulse">
+                <AlertTriangle className="size-6 text-white shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                    <span>⚠ CRITICAL ALLERGY ALERT</span>
+                    <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-mono font-bold">SAFETY WARNING</span>
+                  </h4>
+                  <p className="text-xs font-bold text-white/95 leading-relaxed">
+                    Patient has documented allergies:{" "}
+                    <span className="underline decoration-wavy font-extrabold text-yellow-300 text-sm">
+                      {Array.isArray(visit?.allergies) && visit.allergies.length > 0
+                        ? visit.allergies.join(", ")
+                        : Array.isArray(petDetails?.allergies)
+                        ? petDetails.allergies.join(", ")
+                        : String(visit?.allergies || petDetails?.allergies)}
+                    </span>
+                  </p>
+                  <p className="text-[10px] font-semibold text-white/80">
+                    Check contraindications before prescribing NSAIDs, specific antibiotics, or anaesthetics.
+                  </p>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* ── Prescription Workflow Module (Sections + Live Summary Panel) ── */}
-              <PrescriptionWorkflow
-                key={visit?.visitId}
-                visit={visit}
-                petDetails={petDetails}
-                catalogItems={catalogItems}
-                onSavePrescription={handleSavePrescription}
-                onProceedToBilling={handleProceedToBilling}
-                onOpenPrint={() => setShowRxPrint(true)}
-                doctorName={activeDoctorName}
-                onJumpSectionsChange={setRxJumpSections}
-                onSyncLines={(newLines) => {
-                  setLines(newLines.map((l: any, idx: number) => ({
-                    ...l,
-                    id: l.id || `rx-line-${idx}-${Date.now()}`,
-                  })));
-                }}
-                onRefreshVisit={async () => {
-                  if (visit?.visitId && visit?.petId) {
-                    try {
-                      const latest = await getLatestVisitFn({ data: { petId: visit.petId } });
-                      if (latest && latest.visitId === visit.visitId) {
-                        setPrescriptionData(latest.prescriptionData || null);
-                        if (latest.items) {
-                          setLines(latest.items.map((it: any, idx: number) => ({ ...it, id: it.id || String(idx + 1) })));
-                        }
-                      }
-                    } catch (e) {
-                      console.warn("Could not reload visit:", e);
-                    }
-                  }
-                }}
-                onClonePrevious={handleCloneTreatment}
-                onViewHistory={handleViewHistory}
-                pastVisits={historyVisits}
-              />
-            </div>
-          )}
+            {/* ── Prescription Workflow Module (Sections + Live Summary Panel) ── */}
+            <PrescriptionWorkflow
+              key={activeVisit?.visitId || visit?.visitId}
+              visit={activeVisit || visit}
+              prescriptionData={prescriptionData || activeVisit?.prescriptionData || visit?.prescriptionData}
+              petDetails={petDetails}
+              catalogItems={catalogItems}
+              onSavePrescription={handleSavePrescription}
+              onProceedToBilling={handleProceedToBilling}
+              onOpenPrint={() => setShowRxPrint(true)}
+              doctorName={activeDoctorName}
+              onJumpSectionsChange={setRxJumpSections}
+              onPrescriptionDataChange={(newRx) => setPrescriptionData(newRx)}
+              onVisitUpdated={(updated) => {
+                setActiveVisit(updated);
+                if (updated.prescriptionData) {
+                  setPrescriptionData(updated.prescriptionData);
+                }
+                if (updated.clinicalNotes) setClinicalNotes(updated.clinicalNotes);
+                if (updated.diagnosis) setDiagnosis(updated.diagnosis);
+                onVisitFinalized?.(updated);
+              }}
+              onSyncLines={(newLines) => {
+                setLines(newLines.map((l: any, idx: number) => ({
+                  ...l,
+                  id: l.id || `rx-line-${idx}-${Date.now()}`,
+                })));
+              }}
+              onRefreshVisit={async () => {
+                const vId = activeVisit?.visitId || visit?.visitId;
+                if (vId) {
+                  await loadFreshVisit(vId);
+                }
+              }}
+              onClonePrevious={handleCloneTreatment}
+              onViewHistory={handleViewHistory}
+              pastVisits={historyVisits}
+            />
+          </div>
 
           {tab === "billing" && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

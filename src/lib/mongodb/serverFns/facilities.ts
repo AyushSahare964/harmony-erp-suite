@@ -26,12 +26,6 @@ const SEED_SWIMMING = [
 export const listBoardingBookingsFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
-    const count = await ErpRow.countDocuments({ moduleId: "boarding_bookings" });
-    if (count === 0) {
-      for (const item of SEED_BOARDING) {
-        await ErpRow.create({ moduleId: "boarding_bookings", data: item });
-      }
-    }
     const docs = await ErpRow.find({ moduleId: "boarding_bookings" }).sort({ createdAt: -1 }).lean();
     return toPlain(docs.map((d) => d.data));
   });
@@ -63,12 +57,6 @@ export const updateBoardingStatusFn = createServerFn({ method: "POST" })
 export const listSwimSessionsFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
-    const count = await ErpRow.countDocuments({ moduleId: "swimming_sessions" });
-    if (count === 0) {
-      for (const item of SEED_SWIMMING) {
-        await ErpRow.create({ moduleId: "swimming_sessions", data: item });
-      }
-    }
     const docs = await ErpRow.find({ moduleId: "swimming_sessions" }).sort({ createdAt: -1 }).lean();
     return toPlain(docs.map((d) => d.data));
   });

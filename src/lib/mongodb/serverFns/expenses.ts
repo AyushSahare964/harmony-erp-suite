@@ -83,7 +83,7 @@ export const createExpenseFn = createServerFn({ method: "POST" })
     const { from } = fiscalYearRange(data.expenseDate);
     const fyStart = parseInt(from.slice(0, 4), 10);
     const fyShort = `${fyStart}-${String(fyStart + 1).slice(2)}`;
-    const id = await nextSeq(`expense_${fyStart}`, `EX/${fyShort}`, 4);
+    const id = await nextSeq(`expense_${fyStart}`, `EXP/${fyShort}`, 4);
     const voucherNo = id.replace(/-(\d{4})$/, "/$1");
 
     const paymentLines = data.paymentLines.map((l) => ({
@@ -95,7 +95,7 @@ export const createExpenseFn = createServerFn({ method: "POST" })
       ...(l.chequeDate ? { chequeDate: l.chequeDate } : {}),
     }));
 
-    const docData: Record<string, any> = {
+    const docData: any = {
       voucherNo,
       expenseDate: data.expenseDate,
       categoryId: data.categoryId,

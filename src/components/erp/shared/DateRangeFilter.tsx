@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, Calendar, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -162,6 +162,7 @@ export function DateRangeFilter({
             onBlur={handleFromBlur}
             placeholder="DD/MM/YYYY"
             maxLength={10}
+            suppressHydrationWarning
             className={cn(
               "h-8 w-28 rounded-lg border bg-card px-2 text-xs font-mono outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10",
               fromErr ? "border-destructive" : "border-input"
@@ -182,6 +183,7 @@ export function DateRangeFilter({
             onBlur={handleToBlur}
             placeholder="DD/MM/YYYY"
             maxLength={10}
+            suppressHydrationWarning
             className={cn(
               "h-8 w-28 rounded-lg border bg-card px-2 text-xs font-mono outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10",
               toErr ? "border-destructive" : "border-input"

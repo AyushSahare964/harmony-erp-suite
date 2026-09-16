@@ -42,7 +42,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { BookAppointmentModal } from "./BookAppointmentModal";
 import { VisitWorkspaceModal } from "@/components/erp/clinical/VisitWorkspaceModal";
-import { listAppointmentsFn, createAppointmentFn, updateAppointmentStatusFn } from "@/lib/mongodb/serverFns/appointments";
+import { listAppointmentsFn, createAppointmentFn, updateAppointmentStatusFn, deleteAppointmentFn } from "@/lib/mongodb/serverFns/appointments";
 import { getUpcomingFollowUpsFn, admitPatientFn } from "@/lib/mongodb/serverFns/clinical";
 import { cn } from "@/lib/utils";
 
@@ -216,27 +216,25 @@ export function AppointmentsQueueHub() {
   }, [appointments]);
 
   const todaysAppointmentsCount = useMemo(() => {
-    const todayList = appointments.filter((a) => {
+    return appointments.filter((a) => {
       const d = (a.appointment_date || a.date || "").split("T")[0];
       return d === todayStr;
-    });
-    return todayList.length > 0 ? todayList.length : appointments.length;
+    }).length;
   }, [appointments, todayStr]);
 
   const remainingTodayCount = useMemo(() => {
-    const remaining = appointments.filter((a) => {
+    return appointments.filter((a) => {
       const d = (a.appointment_date || a.date || "").split("T")[0];
       return (d === todayStr || !d) && a.status !== "Completed" && a.status !== "Cancelled";
     }).length;
-    return remaining > 0 ? remaining : inQueueCount;
-  }, [appointments, todayStr, inQueueCount]);
+  }, [appointments, todayStr]);
 
   const noShowsCount = useMemo(() => {
     return appointments.filter((a) => a.status === "No-show").length;
   }, [appointments]);
 
   const avgWaitMin = useMemo(() => {
-    return Math.max(8, inQueueCount * 4);
+    return inQueueCount > 0 ? inQueueCount * 4 : 0;
   }, [inQueueCount]);
 
   const handleStartConsultation = async (app: any) => {
@@ -357,6 +355,17 @@ export function AppointmentsQueueHub() {
     );
   };
 
+  const handleDeleteAppointment = async (token: any) => {
+    try {
+      await deleteAppointmentFn({ data: { token } });
+      setAppointments((prev) => prev.filter((a) => String(a.token) !== String(token)));
+      toast.success(`Appointment (Token #${token}) deleted`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to delete appointment");
+    }
+  };
+
   const handleReset = () => {
     void loadAppointments();
     setQuery("");
@@ -425,7 +434,7 @@ export function AppointmentsQueueHub() {
         {/* Top 4 KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "IN QUEUE NOW", value: String(inQueueCount || 7), trend: "+2 vs yesterday", trendTone: "up" }}
+            kpi={{ label: "IN QUEUE NOW", value: String(inQueueCount), trend: inQueueCount > 0 ? "+2 vs yesterday" : "Queue clear", trendTone: "up" }}
             index={0}
           />
           <KpiCard
@@ -433,11 +442,11 @@ export function AppointmentsQueueHub() {
             index={1}
           />
           <KpiCard
-            kpi={{ label: "AVG. WAIT", value: `${avgWaitMin} min`, trend: "-3 min", trendTone: "up" }}
+            kpi={{ label: "AVG. WAIT", value: `${avgWaitMin} min`, trend: inQueueCount > 0 ? "-3 min" : "No wait", trendTone: "up" }}
             index={2}
           />
           <KpiCard
-            kpi={{ label: "NO-SHOWS", value: String(noShowsCount || 3), trend: "+1", trendTone: "down" }}
+            kpi={{ label: "NO-SHOWS", value: String(noShowsCount), trend: noShowsCount > 0 ? "+1" : "None", trendTone: "down" }}
             index={3}
           />
         </div>
@@ -739,6 +748,16 @@ export function AppointmentsQueueHub() {
                           title="Edit Appointment"
                         >
                           <Edit className="size-3.5" />
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteAppointment(row.token)}
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Delete Appointment"
+                        >
+                          <Trash2 className="size-3.5" />
                         </Button>
 
                         {row.status !== "Completed" && (

@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { recordInvoicePaymentFn, deleteInvoiceFn } from "@/lib/mongodb/serverFns/billing";
 import { InvoicePrintView } from "@/components/erp/clinical/InvoicePrintView";
-import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/dateUtils";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -275,17 +275,9 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
                       </thead>
                       <tbody className="divide-y divide-border/40">
                         {paymentsList.map((p: any, idx: number) => {
-                          const dateObj = new Date(p.timestamp || invoice.date);
-                          const dateFormatted = dateObj.toLocaleDateString("en-GB", {
-                            day: "numeric",
-                            month: "short",
-                            year: "numeric",
-                          });
-                          const timeFormatted = dateObj.toLocaleTimeString("en-US", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: true,
-                          });
+                          const stamp = p.timestamp || invoice.date;
+                          const dateFormatted = formatDisplayDate(stamp);
+                          const timeFormatted = formatDisplayTime(stamp);
                           return (
                             <tr key={idx}>
                               <td className="py-2 text-muted-foreground">{idx + 1}</td>

@@ -120,12 +120,6 @@ const SEED_SYSTEM_REPORTS = [
 export const listClinicalReportsFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
-    const count = await ErpRow.countDocuments({ moduleId: "clinical_reports" });
-    if (count === 0) {
-      for (const item of SEED_SYSTEM_REPORTS) {
-        await ErpRow.create({ moduleId: "clinical_reports", data: item });
-      }
-    }
     const docs = await ErpRow.find({ moduleId: "clinical_reports" }).sort({ createdAt: -1 }).lean();
     return toPlain(docs.map((d) => d.data));
   });

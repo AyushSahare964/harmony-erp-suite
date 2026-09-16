@@ -13,13 +13,17 @@
     "deploy:vercel": "cross-env NODE_ENV=production vite build --mode production && vercel deploy --prebuilt --prod",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "format": "prettier --write .",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:local": "cross-env BASE_URL=http://localhost:8080 playwright test",
     "test:e2e:report": "playwright show-report",
-    "test:codegen": "playwright codegen https://harmony-erp-suite-g28j.vercel.app"
+    "test:codegen": "playwright codegen https://harmony-erp-suite-g28j.vercel.app",
+    "reconcile": "node scripts/reconcile.mjs",
+    "db:ensure-indexes": "node scripts/ensure-indexes.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -103,6 +107,7 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "vitest": "^5.0.1"
   }
 }

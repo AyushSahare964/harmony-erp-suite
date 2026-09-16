@@ -13,6 +13,9 @@
 
 import { connectDB } from "@/lib/mongodb/client";
 import { Counter } from "@/lib/mongodb/models/Counters";
+import type { ClientSession } from "mongoose";
+import { NumberSeriesModel, type SeriesDocType } from "@/lib/mongodb/models/NumberSeries";
+import { fyCodeFor, buildDocNumber } from "@/lib/finance/fyUtils";
 
 /**
  * Parse the numeric part out of an ID like "M-0010" → 10, "JV-0003" → 3.
@@ -36,7 +39,7 @@ export async function syncSeq(counterId: string, minSeq: number): Promise<void> 
     { _id: counterId },
     // $max only updates the field if the new value is greater than the current value
     { $max: { seq: minSeq } },
-    { upsert: true, returnDocument: "after" }
+    { upsert: true, returnDocument: "after" },
   );
 }
 
@@ -46,7 +49,7 @@ export async function syncSeq(counterId: string, minSeq: number): Promise<void> 
  */
 export async function ensureCounterInSync(
   counterId: string,
-  getMaxExisting: () => Promise<number>
+  getMaxExisting: () => Promise<number>,
 ): Promise<void> {
   await connectDB();
   const doc = await Counter.findOne({ _id: counterId }).lean();
@@ -70,7 +73,7 @@ export async function nextSeq(
   counterId: string,
   prefix: string,
   pad = 4,
-  maxFn?: () => Promise<number>
+  maxFn?: () => Promise<number>,
 ): Promise<string> {
   await connectDB();
 
@@ -82,7 +85,7 @@ export async function nextSeq(
       await Counter.findOneAndUpdate(
         { _id: counterId },
         { $max: { seq: maxExisting } },
-        { upsert: true, returnDocument: "after" }
+        { upsert: true, returnDocument: "after" },
       );
     }
   }
@@ -90,7 +93,7 @@ export async function nextSeq(
   const result = await Counter.findOneAndUpdate(
     { _id: counterId },
     { $inc: { seq: 1 } },
-    { upsert: true, returnDocument: "after" }
+    { upsert: true, returnDocument: "after" },
   );
 
   if (!result) throw new Error(`[Counter] Failed to generate ID for: ${counterId}`);
@@ -107,7 +110,7 @@ export async function peekNextSeq(
   counterId: string,
   prefix: string,
   pad = 4,
-  maxFn?: () => Promise<number>
+  maxFn?: () => Promise<number>,
 ): Promise<string> {
   await connectDB();
 
@@ -123,3 +126,117 @@ export async function peekNextSeq(
 }
 
 export { parseSeqNum };
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Financial document numbering (implementation plan §2.5).
+ *
+ * `nextSeq` above is fine for internal IDs like M-0001. Financial documents
+ * need more: a per-financial-year series that is gapless and consecutive,
+ * because GST law requires it and an auditor will check.
+ *
+ * Use `allocateDocNumber` ONLY inside a posting transaction, and never for a
+ * draft — a number handed to a draft that is abandoned leaves a gap.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export interface AllocatedDocNumber {
+  docNumber: string;
+  fyCode: string;
+  seq: number;
+}
+
+/**
+ * Atomically take the next number in a series.
+ *
+ * The `$inc` + `upsert` is a single atomic operation, so two terminals posting
+ * at the same instant cannot receive the same number — with or without a
+ * surrounding transaction.
+ *
+ * @param docType  series family, e.g. "INV"
+ * @param docDate  the DOCUMENT's own ISO date — the FY is derived from this,
+ *                 never from today, so a 28/03 bill entered on 02/04 still
+ *                 lands in the earlier financial year
+ * @param branchId defaults to "MAIN"
+ * @param session  pass the posting transaction's session when there is one
+ */
+export async function allocateDocNumber(
+  docType: SeriesDocType,
+  docDate: string,
+  branchId = "MAIN",
+  session?: ClientSession,
+): Promise<AllocatedDocNumber> {
+  await connectDB();
+
+  const fyCode = fyCodeFor(docDate);
+
+  const updated = await NumberSeriesModel.findOneAndUpdate(
+    { branchId, docType, fyCode },
+    {
+      $inc: { lastNumber: 1 },
+      $setOnInsert: { prefix: docType, padding: 4 },
+    },
+    {
+      upsert: true,
+      returnDocument: "after",
+      ...(session ? { session } : {}),
+    },
+  ).lean();
+
+  if (!updated) throw new Error(`[NumberSeries] Could not allocate ${docType} for FY ${fyCode}`);
+
+  // `lastNumber` counts from 0, so the post-increment value IS the number we
+  // just claimed. No other caller can hold it — the $inc is atomic.
+  const seq = updated.lastNumber;
+  const prefix = updated.prefix ?? docType;
+  const padding = updated.padding ?? 4;
+
+  return {
+    docNumber: buildDocNumber(prefix, fyCode, seq, padding),
+    fyCode,
+    seq,
+  };
+}
+
+/**
+ * Show the next number without consuming it — for the "Unsaved Invoice"
+ * preview and the Settings screen. Never persist what this returns.
+ */
+export async function peekDocNumber(
+  docType: SeriesDocType,
+  docDate: string,
+  branchId = "MAIN",
+): Promise<string> {
+  await connectDB();
+
+  const fyCode = fyCodeFor(docDate);
+  const series = await NumberSeriesModel.findOne({ branchId, docType, fyCode }).lean();
+
+  return buildDocNumber(
+    series?.prefix ?? docType,
+    fyCode,
+    (series?.lastNumber ?? 0) + 1,
+    series?.padding ?? 4,
+  );
+}
+
+/**
+ * Roll a series forward so the next allocation is at least `minNext`.
+ * Used by the migration scripts after importing historical documents, so the
+ * live series continues above whatever was imported instead of colliding.
+ */
+export async function syncDocSeries(
+  docType: SeriesDocType,
+  fyCode: string,
+  highestUsed: number,
+  branchId = "MAIN",
+): Promise<void> {
+  await connectDB();
+  await NumberSeriesModel.findOneAndUpdate(
+    { branchId, docType, fyCode },
+    {
+      // $max never moves the series backwards, so this is safe to re-run.
+      $max: { lastNumber: highestUsed },
+      $setOnInsert: { prefix: docType, padding: 4 },
+    },
+    { upsert: true },
+  );
+}

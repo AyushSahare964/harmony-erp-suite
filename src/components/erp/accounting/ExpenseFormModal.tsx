@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { X, Receipt, Check, AlertCircle, Plus } from "lucide-react";
+import { X, Receipt, Save } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,9 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SplitPaymentInput, type PaymentLine, type PaymentAccount } from "@/components/erp/shared/SplitPaymentInput";
 import { todayIST } from "@/lib/utils/dateUtils";
-import { listExpenseCategoriesFn, listPaymentAccountsFn, type ExpenseCategoryRow } from "@/lib/mongodb/serverFns/masters";
+import {
+  listExpenseCategoriesFn,
+  listPaymentAccountsFn,
+  type ExpenseCategoryRow,
+} from "@/lib/mongodb/serverFns/masters";
 import { createExpenseFn } from "@/lib/mongodb/serverFns/expenses";
 import { toast } from "sonner";
 
@@ -25,340 +29,321 @@ interface ExpenseFormModalProps {
 
 export function ExpenseFormModal({ open, onClose, onSuccess }: ExpenseFormModalProps) {
   const [categories, setCategories] = useState<ExpenseCategoryRow[]>([]);
-  const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form states
+  // Form states matching HiTech "Add Expense" screenshot
   const [expenseDate, setExpenseDate] = useState(todayIST());
   const [categoryId, setCategoryId] = useState("");
+  const [amount, setAmount] = useState<number | "">("");
   const [paidTo, setPaidTo] = useState("");
-  const [billRefNo, setBillRefNo] = useState("");
-  const [totalAmount, setTotalAmount] = useState<number | "">("");
-  const [description, setDescription] = useState("");
-  const [showGst, setShowGst] = useState(false);
-  const [gstAmount, setGstAmount] = useState<number | "">("");
-  const [vendorGstin, setVendorGstin] = useState("");
-  const [attachmentUrl, setAttachmentUrl] = useState("");
-  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
-    {
-      id: "line_1",
-      mode: "CASH",
-      accountId: "cash",
-      amount: 0,
-      referenceNo: "",
-      chequeDate: "",
-    },
-  ]);
+  const [remarks, setRemarks] = useState("");
+
+  const [payMode, setPayMode] = useState<"CASH" | "UPI" | "BANK_TRANSFER" | "CARD" | "CHEQUE">("CASH");
+  const [paymentRefNo, setPaymentRefNo] = useState("");
+  const [paidBy, setPaidBy] = useState("Dr. Rohit Sharma");
 
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
+    setExpenseDate(todayIST());
     Promise.all([listExpenseCategoriesFn(), listPaymentAccountsFn()])
       .then(([cats, accs]) => {
-        setCategories(cats);
-        setAccounts(accs);
-        if (cats.length > 0 && !categoryId) {
+        setCategories(cats || []);
+        setAccounts(accs || []);
+        if (cats && cats.length > 0 && !categoryId && cats[0]) {
           setCategoryId(cats[0]._id);
         }
       })
       .catch((err) => {
-        console.error("Failed to load expense masters:", err);
-        toast.error("Failed to load categories or accounts");
-      })
-      .finally(() => setLoading(false));
+        console.error("Failed to load expense categories:", err);
+      });
   }, [open]);
 
-  // When totalAmount changes, auto-fill first payment line if it's the only one and was 0 or matched previous total
-  const handleTotalChange = (val: number | "") => {
-    setTotalAmount(val);
-    if (typeof val === "number" && val > 0 && paymentLines.length === 1) {
-      setPaymentLines([{ ...paymentLines[0], amount: val }]);
-    }
-  };
-
-  const selectedCategory = categories.find((c) => c._id === categoryId);
-  const numericTotal = typeof totalAmount === "number" ? totalAmount : 0;
-  const linesTotal = paymentLines.reduce((s, l) => s + (l.amount || 0), 0);
-  const diff = numericTotal - linesTotal;
-
-  const handleSave = async (saveAndNew = false) => {
+  const handleSave = async () => {
     if (!categoryId) {
-      toast.error("Please select an expense category");
+      toast.error("Please select an Expense Type.");
       return;
     }
-    if (!numericTotal || numericTotal <= 0) {
-      toast.error("Total amount must be greater than 0");
+    const numericAmount = typeof amount === "number" ? amount : parseFloat(String(amount));
+    if (!numericAmount || numericAmount <= 0) {
+      toast.error("Amount must be greater than 0.");
       return;
     }
-    if (Math.abs(diff) > 0.01) {
-      toast.error(`Payment breakdown does not match total amount (difference: ₹${diff.toFixed(2)})`);
+    if (!paidTo.trim()) {
+      toast.error("Please specify Paid To.");
       return;
     }
-    for (const l of paymentLines) {
-      if (l.mode === "CHEQUE" && !l.chequeDate) {
-        toast.error("Cheque date is required for cheque payments");
-        return;
-      }
+    if (!paidBy.trim()) {
+      toast.error("Please specify Paid By.");
+      return;
     }
 
     setSubmitting(true);
     try {
+      // Find appropriate account id or fallback to cash/bank
+      let accountId = "cash";
+      let accountName = "Cash Drawer";
+      if (payMode !== "CASH") {
+        const bankAcc = accounts.find((a) => a.type === "BANK" || a._id !== "cash");
+        if (bankAcc) {
+          accountId = bankAcc._id;
+          accountName = bankAcc.name || "Bank Account";
+        } else {
+          accountId = "bank_default";
+          accountName = "Primary Operating Bank Account";
+        }
+      }
+
+      const fullDescription = [
+        remarks.trim(),
+        paidBy.trim() ? `[Paid by: ${paidBy.trim()}]` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
       const res = await createExpenseFn({
         data: {
           expenseDate,
           categoryId,
-          paidTo: paidTo.trim() || undefined,
-          billRefNo: billRefNo.trim() || undefined,
-          totalAmount: numericTotal,
-          gstAmount: typeof gstAmount === "number" ? gstAmount : undefined,
-          vendorGstin: vendorGstin.trim() || undefined,
-          description: description.trim() || undefined,
-          attachmentUrl: attachmentUrl.trim() || undefined,
-          paymentLines: paymentLines.map((l) => {
-            const acc = accounts.find((a) => a._id === l.accountId);
-            return {
-              mode: l.mode,
-              accountId: l.accountId,
-              accountName: l.mode === "CASH" ? "Cash" : acc?.name || "Bank Account",
-              amount: l.amount,
-              referenceNo: l.referenceNo || undefined,
-              chequeDate: l.chequeDate || undefined,
-            };
-          }),
+          paidTo: paidTo.trim(),
+          billRefNo: paymentRefNo.trim() || undefined,
+          totalAmount: numericAmount,
+          description: fullDescription || undefined,
+          paymentLines: [
+            {
+              mode: payMode,
+              accountId,
+              accountName,
+              amount: numericAmount,
+              referenceNo: paymentRefNo.trim() || undefined,
+              chequeDate: payMode === "CHEQUE" ? expenseDate : undefined,
+            },
+          ],
         },
       });
 
-      toast.success(`Expense saved! Voucher: ${res.voucherNo}`);
+      toast.success(`Expense saved successfully! Voucher: ${res.voucherNo}`);
       onSuccess?.();
+      onClose();
 
-      if (saveAndNew) {
-        setPaidTo("");
-        setBillRefNo("");
-        setTotalAmount("");
-        setDescription("");
-        setGstAmount("");
-        setVendorGstin("");
-        setAttachmentUrl("");
-        setPaymentLines([
-          {
-            id: Math.random().toString(36).slice(2),
-            mode: "CASH",
-            accountId: "cash",
-            amount: 0,
-            referenceNo: "",
-            chequeDate: "",
-          },
-        ]);
-      } else {
-        onClose();
-      }
+      // Reset
+      setAmount("");
+      setPaidTo("");
+      setRemarks("");
+      setPaymentRefNo("");
     } catch (err: any) {
-      console.error("Save expense failed:", err);
+      console.error("[ExpenseFormModal] Save error:", err);
       toast.error(err.message || "Failed to save expense");
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in">
-      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-4 bg-muted/20">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Receipt className="size-5" />
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent
+        className="max-w-4xl max-h-[95vh] overflow-y-auto p-0 gap-0 border border-slate-300 dark:border-slate-800 bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 shadow-2xl rounded-lg"
+        aria-describedby="add-expense-desc"
+      >
+        {/* Top Window Header matching HiTech Screenshot Frame */}
+        <div className="flex items-center justify-between px-4 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 select-none">
+          <div className="flex items-center gap-2">
+            <div className="flex size-6 items-center justify-center rounded-full bg-blue-600 text-white shadow-xs">
+              <Receipt className="size-3.5" />
             </div>
-            <div>
-              <h2 className="text-base font-semibold text-foreground">Record New Expense</h2>
-              <p className="text-xs text-muted-foreground">Post operational, utility, or clinic expenses with split payments</p>
-            </div>
+            <DialogTitle className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+              Add Expense
+            </DialogTitle>
           </div>
+
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Close"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {loading ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">Loading masters...</div>
-          ) : (
-            <>
-              {/* Row 1: Date & Category */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="exp-date">Expense Date</Label>
-                  <Input
-                    id="exp-date"
-                    type="date"
-                    value={expenseDate}
-                    onChange={(e) => setExpenseDate(e.target.value)}
-                    className="font-medium"
-                  />
-                </div>
+        <p id="add-expense-desc" className="sr-only">
+          Record operational, utility, clinical maintenance, or staff expense payments.
+        </p>
 
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="exp-cat">Category *</Label>
-                    {selectedCategory && (
-                      <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                        {selectedCategory.nature}
-                      </span>
-                    )}
+        <div className="p-5 space-y-4">
+          {/* Expense Details Groupbox matching Screenshot */}
+          <div className="relative rounded border border-slate-300 dark:border-slate-700/80 bg-white dark:bg-slate-900 p-4 pt-5 shadow-xs">
+            <span className="absolute -top-2.5 left-3 bg-white dark:bg-slate-900 px-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
+              Expense Details
+            </span>
+
+            {/* 2-Column Grid Layout matching screenshot */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3.5 items-start">
+              {/* ═══ LEFT COLUMN: Date, Expense Type, Amount, Paid To, Remarks ═══ */}
+              <div className="space-y-3">
+                {/* Date */}
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <Label className="col-span-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    Date
+                  </Label>
+                  <div className="col-span-8">
+                    <Input
+                      type="date"
+                      value={expenseDate}
+                      onChange={(e) => setExpenseDate(e.target.value)}
+                      className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-mono"
+                    />
                   </div>
-                  <Select value={categoryId} onValueChange={setCategoryId}>
-                    <SelectTrigger id="exp-cat">
-                      <SelectValue placeholder="Select expense category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((c) => (
-                        <SelectItem key={c._id} value={c._id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Row 2: Paid To & Total Amount */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="exp-paid-to">Paid To / Beneficiary</Label>
-                  <Input
-                    id="exp-paid-to"
-                    placeholder="e.g. Adani Electricity, Landlord, Dr. Sharma"
-                    value={paidTo}
-                    onChange={(e) => setPaidTo(e.target.value)}
-                  />
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="exp-total">Total Amount (₹) *</Label>
-                  <Input
-                    id="exp-total"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={totalAmount}
-                    onChange={(e) => handleTotalChange(e.target.value === "" ? "" : parseFloat(e.target.value))}
-                    className="text-base font-semibold"
-                  />
-                </div>
-              </div>
-
-              {/* Row 3: Bill Reference & Description */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="exp-ref">Bill / Invoice Reference No.</Label>
-                  <Input
-                    id="exp-ref"
-                    placeholder="e.g. INV-2026-0881"
-                    value={billRefNo}
-                    onChange={(e) => setBillRefNo(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="exp-desc">Remarks / Description</Label>
-                  <Input
-                    id="exp-desc"
-                    placeholder="Brief description of expense..."
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Payment Allocation (SplitPaymentInput) */}
-              <div className="space-y-2 pt-2 border-t border-border">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Payment Mode &amp; Account Breakdown
-                </Label>
-                <SplitPaymentInput
-                  total={numericTotal}
-                  lines={paymentLines}
-                  onChange={setPaymentLines}
-                  accounts={accounts}
-                  requireExactMatch={true}
-                />
-              </div>
-
-              {/* Optional GST / Vendor Tax Info */}
-              <div className="rounded-xl border border-border/80 bg-muted/20 p-3">
-                <button
-                  type="button"
-                  onClick={() => setShowGst(!showGst)}
-                  className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground"
-                >
-                  <span>GST &amp; Tax Details (Optional)</span>
-                  <span>{showGst ? "− Hide" : "+ Add"}</span>
-                </button>
-                {showGst && (
-                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 animate-in fade-in">
-                    <div className="space-y-1">
-                      <Label htmlFor="exp-gst" className="text-xs">GST Included (₹)</Label>
-                      <Input
-                        id="exp-gst"
-                        type="number"
-                        min="0"
-                        placeholder="0.00"
-                        value={gstAmount}
-                        onChange={(e) => setGstAmount(e.target.value === "" ? "" : parseFloat(e.target.value))}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="exp-gstin" className="text-xs">Vendor GSTIN</Label>
-                      <Input
-                        id="exp-gstin"
-                        placeholder="27AAAAA0000A1Z5"
-                        value={vendorGstin}
-                        onChange={(e) => setVendorGstin(e.target.value)}
-                        className="h-8 text-xs uppercase"
-                      />
-                    </div>
+                {/* Expense Type * */}
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <Label className="col-span-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    Expense Type <span className="text-rose-500">*</span>
+                  </Label>
+                  <div className="col-span-8">
+                    <Select value={categoryId} onValueChange={setCategoryId}>
+                      <SelectTrigger className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-medium">
+                        <SelectValue placeholder="Select Expense Type" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-56">
+                        {categories.map((c) => (
+                          <SelectItem key={c._id} value={c._id} className="text-xs">
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
+                </div>
+
+                {/* Amount * with Blue ₹ Box */}
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <Label className="col-span-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    Amount <span className="text-rose-500">*</span>
+                  </Label>
+                  <div className="col-span-8 flex items-center">
+                    <div className="flex h-7 items-center justify-center px-2.5 bg-[#1976d2] text-white text-xs font-bold rounded-l">
+                      ₹
+                    </div>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={amount || ""}
+                      onChange={(e) => setAmount(parseFloat(e.target.value) || "")}
+                      placeholder=""
+                      className="h-7 rounded-l-none text-xs font-mono font-bold bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Paid To * */}
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <Label className="col-span-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    Paid To <span className="text-rose-500">*</span>
+                  </Label>
+                  <div className="col-span-8">
+                    <Input
+                      value={paidTo}
+                      onChange={(e) => setPaidTo(e.target.value)}
+                      placeholder=""
+                      className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Remarks */}
+                <div className="grid grid-cols-12 gap-2 items-start">
+                  <Label className="col-span-4 text-xs text-slate-700 dark:text-slate-300 font-medium pt-1">
+                    Remarks
+                  </Label>
+                  <div className="col-span-8">
+                    <Textarea
+                      rows={3}
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      placeholder=""
+                      className="text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 min-h-[60px]"
+                    />
+                  </div>
+                </div>
               </div>
-            </>
-          )}
-        </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-border px-6 py-4 bg-muted/20">
-          <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
+              {/* ═══ RIGHT COLUMN: Pay Mode, Payment Ref. No., Paid By ═══ */}
+              <div className="space-y-3">
+                {/* Pay Mode * */}
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <Label className="col-span-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    Pay Mode <span className="text-rose-500">*</span>
+                  </Label>
+                  <div className="col-span-8">
+                    <Select value={payMode} onValueChange={(v: any) => setPayMode(v)}>
+                      <SelectTrigger className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-medium">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CASH" className="text-xs">Cash</SelectItem>
+                        <SelectItem value="UPI" className="text-xs">UPI / QR</SelectItem>
+                        <SelectItem value="BANK_TRANSFER" className="text-xs">Bank Transfer / NEFT</SelectItem>
+                        <SelectItem value="CARD" className="text-xs">Debit / Credit Card</SelectItem>
+                        <SelectItem value="CHEQUE" className="text-xs">Cheque</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
 
-          <div className="flex items-center gap-2">
+                {/* Payment Ref. No. */}
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <Label className="col-span-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    Payment Ref. No.
+                  </Label>
+                  <div className="col-span-8">
+                    <Input
+                      value={paymentRefNo}
+                      onChange={(e) => setPaymentRefNo(e.target.value)}
+                      placeholder=""
+                      disabled={payMode === "CASH"}
+                      className={`h-7 text-xs border-slate-300 dark:border-slate-700 font-mono ${
+                        payMode === "CASH"
+                          ? "bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
+                          : "bg-white dark:bg-slate-950"
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Paid By * */}
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <Label className="col-span-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    Paid By <span className="text-rose-500">*</span>
+                  </Label>
+                  <div className="col-span-8">
+                    <Input
+                      value={paidBy}
+                      onChange={(e) => setPaidBy(e.target.value)}
+                      placeholder="Dr. Rohit Sharma"
+                      className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-medium"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Footer: Save Button */}
+          <div className="flex items-center justify-end pt-1">
             <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => handleSave(true)}
-              disabled={submitting || loading || Math.abs(diff) > 0.01}
+              type="button"
+              onClick={handleSave}
+              disabled={submitting}
+              className="h-9 px-6 gap-2 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold text-xs shadow-sm"
             >
-              Save &amp; New
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => handleSave(false)}
-              disabled={submitting || loading || Math.abs(diff) > 0.01}
-              className="gap-1.5"
-            >
-              <Check className="size-4" /> Save Expense
+              <Save className="size-3.5" />
+              <span>{submitting ? "Saving..." : "Save"}</span>
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

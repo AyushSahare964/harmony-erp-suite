@@ -26,7 +26,7 @@ import { todayIST, formatDisplayDate } from "@/lib/utils/dateUtils";
 
 export interface BillingReminder {
   id: string;
-  invoiceNo?: string;
+  invoiceNo?: string | undefined;
   petName: string;
   ownerName: string;
   ownerPhone: string;
@@ -81,6 +81,7 @@ interface BillingReminderModalProps {
 
 export function BillingReminderModal({ open, onClose, invoices = [] }: BillingReminderModalProps) {
   const [reminders, setReminders] = useState<BillingReminder[]>(() => {
+    if (typeof window === "undefined") return DEFAULT_REMINDERS;
     try {
       const saved = localStorage.getItem("vetos_billing_reminders");
       if (saved) return JSON.parse(saved);

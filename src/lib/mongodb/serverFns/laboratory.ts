@@ -110,12 +110,6 @@ const SEED_LAB_ORDERS = [
 export const listLabOrdersFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
-    const count = await ErpRow.countDocuments({ moduleId: "lab_orders" });
-    if (count === 0) {
-      for (const item of SEED_LAB_ORDERS) {
-        await ErpRow.create({ moduleId: "lab_orders", data: item });
-      }
-    }
     const docs = await ErpRow.find({ moduleId: "lab_orders" }).sort({ createdAt: -1 }).lean();
     return toPlain(docs.map((d) => d.data));
   });

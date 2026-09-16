@@ -24,25 +24,7 @@ export const getRowsFn = createServerFn({ method: "GET" })
       .sort({ createdAt: -1 })
       .lean();
 
-    if (docs.length > 0) {
-      return toPlain(docs.map((d) => d.data as Row));
-    }
-
-    // Fall back to static seed data on first access (auto-seeds the module)
-    const seed = WORKSPACES[data.moduleId]?.rows ?? [];
-    if (seed.length > 0) {
-      try {
-        await ErpRow.insertMany(
-          seed.map((row) => ({ moduleId: data.moduleId, data: row })),
-          { ordered: false }
-        );
-      } catch {
-        // E11000 duplicate — already seeded, safe to ignore
-      }
-    }
-    // Re-fetch so we always return what's actually in the DB
-    const seeded = await ErpRow.find({ moduleId: data.moduleId }).sort({ createdAt: -1 }).lean();
-    return toPlain(seeded.length > 0 ? seeded.map((d) => d.data as Row) : seed);
+    return toPlain(docs.map((d) => d.data as Row));
   });
 
 // ─── addRowFn ────────────────────────────────────────────────────────────────
@@ -98,13 +80,5 @@ export const resetRowsFn = createServerFn({ method: "POST" })
 
     // Delete all persisted rows for this module
     await ErpRow.deleteMany({ moduleId: data.moduleId });
-
-    // Re-seed from static workspace definition
-    const seed = WORKSPACES[data.moduleId]?.rows ?? [];
-    if (seed.length > 0) {
-      await ErpRow.insertMany(
-        seed.map((row) => ({ moduleId: data.moduleId, data: row }))
-      );
-    }
     return { success: true };
   });

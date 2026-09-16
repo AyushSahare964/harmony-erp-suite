@@ -236,12 +236,7 @@ const SEED_VISITS = [
 
 async function ensureVisitsSeeded() {
   await connectDB();
-  const count = await ClinicalVisit.countDocuments();
-  if (count === 0) {
-    for (const v of SEED_VISITS) {
-      await ClinicalVisit.findOneAndUpdate({ visitId: v.visitId }, { $setOnInsert: v }, { upsert: true });
-    }
-  }
+  // Auto-seeding disabled to preserve clean database state
 }
 
 // ─── Server Functions ─────────────────────────────────────────────────────────
@@ -401,6 +396,10 @@ export const savePrescriptionFn = createServerFn({ method: "POST" })
       visit.status = "In Consultation";
     }
 
+    visit.markModified("prescriptionData");
+    visit.markModified("items");
+    if (visit.vitals) visit.markModified("vitals");
+
     await visit.save();
 
     // Auto-sync appointment if next visit scheduled
@@ -471,9 +470,34 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
   .handler(async ({ data }: { data: z.infer<typeof SectionSaveInputZ> }) => {
     await connectDB();
 
-    const visit = await ClinicalVisit.findOne({ visitId: data.visitId });
+    let visit = await ClinicalVisit.findOne({ visitId: data.visitId });
     if (!visit) {
-      throw new Error(`Visit with ID ${data.visitId} not found.`);
+      const invSeq = await nextSeq("invoice_no", "INV/2026-27", 4, maxInvoiceSeq);
+      const rxSeq = await nextSeq("prescription_no", "RX", 4, maxRxSeq);
+      visit = new ClinicalVisit({
+        visitId: data.visitId,
+        invoiceNo: invSeq,
+        prescriptionNo: rxSeq,
+        date: new Date().toISOString().slice(0, 10),
+        branch: "Main Clinic",
+        billType: "GST",
+        petId: "PET-0001",
+        petName: "Patient",
+        species: "Canine",
+        breed: "Standard",
+        ownerId: "OWN-0001",
+        ownerName: "Client",
+        ownerPhone: "N/A",
+        doctorName: "Dr. Rohit Sharma",
+        receptionistName: "Front Desk",
+        status: "In Consultation",
+        items: [],
+        subtotal: 0,
+        totalAmount: 0,
+        amountPaid: 0,
+        balanceDue: 0,
+        payments: [],
+      });
     }
 
     // 1. Optimistic Locking Check (§5.2)
@@ -490,19 +514,9 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
       (visit.status as string) === "Settled" ||
       visit.status === "Closed";
 
-    const billableSections = [
-      "FEE",
-      "IMMEDIATE_MED",
-      "PRESCRIBED_MED",
-      "INJECTABLE",
-      "ANIMAL_FOOD",
-      "PRESCRIBED_FOOD",
-      "ACCESSORY",
-    ];
-
-    if (isSettled && billableSections.includes(data.section)) {
+    if (isSettled && data.section === "FEE") {
       throw new Error(
-        "BILL_SETTLED: This visit's bill has already been settled. Billable prescription items are locked and cannot be modified."
+        "BILL_SETTLED: This visit's bill has already been settled. Consultation Fee cannot be modified on a closed invoice."
       );
     }
 
@@ -669,65 +683,67 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
           }));
         }
 
-        // 4. Billing Sync: Replace-set for this section's lines (§1.3, §5.3)
-        visit.items = (visit.items || []).filter(
-          (l: any) =>
-            !(l.sourceType === "RX_ITEM" && l.rxSection === data.section)
-        );
+        // 4. Billing Sync: Replace-set for this section's lines (§1.3, §5.3) - only if bill is not settled
+        if (!isSettled) {
+          visit.items = (visit.items || []).filter(
+            (l: any) =>
+              !(l.sourceType === "RX_ITEM" && l.rxSection === data.section)
+          );
 
-        for (const it of items) {
-          const qty = Number(it.quantity) || 1;
-          const price = Number(it.unitPrice) || 0;
-          const disc = Number(it.discountPercent) || 0;
-          const defaultGst =
-            data.section === "ANIMAL_FOOD" ||
-            data.section === "PRESCRIBED_FOOD" ||
-            data.section === "ACCESSORY"
-              ? 18
-              : 12;
-          const gst = Number(it.gstRate) || (visit.billType === "GST" ? defaultGst : 0);
+          for (const it of items) {
+            const qty = Number(it.quantity) || 1;
+            const price = Number(it.unitPrice) || 0;
+            const disc = Number(it.discountPercent) || 0;
+            const defaultGst =
+              data.section === "ANIMAL_FOOD" ||
+              data.section === "PRESCRIBED_FOOD" ||
+              data.section === "ACCESSORY"
+                ? 18
+                : 12;
+            const gst = Number(it.gstRate) || (visit.billType === "GST" ? defaultGst : 0);
 
-          const lineCalc = calcLineItem({
-            quantity: qty,
-            unitPrice: price,
-            discountType: disc > 0 ? "percentage" : undefined,
-            discountValue: disc,
-            gstRate: gst,
-            applyGst: visit.billType === "GST",
-          });
+            const lineCalc = calcLineItem({
+              quantity: qty,
+              unitPrice: price,
+              discountType: disc > 0 ? "percentage" : undefined,
+              discountValue: disc,
+              gstRate: gst,
+              applyGst: visit.billType === "GST",
+            });
 
-          const isVaccine =
-            it.name?.toLowerCase().includes("vaccine") ||
-            it.lineType === "Vaccine";
-          const lineType =
-            data.section === "ANIMAL_FOOD" || data.section === "PRESCRIBED_FOOD"
-              ? "Food"
-              : data.section === "ACCESSORY"
-              ? "Accessory"
-              : isVaccine
-              ? "Vaccine"
-              : "Pharmacy";
+            const isVaccine =
+              it.name?.toLowerCase().includes("vaccine") ||
+              it.lineType === "Vaccine";
+            const lineType =
+              data.section === "ANIMAL_FOOD" || data.section === "PRESCRIBED_FOOD"
+                ? "Food"
+                : data.section === "ACCESSORY"
+                ? "Accessory"
+                : isVaccine
+                ? "Vaccine"
+                : "Pharmacy";
 
-          visit.items.push({
-            id: it.id,
-            lineType,
-            itemCode: it.itemCode,
-            batchNo: it.batchNo,
-            name: it.name,
-            dosageInstructions: it.dosage || it.instructions || it.dosageInstructions,
-            quantity: qty,
-            unitPrice: price,
-            discountPercent: disc,
-            discountType: disc > 0 ? "percentage" : undefined,
-            discountValue: disc,
-            discountAmount: lineCalc.discountAmount,
-            taxableAmount: lineCalc.taxableAmount,
-            gstRate: gst,
-            lineTotal: lineCalc.lineTotal,
-            sourceType: "RX_ITEM",
-            sourceId: it.id,
-            rxSection: data.section,
-          });
+            visit.items.push({
+              id: it.id,
+              lineType,
+              itemCode: it.itemCode,
+              batchNo: it.batchNo,
+              name: it.name,
+              dosageInstructions: it.dosage || it.instructions || it.dosageInstructions,
+              quantity: qty,
+              unitPrice: price,
+              discountPercent: disc,
+              discountType: disc > 0 ? "percentage" : undefined,
+              discountValue: disc,
+              discountAmount: lineCalc.discountAmount,
+              taxableAmount: lineCalc.taxableAmount,
+              gstRate: gst,
+              lineTotal: lineCalc.lineTotal,
+              sourceType: "RX_ITEM",
+              sourceId: it.id,
+              rxSection: data.section,
+            });
+          }
         }
         break;
       }
@@ -947,27 +963,29 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
       }
     }
 
-    // 5. Authoritative Bill Recalculation (§1.7, §5.3)
-    const billSummary = calcBillSummary(
-      (visit.items || []).map((l: any) => ({
-        quantity: l.quantity,
-        unitPrice: l.unitPrice,
-        discountType: l.discountType || "percentage",
-        discountValue: l.discountValue ?? l.discountPercent ?? 0,
-        gstRate: l.gstRate || 0,
-      })),
-      visit.billType === "GST"
-    );
+    // 5. Authoritative Bill Recalculation (§1.7, §5.3) - only if bill is not settled
+    if (!isSettled) {
+      const billSummary = calcBillSummary(
+        (visit.items || []).map((l: any) => ({
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          discountType: l.discountType || "percentage",
+          discountValue: l.discountValue ?? l.discountPercent ?? 0,
+          gstRate: l.gstRate || 0,
+        })),
+        visit.billType === "GST"
+      );
 
-    visit.subtotal = billSummary.subtotal;
-    visit.taxableAmount = billSummary.subtotal;
-    visit.gstAmount = billSummary.totalGst;
-    visit.roundOff = billSummary.roundOff;
-    visit.totalAmount = billSummary.roundedTotal;
-    visit.balanceDue = Math.max(
-      0,
-      roundMoney(billSummary.roundedTotal - (visit.amountPaid || 0))
-    );
+      visit.subtotal = billSummary.subtotal;
+      visit.taxableAmount = billSummary.subtotal;
+      visit.gstAmount = billSummary.totalGst;
+      visit.roundOff = billSummary.roundOff;
+      visit.totalAmount = billSummary.roundedTotal;
+      visit.balanceDue = Math.max(
+        0,
+        roundMoney(billSummary.roundedTotal - (visit.amountPaid || 0))
+      );
+    }
 
     // 6. Bump Optimistic Version & Timestamp
     const nextVersion = Math.max(currentVersion, typeof data.version === "number" ? data.version : 0) + 1;
@@ -1222,8 +1240,12 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     }
 
     // 3. Update Clinical Visit Record
-    if (data.prescriptionData !== undefined) {
-      visit.prescriptionData = data.prescriptionData;
+    if (data.prescriptionData !== undefined && data.prescriptionData !== null) {
+      visit.prescriptionData = {
+        ...(visit.prescriptionData || {}),
+        ...data.prescriptionData,
+      };
+      visit.markModified("prescriptionData");
     }
     if (data.vitals) {
       const wUnit = data.vitals.weightUnit || "kg";
@@ -1280,6 +1302,9 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
 
     visit.status = status;
     visit.inventoryDeducted = true;
+    visit.markModified("prescriptionData");
+    visit.markModified("items");
+    if (visit.vitals) visit.markModified("vitals");
     await visit.save();
 
     // 4. Save into Clinical Reports & Medical Records Master (ErpRow with moduleId: "clinical_reports")
@@ -1440,4 +1465,13 @@ export const getUpcomingFollowUpsFn = createServerFn({ method: "GET" })
       doctorName: v.doctorName,
       diagnosis: v.diagnosis,
     })));
+  });
+
+export const getVisitByIdFn = createServerFn({ method: "GET" })
+  .validator((raw: unknown) => z.object({ visitId: z.string().min(1) }).parse(raw))
+  .handler(async ({ data }: { data: { visitId: string } }) => {
+    await connectDB();
+    const visit = await ClinicalVisit.findOne({ visitId: data.visitId }).lean();
+    if (!visit) return null;
+    return toPlain<any>(visit);
   });
