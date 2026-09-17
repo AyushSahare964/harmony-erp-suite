@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -22,16 +23,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-const LAB_VOLUME_DATA = [
-  { name: "Mon", cbc: 18, biochem: 12, serology: 6 },
-  { name: "Tue", cbc: 22, biochem: 15, serology: 8 },
-  { name: "Wed", cbc: 20, biochem: 14, serology: 7 },
-  { name: "Thu", cbc: 25, biochem: 18, serology: 9 },
-  { name: "Fri", cbc: 28, biochem: 20, serology: 11 },
-  { name: "Sat", cbc: 34, biochem: 24, serology: 15 },
-  { name: "Sun", cbc: 16, biochem: 10, serology: 4 },
-];
-
 const ANALYZER_STATUS = [
   { name: "Mindray BC-5000 Vet (Hematology)", status: "Calibrated & Online", lastQC: "Today 07:30 AM", reagentLevel: "88%", nextCalib: "2026-09-01" },
   { name: "Fuji Dri-Chem NX500i (Biochemistry)", status: "Calibrated & Online", lastQC: "Today 08:00 AM", reagentLevel: "92%", nextCalib: "2026-08-30" },
@@ -39,7 +30,46 @@ const ANALYZER_STATUS = [
   { name: "Olympus CX23 Diagnostic Microscope", status: "Cleaned & Aligned", lastQC: "Weekly Review", reagentLevel: "—", nextCalib: "2026-10-01" },
 ];
 
-export function LabAnalytics() {
+interface Props {
+  orders?: any[];
+}
+
+export function LabAnalytics({ orders = [] }: Props) {
+  const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  const weeklyVolumeData = useMemo(() => {
+    const data = daysOfWeek.map((day) => ({ name: day, cbc: 0, biochem: 0, serology: 0 }));
+
+    orders.forEach((o) => {
+      const d = o.collected || o.createdAt || o.date;
+      if (!d) return;
+      const dateObj = new Date(d);
+      if (isNaN(dateObj.getTime())) return;
+      const dayIndex = (dateObj.getDay() + 6) % 7; // Monday=0 .. Sunday=6
+      const bucket = data[dayIndex];
+      if (!bucket) return;
+
+      const testName = String(o.test || o.testName || "").toLowerCase();
+      if (testName.includes("cbc") || testName.includes("blood") || testName.includes("hema")) {
+        bucket.cbc += 1;
+      } else if (testName.includes("lft") || testName.includes("kft") || testName.includes("chem") || testName.includes("bio")) {
+        bucket.biochem += 1;
+      } else {
+        bucket.serology += 1;
+      }
+    });
+
+    return data;
+  }, [orders]);
+
+  const totalWeeklyTests = useMemo(() => {
+    return weeklyVolumeData.reduce((acc, d) => acc + d.cbc + d.biochem + d.serology, 0);
+  }, [weeklyVolumeData]);
+
+  const maxWeeklyVal = useMemo(() => {
+    return Math.max(0, ...weeklyVolumeData.map((d) => Math.max(d.cbc, d.biochem, d.serology)));
+  }, [weeklyVolumeData]);
+
   return (
     <div className="space-y-6">
       {/* 2-Column Grid */}
@@ -52,16 +82,22 @@ export function LabAnalytics() {
               <p className="text-[11px] text-muted-foreground">Breakdown of Hematology, Biochemistry &amp; Serology tests</p>
             </div>
             <Badge variant="outline" className="text-xs font-semibold text-primary bg-primary/10">
-              163 tests this week
+              {totalWeeklyTests} tests this week
             </Badge>
           </div>
 
           <div className="h-[230px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={LAB_VOLUME_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <BarChart data={weeklyVolumeData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }} />
-                <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }} />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
+                  domain={[0, maxWeeklyVal > 0 ? "auto" : 5]}
+                  allowDecimals={false}
+                />
                 <Tooltip
                   cursor={{ fill: "var(--color-muted)" }}
                   contentStyle={{ borderRadius: 10, border: "1px solid var(--color-border)", fontSize: 12 }}

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Printer, Download, Stethoscope, Pill, Syringe, Utensils, AlertCircle, Sparkles, Calendar, CheckSquare } from "lucide-react";
 import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 
 interface Props {
   visit: any;
@@ -73,23 +74,33 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
         <div id="prescription-printable-area" className="flex-1 overflow-y-auto p-8 bg-white text-slate-900 space-y-5 print:p-0 print:space-y-4 font-sans text-xs">
           
           {/* Clinic Letterhead */}
-          <div className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between">
-            <div>
-              <h1 className="text-xl font-black tracking-tight text-blue-900 uppercase">
-                VETCARE SPECIALTY PET HOSPITAL
-              </h1>
-              <p className="text-[11px] text-slate-600 mt-0.5">
-                Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009
-              </p>
-              <p className="text-[11px] text-slate-600">
-                Phone: +91 712 2548899 · Email: care@vetcarehospital.com · Reg No: MH/VET/2019/8821
-              </p>
+          <div className="border-b-2 border-blue-900 pb-3.5 flex items-start justify-between">
+            <div className="flex items-start gap-3">
+              <img
+                src={CLINIC_CONFIG.logoPath}
+                alt={CLINIC_CONFIG.fullName}
+                className="h-16 w-auto object-contain flex-shrink-0"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+              <div>
+                <h1 className="text-xl font-black tracking-tight text-blue-900 uppercase">
+                  {CLINIC_CONFIG.fullName}
+                </h1>
+                <p className="text-[11px] font-semibold text-blue-800">{CLINIC_CONFIG.subName}</p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  {CLINIC_CONFIG.addressLine2}
+                </p>
+                <p className="text-[11px] text-slate-600">
+                  Phone: {CLINIC_CONFIG.phone} · Email: {CLINIC_CONFIG.email} · {CLINIC_CONFIG.website}
+                </p>
+              </div>
             </div>
             <div className="text-right text-[11px] space-y-0.5">
               <p className="font-bold text-sm text-blue-900">
-                {visit?.doctorName || "Dr. Rohit Sharma, B.V.Sc & A.H."}
+                {CLINIC_CONFIG.doctorName}
               </p>
-              <p className="text-slate-500 text-[10px]">Chief Veterinary Physician &amp; Surgeon</p>
+              <p className="text-slate-500 text-[10px]">{CLINIC_CONFIG.doctorQualifications}</p>
+              <p className="text-slate-500 text-[10px]">{CLINIC_CONFIG.doctorDesignation}</p>
               <p className="text-slate-500 font-mono text-[10px]">
                 Date: {formatDisplayDate(visit?.date) || visit?.date || new Date().toISOString().slice(0, 10)}
               </p>

@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { createFeedingPlanFn } from "@/lib/mongodb/serverFns/nutrition";
 import { cn } from "@/lib/utils";
 
 export const THERAPEUTIC_DIETS = [
@@ -111,7 +112,7 @@ export function NewFeedingPlanModal({ open, onClose, onPlanCreated }: Props) {
   };
 
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!selectedPet) {
       toast.error("Please select a pet");
       return;
@@ -140,12 +141,17 @@ export function NewFeedingPlanModal({ open, onClose, onPlanCreated }: Props) {
       createdAt: new Date().toISOString().slice(0, 10),
     };
 
-    setTimeout(() => {
-      setSubmitting(false);
+    try {
+      await createFeedingPlanFn({ data: newPlan });
       toast.success(`Feeding Plan ${planId} prescribed for ${selectedPet.name}!`);
       onPlanCreated?.(newPlan);
       onClose();
-    }, 200);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save feeding plan");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

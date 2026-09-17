@@ -36,6 +36,11 @@ import {
   listSwimSessionsFn,
 } from "@/lib/mongodb/serverFns/facilities";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
+import { listAppointmentsFn } from "@/lib/mongodb/serverFns/appointments";
+import { getRowsFn } from "@/lib/mongodb/serverFns/rows";
+import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
+import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import type { Kpi } from "@/lib/erp/config";
 
 interface Props {
   role: any;
@@ -77,22 +82,34 @@ export function AdminDashboardView({
   const [boardingList, setBoardingList] = useState<any[]>([]);
   const [swimSessions, setSwimSessions] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [hrmsStaff, setHrmsStaff] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [petsList, setPetsList] = useState<any[]>([]);
   const [loadingFacilities, setLoadingFacilities] = useState(true);
 
   useEffect(() => {
     void (async () => {
       setLoadingFacilities(true);
       try {
-        const [lab, boarding, swim, inv] = await Promise.all([
-          listLabOrdersFn(),
-          listBoardingBookingsFn(),
-          listSwimSessionsFn(),
-          getItemsFn({ data: { status: "Active" } }),
+        const [lab, boarding, swim, inv, appts, hrms, staff, pets] = await Promise.all([
+          listLabOrdersFn().catch(() => []),
+          listBoardingBookingsFn().catch(() => []),
+          listSwimSessionsFn().catch(() => []),
+          getItemsFn({ data: { status: "Active" } }).catch(() => []),
+          listAppointmentsFn().catch(() => []),
+          getRowsFn({ data: { moduleId: "hrms" } }).catch(() => []),
+          listApprovedDoctorsFn().catch(() => []),
+          listPetsWithOwnersFn().catch(() => []),
         ]);
         setLabOrders(lab ?? []);
         setBoardingList(boarding ?? []);
         setSwimSessions(swim ?? []);
         setInventory(inv ?? []);
+        setAppointments(appts ?? []);
+        setHrmsStaff(hrms ?? []);
+        setStaffList(staff ?? []);
+        setPetsList(pets ?? []);
       } catch (e) {
         console.warn("Admin dashboard data fetch error:", e);
       } finally {
@@ -136,17 +153,82 @@ export function AdminDashboardView({
   const outOfStock = inventory.filter(i => i.currentStock === 0);
   const expiringSoon = inventory.filter(i => { const exp = i.medicineDetails?.expiryDate; if (!exp) return false; const d = new Date(exp); return d >= now && d <= soon; });
 
-  const revMix = useMemo(() => ({
-    Clinical: visits.reduce((s, v) => s + Number(v.totalAmount || 0), 0),
-    Lab: labOrders.length * 500,
-    Boarding: boardingOccupied * 800,
-    Swimming: swimCompleted * 600,
-  }), [visits, labOrders, boardingOccupied, swimCompleted]);
-  const revTotal = Object.values(revMix).reduce((a, b) => a + b, 0) || 1;
-
   const isCompleted = (v: any) =>
     v.status === "PAID" || v.status === "Settled" || v.status === "Paid" || v.status === "Completed" || v.status === "Partially Paid" ||
     (Number(v.totalAmount || 0) > 0 && Number(v.amountPaid || 0) >= Number(v.totalAmount || 0));
+
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  const todayAppointments = useMemo(() => {
+    return appointments.filter((a: any) => {
+      const d = (a.appointment_date || a.date || a.createdAt || "").slice(0, 10);
+      return !d || d === todayStr;
+    });
+  }, [appointments, todayStr]);
+
+  const appointmentsCount = todayAppointments.length > 0 ? todayAppointments.length : visits.length;
+
+  const appointmentsTrend = useMemo(() => {
+    if (waitingVisits.length > 0) return `${waitingVisits.length} in OPD queue`;
+    if (appointmentsCount > 0) {
+      const completed = todayAppointments.filter((a: any) => a.status === "Completed").length;
+      return completed > 0 ? `${completed} completed` : `${appointmentsCount} scheduled`;
+    }
+    return "0 in OPD queue";
+  }, [waitingVisits.length, appointmentsCount, todayAppointments]);
+
+  const revMix = useMemo(() => ({
+    Clinical: visits.reduce((s, v) => s + Number(v.amountPaid || (isCompleted(v) ? v.totalAmount : 0) || 0), 0),
+    Lab: labOrders.filter(o => o.status === "Completed").length * 500,
+    Boarding: boardingOccupied * 800,
+    Swimming: swimCompleted * 600,
+  }), [visits, labOrders, boardingOccupied, swimCompleted]);
+
+  const revTotal = useMemo(() => Object.values(revMix).reduce((a, b) => a + b, 0), [revMix]);
+  const revMax = Math.max(revTotal, 1);
+
+  const boardingPct = boardingTotal > 0 ? Math.round((boardingOccupied / boardingTotal) * 100) : 0;
+  const totalLowStock = lowStock.length + outOfStock.length;
+
+  const presentStaff = hrmsStaff.filter((r: any) => r.status === "Present" || r.status === "Late").length;
+  const onLeaveStaff = hrmsStaff.filter((r: any) => r.status === "On leave" || r.status === "Leave").length;
+  const activeStaffCount = hrmsStaff.length > 0 ? presentStaff : staffList.length;
+
+  const snapshotKpis: Kpi[] = useMemo(() => [
+    {
+      label: "Today's Appointments",
+      value: String(appointmentsCount),
+      trend: appointmentsTrend,
+      trendTone: appointmentsCount > 0 ? "up" : "flat",
+    },
+    {
+      label: "Revenue Today",
+      value: `₹${revTotal.toLocaleString("en-IN")}`,
+      trend: revTotal > 0 ? `${visits.filter(isCompleted).length} settled visits` : "₹0 collected today",
+      trendTone: revTotal > 0 ? "up" : "flat",
+    },
+    {
+      label: "Boarding Occupancy",
+      value: `${boardingPct}%`,
+      trend: `${boardingOccupied} / ${boardingTotal} kennels`,
+      trendTone: boardingOccupied > 0 ? "up" : "flat",
+    },
+    {
+      label: "Low-Stock Items",
+      value: String(totalLowStock),
+      trend: outOfStock.length > 0 ? `${outOfStock.length} out of stock` : lowStock.length > 0 ? `${lowStock.length} reorder alert` : "Stock levels normal",
+      trendTone: totalLowStock > 0 ? "down" : "up",
+    },
+    {
+      label: "Staff on Shift",
+      value: String(activeStaffCount),
+      trend: onLeaveStaff > 0 ? `${onLeaveStaff} on leave` : activeStaffCount > 0 ? "Roster active" : "0 on shift",
+      trendTone: activeStaffCount > 0 ? "up" : "flat",
+    },
+  ], [appointmentsCount, appointmentsTrend, revTotal, visits, boardingPct, boardingOccupied, boardingTotal, totalLowStock, outOfStock.length, lowStock.length, activeStaffCount, onLeaveStaff]);
 
   const statusBadge = (v: any) => {
     if (isCompleted(v)) return { label: "Completed", cls: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" };
@@ -154,6 +236,92 @@ export function AdminDashboardView({
     if (v.prescriptionData?.laboratoryRequired || String(v.status || "").toLowerCase().includes("lab"))
       return { label: "Lab Ready", cls: "bg-amber-500/10 text-amber-700 border-amber-500/20" };
     return { label: "Waiting", cls: "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600" };
+  };
+
+  const pharmacySales = useMemo(() => {
+    return visits.reduce((sum, v) => {
+      const itemsSum = (v.items || [])
+        .filter((i: any) => String(i.lineType || "").toLowerCase() === "pharmacy" || String(i.lineType || "").toLowerCase() === "vaccine")
+        .reduce((s: number, i: any) => s + Number(i.lineTotal || 0), 0);
+      return sum + itemsSum;
+    }, 0);
+  }, [visits]);
+
+  const resolveCard = (card: any) => {
+    const c = { ...card };
+    delete c.trend;
+    delete c.trendTone;
+    delete c.badge;
+
+    if (card.module === "identity") {
+      c.metricLabel = "Active staff accounts";
+      c.metricValue = String(activeStaffCount);
+    } else if (card.module === "crm-pets") {
+      c.metricLabel = "Registered patients";
+      c.metricValue = String(petsList.length);
+    } else if (card.module === "appointments") {
+      c.metricLabel = "In queue now";
+      c.metricValue = String(waitingVisits.length);
+      if (waitingVisits.length > 0) c.badge = `${waitingVisits.length} waiting`;
+      if (appointmentsCount > 0) c.trend = `${appointmentsCount} scheduled today`;
+    } else if (card.module === "laboratory") {
+      c.metricLabel = "Pending reports";
+      c.metricValue = String(labPending);
+      if (labCritical > 0) c.badge = `${labCritical} critical`;
+    } else if (card.module === "boarding") {
+      c.metricLabel = "Occupied kennels";
+      c.metricValue = `${boardingOccupied} / ${boardingTotal}`;
+      if (swimToday > 0) c.badge = `${swimToday} swim today`;
+    } else if (card.module === "pharmacy") {
+      c.metricLabel = "Sales today";
+      c.metricValue = `₹${pharmacySales.toLocaleString("en-IN")}`;
+    } else if (card.module === "nutrition") {
+      c.metricLabel = "Diet plans active";
+      c.metricValue = String(boardingMedDue);
+    } else if (card.module === "inventory") {
+      c.metricLabel = "Low-stock items";
+      c.metricValue = String(totalLowStock);
+      if (outOfStock.length > 0) c.badge = `${outOfStock.length} out of stock`;
+      else if (expiringSoon.length > 0) c.badge = `${expiringSoon.length} expiring`;
+    } else if (card.module === "billing") {
+      if (card.title?.includes("Manual")) {
+        c.metricLabel = "Invoices today";
+        c.metricValue = String(visits.length);
+      } else if (card.title?.includes("Analytics")) {
+        c.metricLabel = "Total outstanding";
+        c.metricValue = `₹${outstanding.toLocaleString("en-IN")}`;
+      } else if (card.title?.includes("Subscription")) {
+        c.metricLabel = "Settled visits";
+        c.metricValue = String(visits.filter(isCompleted).length);
+      } else {
+        c.metricLabel = "Unpaid invoices";
+        c.metricValue = String(waitingVisits.length);
+      }
+    } else if (card.module === "accounting") {
+      c.metricLabel = "Revenue today";
+      c.metricValue = `₹${revTotal.toLocaleString("en-IN")}`;
+    } else if (card.module === "hrms") {
+      c.metricLabel = "On leave today";
+      c.metricValue = String(onLeaveStaff);
+      if (presentStaff > 0) c.badge = `${presentStaff} present`;
+    } else if (card.module === "identity-global") {
+      c.metricLabel = "Active users";
+      c.metricValue = String(activeStaffCount);
+    } else if (card.module === "marketing") {
+      c.metricLabel = "Vaccines due";
+      c.metricValue = String(vaccineDue);
+    } else if (card.module === "communication") {
+      c.metricLabel = "Follow-ups due";
+      c.metricValue = String(followupDue);
+    } else if (card.module === "reports") {
+      c.metricLabel = "Visits recorded";
+      c.metricValue = String(visits.length);
+    } else if (card.module === "integrations") {
+      c.metricLabel = "System status";
+      c.metricValue = "Online";
+    }
+
+    return c;
   };
 
   return (
@@ -314,19 +482,23 @@ export function AdminDashboardView({
           {/* Hospital Snapshot */}
           <div className="space-y-3">
             <div className="flex items-center gap-3"><h3 className="section-label">Hospital Snapshot</h3><span className="h-px flex-1 bg-border" /></div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{role.kpis.map((k: any, idx: number) => <KpiCard key={k.label} kpi={k} index={idx} />)}</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {snapshotKpis.map((k, idx) => (
+                <KpiCard key={k.label} kpi={k} index={idx} />
+              ))}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="rounded-xl border border-border bg-card p-4 shadow-xs space-y-3">
                 <div className="flex items-center gap-2"><TrendingUp className="size-4 text-primary" /><p className="text-xs font-bold text-foreground">Revenue Mix (Today)</p></div>
                 <div className="space-y-2">
-                  {Object.entries(revMix).map(([k, v]) => <HorizBar key={k} label={k} value={Number(v)} max={revTotal} color="bg-primary" />)}
+                  {Object.entries(revMix).map(([k, v]) => <HorizBar key={k} label={k} value={Number(v)} max={revMax} color="bg-primary" />)}
                 </div>
                 <p className="text-[11px] text-muted-foreground">Based on today's clinical visits, lab orders, boarding & swimming records.</p>
               </div>
               <div className="rounded-xl border border-border bg-card p-4 shadow-xs space-y-3">
                 <div className="flex items-center gap-2"><BarChart3 className="size-4 text-amber-600" /><p className="text-xs font-bold text-foreground">Outstanding & Billing</p></div>
                 <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Total Outstanding</span><span className="font-mono font-bold text-destructive">?{outstanding.toLocaleString("en-IN")}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Total Outstanding</span><span className="font-mono font-bold text-destructive">₹{outstanding.toLocaleString("en-IN")}</span></div>
                   <div className="flex items-center justify-between"><span className="text-muted-foreground">Today's Invoices</span><span className="font-mono font-semibold">{visits.length}</span></div>
                   <div className="flex items-center justify-between"><span className="text-muted-foreground">Settled Visits</span><span className="font-mono font-semibold text-emerald-600">{visits.filter(isCompleted).length}</span></div>
                   <div className="flex items-center justify-between"><span className="text-muted-foreground">Waiting / Active</span><span className="font-mono font-semibold text-blue-600">{waitingVisits.length}</span></div>
@@ -470,7 +642,10 @@ export function AdminDashboardView({
             <span className="text-xs text-muted-foreground">{block.cards.length} modules</span>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {block.cards.map((card: any, cIdx: number) => <ModuleFlashcard key={card.module + card.title} card={card} index={cIdx} />)}
+            {block.cards.map((card: any, cIdx: number) => {
+              const liveCard = resolveCard(card);
+              return <ModuleFlashcard key={card.module + card.title} card={liveCard} index={cIdx} />;
+            })}
           </div>
         </motion.section>
       ))}

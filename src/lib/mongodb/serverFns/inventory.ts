@@ -14,7 +14,7 @@ import { StockBatch } from "@/lib/mongodb/models/StockBatch";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { nextSeq, peekNextSeq } from "@/lib/mongodb/serverFns/counters";
 
-import { ALL_SEED_ITEMS, type SeedItem } from "@/components/erp/inventory/seedData";
+
 
 // ─── Concrete serializable return types ───────────────────────────────────────
 
@@ -270,19 +270,6 @@ export const getItemsFn = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<InventoryItemRow[]> => {
     await connectDB();
 
-    // Ensure all 52 classified seed items are in MongoDB
-    const count = await InventoryItem.countDocuments();
-    if (count < ALL_SEED_ITEMS.length) {
-      const bulkOps = ALL_SEED_ITEMS.map((item) => ({
-        updateOne: {
-          filter: { itemCode: item.itemCode },
-          update: { $set: item as unknown as Record<string, unknown> },
-          upsert: true,
-        },
-      }));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await InventoryItem.bulkWrite(bulkOps as any[], { ordered: false });
-    }
 
     const query: Record<string, unknown> = {};
     if (data?.type) query["productType"] = data.type;
@@ -535,4 +522,24 @@ export const getLedgerFn = createServerFn({ method: "GET" })
     if (data.itemCode) filter["data.medicineId"] = data.itemCode;
     const docs = await ErpRow.find(filter).sort({ createdAt: -1 }).limit(data.limit).lean();
     return toPlain(docs.map((d) => d.data)) as unknown as LedgerEntryRow[];
+  });
+
+// ─── clearInventoryFn ─────────────────────────────────────────────────────────
+// Deletes all InventoryItem, StockBatch, and inventory ledger rows from MongoDB.
+
+export const clearInventoryFn = createServerFn({ method: "POST" })
+  .handler(async (): Promise<{ deleted: { items: number; batches: number; ledger: number } }> => {
+    await connectDB();
+    const [items, batches, ledger] = await Promise.all([
+      InventoryItem.deleteMany({}),
+      StockBatch.deleteMany({}),
+      ErpRow.deleteMany({ moduleId: "inventory_ledger" }),
+    ]);
+    return {
+      deleted: {
+        items: items.deletedCount ?? 0,
+        batches: batches.deletedCount ?? 0,
+        ledger: ledger.deletedCount ?? 0,
+      },
+    };
   });

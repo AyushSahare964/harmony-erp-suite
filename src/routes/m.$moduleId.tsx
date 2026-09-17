@@ -19,7 +19,7 @@ import { PatientBillingHub } from "@/components/erp/billing/PatientBillingHub";
 import { AppointmentsQueueHub } from "@/components/erp/appointments/AppointmentsQueueHub";
 import { BoardingSwimmingHub } from "@/components/erp/boarding/BoardingSwimmingHub";
 import { LaboratoryHub } from "@/components/erp/laboratory/LaboratoryHub";
-import { PharmacyRetailHub } from "@/components/erp/pharmacy/PharmacyRetailHub";
+
 import { FoodNutritionHub } from "@/components/erp/nutrition/FoodNutritionHub";
 import { ClinicalReportsHub } from "@/components/erp/reports/ClinicalReportsHub";
 import { IdentityAccessHub } from "@/components/erp/identity/IdentityAccessHub";
@@ -118,7 +118,7 @@ function ModulePage() {
   }
 
   // ── Pet & Owner CRM module → dedicated PetOwnerCrmHub with dual views ──
-  if (moduleId === "crm-pets" || moduleId === "crm" || moduleId === "crm-marketing") {
+  if (moduleId === "crm-pets" || moduleId === "crm") {
     return <PetOwnerCrmHub />;
   }
 
@@ -147,10 +147,6 @@ function ModulePage() {
     return <LaboratoryHub />;
   }
 
-  // ── Pharmacy & Retail module → dedicated PharmacyRetailHub ──
-  if (moduleId === "pharmacy" || moduleId === "retail") {
-    return <PharmacyRetailHub />;
-  }
 
   // ── Food & Nutrition module → dedicated FoodNutritionHub ──
   if (moduleId === "nutrition" || moduleId === "food" || moduleId === "feeding") {

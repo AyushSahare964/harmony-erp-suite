@@ -1241,9 +1241,5 @@ export const SEED_ACCESSORIES: SeedItem[] = [
   },
 }));
 
-// Total 52 items
-export const ALL_SEED_ITEMS: SeedItem[] = [
-  ...SEED_MEDICINES,
-  ...SEED_FOOD,
-  ...SEED_ACCESSORIES,
-];
+// Empty by default — all items should come from real inventory
+export const ALL_SEED_ITEMS: SeedItem[] = [];

@@ -42,20 +42,16 @@ import {
   listBoardingBookingsFn,
   createBoardingBookingFn,
   updateBoardingStatusFn,
+  deleteBoardingBookingFn,
   listSwimSessionsFn,
   createSwimSessionFn,
   updateSwimStatusFn,
+  deleteSwimSessionFn,
 } from "@/lib/mongodb/serverFns/facilities";
 import { cn } from "@/lib/utils";
 
-const OCCUPANCY_SERIES = [
-  { name: "Mar", value: 61 },
-  { name: "Apr", value: 66 },
-  { name: "May", value: 70 },
-  { name: "Jun", value: 74 },
-  { name: "Jul", value: 71 },
-  { name: "Aug", value: 79 },
-];
+const TOTAL_KENNELS = 24;
+const TOTAL_POOL_LANES = 4;
 
 export function BoardingSwimmingHub() {
   const [activeTab, setActiveTab] = useState<"boarding" | "swimming">("boarding");
@@ -91,6 +87,131 @@ export function BoardingSwimmingHub() {
     }
   };
 
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // ─── Dynamic Boarding Metrics ───────────────────────────────────────────────
+  const occupiedBoardings = useMemo(() => {
+    return boardings.filter((b) => {
+      const s = (b.status || "").toLowerCase();
+      return s === "checked-in" || s === "occupied" || s === "staying";
+    });
+  }, [boardings]);
+  const occupiedCount = occupiedBoardings.length;
+  const occupancyRate = Math.round((occupiedCount / TOTAL_KENNELS) * 100);
+
+  const checkInsToday = useMemo(() => {
+    return boardings.filter((b) => (b.checkIn || "").slice(0, 10) === todayStr);
+  }, [boardings, todayStr]);
+  const arrivedCheckIns = useMemo(() => {
+    return checkInsToday.filter((b) => {
+      const s = (b.status || "").toLowerCase();
+      return s === "checked-in" || s === "occupied" || s === "staying" || s === "checked-out";
+    }).length;
+  }, [checkInsToday]);
+
+  const checkOutsToday = useMemo(() => {
+    return boardings.filter((b) => (b.checkOut || "").slice(0, 10) === todayStr);
+  }, [boardings, todayStr]);
+  const completedCheckouts = useMemo(() => {
+    return checkOutsToday.filter((b) => (b.status || "").toLowerCase().includes("out")).length;
+  }, [checkOutsToday]);
+
+  const boardingRevenueMtd = useMemo(() => {
+    const now = new Date();
+    const yr = now.getFullYear();
+    const mo = now.getMonth();
+    return boardings
+      .filter((b) => {
+        if ((b.status || "").toLowerCase() === "cancelled") return false;
+        const d = new Date(b.checkIn || b.createdAt || Date.now());
+        return !isNaN(d.getTime()) && d.getFullYear() === yr && d.getMonth() === mo;
+      })
+      .reduce((sum, b) => {
+        const inDate = new Date(b.checkIn || Date.now()).getTime();
+        const outDate = new Date(b.checkOut || b.checkIn || Date.now()).getTime();
+        const days = Math.max(1, Math.round((outDate - inDate) / (1000 * 60 * 60 * 24)) || 1);
+        return sum + (Number(b.rate) || 0) * days;
+      }, 0);
+  }, [boardings]);
+
+  const formattedBoardingRevenue = useMemo(() => {
+    if (boardingRevenueMtd >= 100000) {
+      return `₹${(boardingRevenueMtd / 100000).toFixed(1)}L`;
+    }
+    return `₹${boardingRevenueMtd.toLocaleString("en-IN")}`;
+  }, [boardingRevenueMtd]);
+
+  // Dynamic 6-month occupancy series from actual system records
+  const occupancySeries = useMemo(() => {
+    const now = new Date();
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const list: { name: string; value: number }[] = [];
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      const mStart = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+      const mEnd = new Date(d.getFullYear(), d.getMonth(), daysInMonth, 23, 59, 59).getTime();
+
+      let bookedNights = 0;
+      for (const b of boardings) {
+        if ((b.status || "").toLowerCase() === "cancelled") continue;
+        const start = new Date(b.checkIn || b.createdAt || Date.now()).getTime();
+        const end = new Date(b.checkOut || b.checkIn || Date.now()).getTime();
+        if (isNaN(start) || isNaN(end)) continue;
+
+        const oStart = Math.max(start, mStart);
+        const oEnd = Math.min(end, mEnd);
+        if (oEnd >= oStart) {
+          const nights = Math.max(1, Math.round((oEnd - oStart) / (1000 * 60 * 60 * 24)));
+          bookedNights += nights;
+        }
+      }
+
+      const capacity = TOTAL_KENNELS * daysInMonth;
+      const pct = capacity > 0 ? Math.min(100, Math.round((bookedNights / capacity) * 100)) : 0;
+      list.push({
+        name: monthNames[d.getMonth()],
+        value: pct,
+      });
+    }
+    return list;
+  }, [boardings]);
+
+  const peakMonth = useMemo(() => {
+    if (!occupancySeries.length) return null;
+    const max = occupancySeries.reduce((prev, curr) => (curr.value > prev.value ? curr : prev), occupancySeries[0]);
+    return max && max.value > 0 ? max : null;
+  }, [occupancySeries]);
+
+  // ─── Dynamic Swimming & Hydrotherapy Metrics ────────────────────────────────
+  const todaySwims = useMemo(() => {
+    return swimmings.filter((s) => (s.date || s.createdAt || "").slice(0, 10) === todayStr);
+  }, [swimmings, todayStr]);
+
+  const inPoolSwims = useMemo(() => {
+    return swimmings.filter((s) => (s.status || "").toLowerCase() === "in pool");
+  }, [swimmings]);
+
+  const hydroRevenueMtd = useMemo(() => {
+    const now = new Date();
+    const yr = now.getFullYear();
+    const mo = now.getMonth();
+    return swimmings
+      .filter((s) => {
+        if ((s.status || "").toLowerCase() === "cancelled") return false;
+        const d = new Date(s.date || s.createdAt || Date.now());
+        return !isNaN(d.getTime()) && d.getFullYear() === yr && d.getMonth() === mo;
+      })
+      .reduce((sum, s) => sum + (Number(s.rate) || 0), 0);
+  }, [swimmings]);
+
+  const formattedHydroRevenue = useMemo(() => {
+    if (hydroRevenueMtd >= 100000) {
+      return `₹${(hydroRevenueMtd / 100000).toFixed(1)}L`;
+    }
+    return `₹${hydroRevenueMtd.toLocaleString("en-IN")}`;
+  }, [hydroRevenueMtd]);
 
   // Filtered Boarding Stays
   const filteredBoardings = useMemo(() => {
@@ -140,12 +261,86 @@ export function BoardingSwimmingHub() {
     toast.success("Facility records reloaded from MongoDB");
   };
 
+  const handleCheckoutBoarding = async (booking: any) => {
+    const bId = booking.booking || booking.id;
+    try {
+      await updateBoardingStatusFn({ data: { id: bId, status: "Checked-out" } });
+      setBoardings((prev) =>
+        prev.map((b) => ((b.booking || b.id) === bId ? { ...b, status: "Checked-out" } : b))
+      );
+      toast.success(`${booking.pet} checked out from ${booking.kennel}. Status updated.`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to update status in MongoDB");
+    }
+  };
 
-  const handleCheckoutBoarding = (booking: any) => {
-    setBoardings((prev) =>
-      prev.map((b) => (b.booking === booking.booking ? { ...b, status: "Checked-out" } : b))
-    );
-    toast.success(`${booking.pet} checked out from ${booking.kennel}. Invoice generated.`);
+  const handleCheckinBoarding = async (booking: any) => {
+    const bId = booking.booking || booking.id;
+    try {
+      await updateBoardingStatusFn({ data: { id: bId, status: "Checked-in" } });
+      setBoardings((prev) =>
+        prev.map((b) => ((b.booking || b.id) === bId ? { ...b, status: "Checked-in" } : b))
+      );
+      toast.success(`${booking.pet} checked in!`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to update status in MongoDB");
+    }
+  };
+
+  const handleDeleteBoarding = async (booking: any) => {
+    const bId = booking.booking || booking.id;
+    if (!confirm(`Delete boarding record ${bId} for ${booking.pet}?`)) return;
+    try {
+      await deleteBoardingBookingFn({ data: { id: bId } });
+      setBoardings((prev) => prev.filter((b) => (b.booking || b.id) !== bId));
+      toast.success("Boarding record deleted");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to delete record");
+    }
+  };
+
+  const handleStartSwim = async (session: any) => {
+    const sId = session.session || session.id;
+    try {
+      await updateSwimStatusFn({ data: { id: sId, status: "In Pool" } });
+      setSwimmings((prev) =>
+        prev.map((item) => ((item.session || item.id) === sId ? { ...item, status: "In Pool" } : item))
+      );
+      toast.success(`${session.pet} is now in the pool!`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to update session status");
+    }
+  };
+
+  const handleCompleteSwim = async (session: any) => {
+    const sId = session.session || session.id;
+    try {
+      await updateSwimStatusFn({ data: { id: sId, status: "Completed" } });
+      setSwimmings((prev) =>
+        prev.map((item) => ((item.session || item.id) === sId ? { ...item, status: "Completed" } : item))
+      );
+      toast.success(`${session.pet}'s swim completed and added to bill.`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to update session status");
+    }
+  };
+
+  const handleDeleteSwim = async (session: any) => {
+    const sId = session.session || session.id;
+    if (!confirm(`Delete swimming session ${sId} for ${session.pet}?`)) return;
+    try {
+      await deleteSwimSessionFn({ data: { id: sId } });
+      setSwimmings((prev) => prev.filter((s) => (s.session || s.id) !== sId));
+      toast.success("Swimming session deleted");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to delete record");
+    }
   };
 
   const exportCsv = () => {
@@ -259,27 +454,60 @@ export function BoardingSwimmingHub() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
-            {/* Top 4 KPI Cards (Screenshot 1: OCCUPIED KENNELS, CHECK-INS TODAY, CHECK-OUTS TODAY, BOARDING REVENUE MTD) */}
+            {/* Top 4 KPI Cards (Dynamic: OCCUPIED KENNELS, CHECK-INS TODAY, CHECK-OUTS TODAY, BOARDING REVENUE MTD) */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard
-                kpi={{ label: "OCCUPIED KENNELS", value: "18 / 23", trend: "78% occupancy", trendTone: "flat" }}
+                kpi={{
+                  label: "OCCUPIED KENNELS",
+                  value: `${occupiedCount} / ${TOTAL_KENNELS}`,
+                  trend: `${occupancyRate}% occupancy`,
+                  trendTone: occupiedCount > 0 ? "up" : "flat",
+                }}
                 index={0}
               />
               <KpiCard
-                kpi={{ label: "CHECK-INS TODAY", value: "5", trend: "+2", trendTone: "up" }}
+                kpi={{
+                  label: "CHECK-INS TODAY",
+                  value: String(checkInsToday.length),
+                  trend:
+                    checkInsToday.length === 0
+                      ? "0 scheduled today"
+                      : arrivedCheckIns === checkInsToday.length
+                      ? `All ${arrivedCheckIns} arrived`
+                      : `${arrivedCheckIns} of ${checkInsToday.length} arrived`,
+                  trendTone: checkInsToday.length > 0 ? "up" : "flat",
+                }}
                 index={1}
               />
               <KpiCard
-                kpi={{ label: "CHECK-OUTS TODAY", value: "3", trend: "-1", trendTone: "flat" }}
+                kpi={{
+                  label: "CHECK-OUTS TODAY",
+                  value: String(checkOutsToday.length),
+                  trend:
+                    checkOutsToday.length === 0
+                      ? "0 due today"
+                      : completedCheckouts === checkOutsToday.length
+                      ? `All ${completedCheckouts} departed`
+                      : `${completedCheckouts} of ${checkOutsToday.length} completed`,
+                  trendTone: checkOutsToday.length > 0 ? "flat" : "flat",
+                }}
                 index={2}
               />
               <KpiCard
-                kpi={{ label: "BOARDING REVENUE MTD", value: "₹3.4L", trend: "+7%", trendTone: "up" }}
+                kpi={{
+                  label: "BOARDING REVENUE MTD",
+                  value: formattedBoardingRevenue,
+                  trend:
+                    boardings.length === 0
+                      ? "0 bookings recorded"
+                      : `${boardings.length} total booking${boardings.length > 1 ? "s" : ""}`,
+                  trendTone: boardingRevenueMtd > 0 ? "up" : "flat",
+                }}
                 index={3}
               />
             </div>
 
-            {/* OCCUPANCY % Monthly Bar Chart (Screenshot 1 Match) */}
+            {/* OCCUPANCY % Monthly Bar Chart (Dynamic last 6 months) */}
             <div className="erp-card p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -287,13 +515,13 @@ export function BoardingSwimmingHub() {
                   <p className="text-[11px] text-muted-foreground">Monthly kennel suite utilization rates</p>
                 </div>
                 <Badge variant="outline" className="text-xs font-semibold text-primary bg-primary/10">
-                  Peak: 79% (Aug)
+                  {peakMonth ? `Peak: ${peakMonth.value}% (${peakMonth.name})` : `${occupancyRate}% Current Occupancy`}
                 </Badge>
               </div>
 
               <div className="h-[210px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={OCCUPANCY_SERIES} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <BarChart data={occupancySeries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                     <XAxis
                       dataKey="name"
@@ -416,17 +644,21 @@ export function BoardingSwimmingHub() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => {
-                                  setBoardings((prev) =>
-                                    prev.map((item) => (item.booking === b.booking ? { ...item, status: "Checked-in" } : item))
-                                  );
-                                  toast.success(`${b.pet} checked in!`);
-                                }}
+                                onClick={() => handleCheckinBoarding(b)}
                                 className="h-7 text-[11px] font-bold text-emerald-600 border-emerald-500/30 hover:bg-emerald-600 hover:text-white"
                               >
                                 Check-in Now
                               </Button>
                             )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleDeleteBoarding(b)}
+                              className="size-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              title="Delete booking"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -453,22 +685,48 @@ export function BoardingSwimmingHub() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
-            {/* Top 4 KPI Cards for Hydrotherapy */}
+            {/* Top 4 KPI Cards for Hydrotherapy (Dynamic) */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard
-                kpi={{ label: "POOL SESSIONS TODAY", value: "14", trend: "+3 vs yesterday", trendTone: "up" }}
+                kpi={{
+                  label: "POOL SESSIONS TODAY",
+                  value: String(todaySwims.length),
+                  trend:
+                    todaySwims.length === 0
+                      ? "0 sessions today"
+                      : `${inPoolSwims.length} in pool right now`,
+                  trendTone: todaySwims.length > 0 ? "up" : "flat",
+                }}
                 index={0}
               />
               <KpiCard
-                kpi={{ label: "ACTIVE POOL LANES", value: "4 / 6", trend: "67% capacity", trendTone: "flat" }}
+                kpi={{
+                  label: "ACTIVE POOL LANES",
+                  value: `${inPoolSwims.length} / ${TOTAL_POOL_LANES}`,
+                  trend: `${Math.round((inPoolSwims.length / TOTAL_POOL_LANES) * 100)}% capacity`,
+                  trendTone: inPoolSwims.length > 0 ? "up" : "flat",
+                }}
                 index={1}
               />
               <KpiCard
-                kpi={{ label: "WATER TEMP", value: "28.5°C", trend: "Optimal Hydro-Rehab", trendTone: "up" }}
+                kpi={{
+                  label: "WATER TEMP",
+                  value: "28.5°C",
+                  trend: "Optimal Hydro-Rehab",
+                  trendTone: "up",
+                }}
                 index={2}
               />
               <KpiCard
-                kpi={{ label: "HYDRO REVENUE MTD", value: "₹1.8L", trend: "+12%", trendTone: "up" }}
+                kpi={{
+                  label: "HYDRO REVENUE MTD",
+                  value: formattedHydroRevenue,
+                  trend:
+                    swimmings.length === 0
+                      ? "0 sessions recorded"
+                      : `${swimmings.length} total session${swimmings.length > 1 ? "s" : ""}`,
+                  trendTone: hydroRevenueMtd > 0 ? "up" : "flat",
+                }}
                 index={3}
               />
             </div>
@@ -564,12 +822,7 @@ export function BoardingSwimmingHub() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => {
-                                  setSwimmings((prev) =>
-                                    prev.map((item) => (item.session === s.session ? { ...item, status: "In Pool" } : item))
-                                  );
-                                  toast.success(`${s.pet} is now in the pool!`);
-                                }}
+                                onClick={() => handleStartSwim(s)}
                                 className="h-7 text-[11px] font-bold text-blue-600 border-blue-500/30 hover:bg-blue-600 hover:text-white"
                               >
                                 Start Swim
@@ -579,17 +832,21 @@ export function BoardingSwimmingHub() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => {
-                                  setSwimmings((prev) =>
-                                    prev.map((item) => (item.session === s.session ? { ...item, status: "Completed" } : item))
-                                  );
-                                  toast.success(`${s.pet}'s swim completed and added to bill.`);
-                                }}
+                                onClick={() => handleCompleteSwim(s)}
                                 className="h-7 text-[11px] font-bold text-emerald-600 border-emerald-500/30 hover:bg-emerald-600 hover:text-white"
                               >
                                 Complete &amp; Bill
                               </Button>
                             )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleDeleteSwim(s)}
+                              className="size-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              title="Delete session"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
                           </div>
                         </td>
                       </tr>

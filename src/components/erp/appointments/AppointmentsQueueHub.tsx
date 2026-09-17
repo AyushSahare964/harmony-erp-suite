@@ -46,15 +46,6 @@ import { listAppointmentsFn, createAppointmentFn, updateAppointmentStatusFn, del
 import { getUpcomingFollowUpsFn, admitPatientFn } from "@/lib/mongodb/serverFns/clinical";
 import { cn } from "@/lib/utils";
 
-const MONTHLY_APPOINTMENTS = [
-  { name: "Mar", value: 842 },
-  { name: "Apr", value: 901 },
-  { name: "May", value: 934 },
-  { name: "Jun", value: 1012 },
-  { name: "Jul", value: 988 },
-  { name: "Aug", value: 1104 },
-];
-
 function formatAppointmentDate(dateStr?: string | null) {
   if (!dateStr) return "—";
   try {
@@ -236,6 +227,40 @@ export function AppointmentsQueueHub() {
   const avgWaitMin = useMemo(() => {
     return inQueueCount > 0 ? inQueueCount * 4 : 0;
   }, [inQueueCount]);
+
+  // Dynamic 6-month appointment volume computed directly from actual appointments
+  const monthlyAppointmentsData = useMemo(() => {
+    const now = new Date();
+    const months: { key: string; name: string; value: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const name = d.toLocaleString("en-US", { month: "short" });
+      months.push({ key, name, value: 0 });
+    }
+
+    appointments.forEach((a) => {
+      const dateStr = a.appointment_date || a.date || a.createdAt;
+      if (!dateStr) return;
+      const appMonth = String(dateStr).slice(0, 7);
+      const found = months.find((m) => m.key === appMonth);
+      if (found) {
+        found.value += 1;
+      }
+    });
+
+    return months.map(({ name, value }) => ({ name, value }));
+  }, [appointments]);
+
+  const avgMonthlyAppointments = useMemo(() => {
+    if (!monthlyAppointmentsData.length) return 0;
+    const total = monthlyAppointmentsData.reduce((acc, m) => acc + m.value, 0);
+    return Math.round(total / monthlyAppointmentsData.length);
+  }, [monthlyAppointmentsData]);
+
+  const maxAppointmentCount = useMemo(() => {
+    return Math.max(0, ...monthlyAppointmentsData.map((m) => m.value));
+  }, [monthlyAppointmentsData]);
 
   const handleStartConsultation = async (app: any) => {
     try {
@@ -549,13 +574,13 @@ export function AppointmentsQueueHub() {
               <p className="text-[11px] text-muted-foreground">Monthly patient visit volume and doctor encounters</p>
             </div>
             <Badge variant="outline" className="text-xs font-semibold text-primary bg-primary/10">
-              Avg. 963 / month
+              Avg. {avgMonthlyAppointments} / month
             </Badge>
           </div>
 
           <div className="h-[210px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={MONTHLY_APPOINTMENTS} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <BarChart data={monthlyAppointmentsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis
                   dataKey="name"
@@ -567,6 +592,8 @@ export function AppointmentsQueueHub() {
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
+                  domain={[0, maxAppointmentCount > 0 ? "auto" : 5]}
+                  allowDecimals={false}
                 />
                 <Tooltip
                   cursor={{ fill: "var(--color-muted)" }}

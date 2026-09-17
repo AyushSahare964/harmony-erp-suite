@@ -7,7 +7,6 @@ import {
   HandCoins,
   Landmark,
   ReceiptText,
-  PieChart,
   ArrowLeft,
   FileSpreadsheet,
   Receipt,
@@ -22,7 +21,6 @@ import { ChartOfAccounts } from "./ChartOfAccounts";
 import { ReceivablesPayables } from "./ReceivablesPayables";
 import { BankingReconciliation } from "./BankingReconciliation";
 import { TaxationCompliance } from "./TaxationCompliance";
-import { BudgetingCostCenters } from "./BudgetingCostCenters";
 import { FinancialReports } from "./FinancialReports";
 import { SupplierBillsTab } from "./SupplierBillsTab";
 import { PaymentOutTab } from "./PaymentOutTab";
@@ -35,7 +33,6 @@ type TabId =
   | "ar"
   | "banking"
   | "tax"
-  | "budget"
   | "supplier-bills"
   | "payment-out"
   | "expenses"
@@ -54,11 +51,10 @@ const TABS: TabDef[] = [
   { id: "ar",             label: "Receivables & Payables",   Icon: HandCoins,       badge: "18.3" },
   { id: "banking",        label: "Banking & Reconciliation",  Icon: Landmark,        badge: "18.4" },
   { id: "tax",            label: "Taxation & Compliance",    Icon: ReceiptText,     badge: "18.5" },
-  { id: "budget",         label: "Budgeting & Cost Centers",  Icon: PieChart,        badge: "18.6" },
-  { id: "supplier-bills", label: "Supplier Bills",           Icon: ShoppingBag,     badge: "18.7" },
-  { id: "payment-out",    label: "Payment Out",              Icon: CreditCard,      badge: "18.8" },
-  { id: "expenses",       label: "Expenses",                 Icon: Receipt,         badge: "18.9" },
-  { id: "reports",        label: "Financial Statements",     Icon: FileSpreadsheet, badge: "18.10" },
+  { id: "supplier-bills", label: "Supplier Bills",           Icon: ShoppingBag,     badge: "18.6" },
+  { id: "payment-out",    label: "Payment Out",              Icon: CreditCard,      badge: "18.7" },
+  { id: "expenses",       label: "Expenses",                 Icon: Receipt,         badge: "18.8" },
+  { id: "reports",        label: "Financial Statements",     Icon: FileSpreadsheet, badge: "18.9" },
 ];
 
 // ─── AccountingHub ────────────────────────────────────────────────────────────
@@ -166,7 +162,6 @@ export function AccountingHub() {
             {activeTab === "ar"             && <ReceivablesPayables />}
             {activeTab === "banking"        && <BankingReconciliation />}
             {activeTab === "tax"            && <TaxationCompliance />}
-            {activeTab === "budget"         && <BudgetingCostCenters />}
             {activeTab === "supplier-bills" && <SupplierBillsTab onPayBill={handlePayBill} />}
             {activeTab === "payment-out"    && (
               <PaymentOutTab

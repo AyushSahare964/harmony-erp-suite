@@ -12,11 +12,14 @@ import {
   logoutFn,
   getMeFn,
   seedDemoUsersFn,
+  clearAndReseedFn,
   checkStaffStatusFn,
   listStaffMembersFn,
   approveStaffMemberFn,
   rejectStaffMemberFn,
   createStaffMemberByAdminFn,
+  updateStaffMemberFn,
+  deleteStaffMemberFn,
 } from "@/lib/mongodb/serverFns/auth";
 
 // ─── Shared interfaces ───────────────────────────────────────────────────────
@@ -148,10 +151,18 @@ export class AuthService {
   }
 
   /**
-   * Seed demo staff into MongoDB.
+   * Seed system credentials (upsert only, does not wipe existing data).
    */
   public static async seedDemoUsers(): Promise<{ seeded: number; message: string }> {
     return seedDemoUsersFn();
+  }
+
+  /**
+   * Clear ALL users from MongoDB, then re-seed the two default system credentials.
+   * Call this from the Identity Hub to reset the staff directory.
+   */
+  public static async clearAndReseed(): Promise<{ deleted: number; seeded: number; message: string }> {
+    return clearAndReseedFn();
   }
 
   /**
@@ -183,15 +194,57 @@ export class AuthService {
   }
 
   /**
-   * Returns a typed list of demo credentials for the login page quick-fill.
+   * Update staff member profile and save to MongoDB.
+   */
+  public static async updateStaff(data: any) {
+    return updateStaffMemberFn({ data });
+  }
+
+  /**
+   * Delete staff member and their credentials from MongoDB.
+   */
+  public static async deleteStaff(data: { userId: string }) {
+    return deleteStaffMemberFn({ data });
+  }
+
+  /**
+   * Returns the two built-in system credentials for the login page quick-fill.
+   * Ayush Sahare = hidden developer account. Makarand Dixit = visible admin.
    */
   public static getDemoStaffList(): UserProfile[] {
     return [
-      { id: "demo-dr", fullName: "Dr. Rohit Sharma", email: "rohit.sharma@vetos.cloud", roleId: "doctor", roleName: "Doctor / Senior Vet", initials: "RS", clinicName: "Harmony Pet Super-Specialty Hospital", branch: "Central Hospital · Koramangala", department: "Clinical OPD & Surgery", specialty: "Canine", qualification: "BVSc & AH, MVSc", licenseNumber: "VCI-KAR-2016-5120", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "demo-admin", fullName: "Dr. Aisha Nair", email: "aisha.nair@vetos.cloud", roleId: "admin", roleName: "Clinic Administrator / Medical Director", initials: "AN", clinicName: "Harmony Pet Super-Specialty Hospital", branch: "Central Hospital · Koramangala", department: "Veterinary Administration", specialty: "Surgery", qualification: "BVSc & AH, MBA", licenseNumber: "VCI-KAR-2018-8842", createdAt: "2026-02-01T00:00:00.000Z" },
-      { id: "demo-rec", fullName: "Rohan Sen", email: "rohan.sen@vetos.cloud", roleId: "reception", roleName: "Receptionist & Triage Lead", initials: "RS", clinicName: "Harmony Pet Super-Specialty Hospital", branch: "Central Hospital · Front Desk", department: "Patient Admittance & Triage", specialty: "General Practice", qualification: "B.Sc (Hospitality)", licenseNumber: "STF-REC-204", createdAt: "2026-03-10T00:00:00.000Z" },
-      { id: "demo-acc", fullName: "Maya Iyer", email: "maya.iyer@vetos.cloud", roleId: "accounts", roleName: "Accounts & Billing Manager", initials: "MI", clinicName: "Harmony Pet Super-Specialty Hospital", branch: "Central Hospital · Accounts Office", department: "Finance & Taxation", specialty: "Administration", qualification: "B.Com, M.Com", licenseNumber: "FIN-ACC-552", createdAt: "2026-03-20T00:00:00.000Z" },
-      { id: "demo-plat", fullName: "Ishaan Verma", email: "ishaan.verma@vetos.cloud", roleId: "platform", roleName: "Platform Administrator", initials: "IV", clinicName: "VetOS Cloud Infrastructure", branch: "Production · ap-south-1", department: "Cloud Operations", specialty: "Administration", qualification: "B.Tech Cloud Systems", licenseNumber: "VET-SYS-9901", createdAt: "2026-01-15T00:00:00.000Z" },
+      {
+        id:          "sys-ayush",
+        fullName:    "Ayush Sahare",
+        email:       "ayush.sahare@vit.edu",
+        roleId:      "admin",
+        roleName:    "Clinic Administrator / Medical Director",
+        initials:    "AS",
+        clinicName:  "VetCare Specialty Pet Hospital",
+        branch:      "Central Avenue, Nagpur",
+        department:  "System Administration",
+        specialty:   "Administration",
+        qualification: "B.Tech Computer Science",
+        licenseNumber: "SYS-DEV-0001",
+        createdAt:   "2026-01-01T00:00:00.000Z",
+        approvalStatus: "approved",
+      },
+      {
+        id:          "sys-makarand",
+        fullName:    "Dr. Makarand Dixit",
+        email:       "makarand.dixit@gmail.com",
+        roleId:      "admin",
+        roleName:    "Clinic Administrator / Medical Director",
+        initials:    "MD",
+        clinicName:  "VetCare Specialty Pet Hospital",
+        branch:      "Central Avenue, Nagpur",
+        department:  "Veterinary Administration",
+        specialty:   "Administration",
+        qualification: "",
+        licenseNumber: "",
+        createdAt:   "2026-01-01T00:00:00.000Z",
+        approvalStatus: "approved",
+      },
     ];
   }
 }

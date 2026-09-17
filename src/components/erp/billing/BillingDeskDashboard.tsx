@@ -206,46 +206,74 @@ export function BillingDeskDashboard({
     return `₹ ${amount.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
 
-  // 15-Day Recent Sales Bar Chart Data (Matches Image 1 & Image 5)
+  // 15-Day Recent Sales Bar Chart Data (Truthful real-time data across last 15 days)
   const salesChartData = useMemo(() => {
+    // End date defaults to dateRange.to or current date
+    const endDate = dateRange.to ? new Date(dateRange.to + "T23:59:59") : new Date();
+
+    // Generate last 15 days keyed by ISO date YYYY-MM-DD
+    const isoDays: { iso: string; dayLabel: string }[] = [];
     const daysMap: Record<string, number> = {};
 
-    // Build last 15 days ending at dateRange.to or today
-    const endDate = dateRange.to ? new Date(dateRange.to) : new Date();
     for (let i = 14; i >= 0; i--) {
       const d = new Date(endDate);
       d.setDate(d.getDate() - i);
-      const dayKey = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); // e.g. "01 Sep"
-      daysMap[dayKey] = 0;
+      const iso = d.toLocaleDateString("en-CA"); // YYYY-MM-DD
+      const dayLabel = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); // e.g. "03 Sep"
+      isoDays.push({ iso, dayLabel });
+      daysMap[iso] = 0;
     }
 
-    filteredInvoices.forEach((inv) => {
-      const dStr = inv.date || inv.createdAt?.slice(0, 10);
-      if (dStr) {
-        const d = new Date(dStr);
-        const dayKey = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-        if (daysMap[dayKey] !== undefined) {
-          daysMap[dayKey] += inv.totalAmount || 0;
-        }
+    // Sum from all active invoices in the workspace
+    (invoices || []).forEach((inv) => {
+      if (inv.status === "CANCELLED" || inv.status === "VOID") return;
+      const rawDate = inv.date || inv.createdAt;
+      if (!rawDate) return;
+      const invIso = typeof rawDate === "string" ? rawDate.slice(0, 10) : new Date(rawDate).toLocaleDateString("en-CA");
+      if (invIso && daysMap[invIso] !== undefined) {
+        daysMap[invIso] += Number(inv.totalAmount || 0);
       }
     });
 
-    const result = Object.entries(daysMap).map(([day, amount]) => ({
-      day,
-      amount: amount,
-      amountK: (amount / 1000).toFixed(1) + " k",
-    }));
+    return isoDays.map(({ iso, dayLabel }) => {
+      const amount = Math.round(daysMap[iso] || 0);
+      return {
+        day: dayLabel,
+        amount,
+        amountK: amount > 0 ? (amount / 1000).toFixed(1) + " k" : "0",
+      };
+    });
+  }, [invoices, dateRange.to]);
 
-    // If all zero in demo data, ensure current day shows a realistic spike like the 0.8k in screenshot
-    const hasAny = result.some((r) => r.amount > 0);
-    const lastItem = result[result.length - 1];
-    if (!hasAny && lastItem) {
-      lastItem.amount = totalSale || 780;
-      lastItem.amountK = ((totalSale || 780) / 1000).toFixed(1) + " k";
-    }
+  // 30-Day Distribution Totals (Sale vs Purchase)
+  const { last30DaysSales, last30DaysPurchases } = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+    const cutoffIso = cutoff.toLocaleDateString("en-CA");
 
-    return result;
-  }, [filteredInvoices, dateRange.to, totalSale]);
+    const saleTotal = (invoices || []).reduce((sum, inv) => {
+      if (inv.status === "CANCELLED" || inv.status === "VOID") return sum;
+      const dStr = (typeof inv.date === "string" ? inv.date : (inv.createdAt || "")).slice(0, 10);
+      if (dStr && dStr >= cutoffIso) {
+        return sum + (Number(inv.totalAmount) || 0);
+      }
+      return sum;
+    }, 0);
+
+    const purchaseTotal = (purchases || []).reduce((sum, p) => {
+      if (p.status === "VOID") return sum;
+      const dStr = (p.billDate || p.createdAt || "").slice(0, 10);
+      if (dStr && dStr >= cutoffIso) {
+        return sum + (Number(p.grandTotal) || 0);
+      }
+      return sum;
+    }, 0);
+
+    return {
+      last30DaysSales: Math.round(saleTotal),
+      last30DaysPurchases: Math.round(purchaseTotal),
+    };
+  }, [invoices, purchases]);
 
   // Derived Payment Receipts from Invoices
   const paymentList = useMemo(() => {
@@ -709,8 +737,8 @@ export function BillingDeskDashboard({
 
               {/* 3D Tilted Donut */}
               <Distribution3DChart
-                saleAmount={totalSale || 780}
-                purchaseAmount={260}
+                saleAmount={last30DaysSales}
+                purchaseAmount={last30DaysPurchases}
                 className="py-1"
               />
             </div>
@@ -813,6 +841,7 @@ export function BillingDeskDashboard({
                           tickLine={false}
                         />
                         <Tooltip
+                          cursor={{ fill: "rgba(37, 99, 235, 0.08)", radius: 4 }}
                           formatter={(v: any) => [`₹${Number(v).toLocaleString("en-IN")}`, "Sales"]}
                           contentStyle={{
                             backgroundColor: "var(--color-card)",
@@ -827,7 +856,7 @@ export function BillingDeskDashboard({
                           radius={[4, 4, 0, 0]}
                           label={{
                             position: "top",
-                            formatter: (v: any) => (v > 0 ? `${(v / 1000).toFixed(1)} k` : "0"),
+                            formatter: (v: any) => (v > 0 ? `${(v / 1000).toFixed(1)} k` : ""),
                             fontSize: 10,
                             fill: "var(--color-foreground)",
                           }}

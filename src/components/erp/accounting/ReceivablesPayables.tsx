@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import {
   createPaymentFn,
   getPaymentsFn,
+  getReceivablesPayablesFn,
   type PaymentRow,
 } from "@/lib/mongodb/serverFns/finance";
 
@@ -32,23 +33,6 @@ interface APRow {
   amount: number; outstanding: number; bucket: Bucket; status: APStatus;
 }
 interface JETemplate { name: string; accounts: string; narration: string; }
-
-// ─── Initial Data ─────────────────────────────────────────────────────────────
-const INITIAL_AR: ARRow[] = [
-  { owner: "Tariq Hussain", invoice: "INV-20483", date: "2026-08-13", due: "2026-08-20", amount: 1650, outstanding: 1650, bucket: "0–30", status: "Unpaid" },
-  { owner: "Rajan Kumar", invoice: "INV-20484", date: "2026-08-13", due: "2026-08-20", amount: 600, outstanding: 600, bucket: "0–30", status: "Unpaid" },
-  { owner: "Vikram Shetty", invoice: "INV-20485", date: "2026-08-14", due: "2026-08-21", amount: 4500, outstanding: 2250, bucket: "0–30", status: "Partially paid" },
-  { owner: "Deepika Iyer", invoice: "INV-20401", date: "2026-07-18", due: "2026-07-25", amount: 3200, outstanding: 3200, bucket: "31–60", status: "Overdue" },
-  { owner: "Nalini Prasad", invoice: "INV-20312", date: "2026-06-10", due: "2026-06-17", amount: 8400, outstanding: 8400, bucket: "61–90", status: "Overdue" },
-  { owner: "Ananya Sharma", invoice: "INV-20215", date: "2026-05-01", due: "2026-05-08", amount: 1800, outstanding: 1800, bucket: "90+", status: "Overdue" },
-];
-
-const INITIAL_AP: APRow[] = [
-  { supplier: "MedVet Distributors", bill: "PO-5501", date: "2026-08-12", due: "2026-08-26", amount: 112000, outstanding: 112000, bucket: "0–30", status: "Unpaid" },
-  { supplier: "BioPharm", bill: "PO-5502", date: "2026-08-10", due: "2026-08-24", amount: 48000, outstanding: 24000, bucket: "0–30", status: "Partially paid" },
-  { supplier: "PetNutri", bill: "PO-5432", date: "2026-07-20", due: "2026-08-03", amount: 32000, outstanding: 32000, bucket: "31–60", status: "Overdue" },
-  { supplier: "CareSupplies", bill: "PO-5388", date: "2026-07-05", due: "2026-07-19", amount: 18000, outstanding: 18000, bucket: "31–60", status: "Overdue" },
-];
 
 const INITIAL_TEMPLATES: JETemplate[] = [
   { name: "Monthly Rent", accounts: "Rent Expense → Cash", narration: "Monthly clinic rent payment" },
@@ -226,13 +210,25 @@ function ARTable({ data, onPayment }: { data: ARRow[]; onPayment: () => void }) 
   );
   const total = data.reduce((s, r) => s + r.outstanding, 0);
   const overdue = data.filter((r) => r.status === "Overdue").reduce((s, r) => s + r.outstanding, 0);
+
+  const avgDays = useMemo(() => {
+    if (data.length === 0) return "—";
+    const today = new Date();
+    const sumDays = data.reduce((s, r) => {
+      const d = r.date && r.date !== "—" ? new Date(r.date) : today;
+      return s + Math.max(0, Math.floor((today.getTime() - d.getTime()) / (1000 * 3600 * 24)));
+    }, 0);
+    const avg = Math.round(sumDays / data.length);
+    return `${avg} days`;
+  }, [data]);
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: "Total Receivables", value: money(total), tone: "" },
           { label: "Overdue (all buckets)", value: money(overdue), tone: "text-destructive" },
-          { label: "Avg. Collection Period", value: "28 days", tone: "" },
+          { label: "Avg. Collection Period", value: avgDays, tone: "" },
         ].map((k) => (
           <div key={k.label} className="erp-card px-4 py-3">
             <p className="section-label">{k.label}</p>
@@ -266,22 +262,30 @@ function ARTable({ data, onPayment }: { data: ARRow[]; onPayment: () => void }) 
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r, i) => (
-              <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                <td className="px-4 py-2.5 font-medium">{r.owner}</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-primary">{r.invoice}</td>
-                <td className="px-4 py-2.5 text-muted-foreground">{r.date}</td>
-                <td className="px-4 py-2.5 text-muted-foreground">{r.due}</td>
-                <td className="px-4 py-2.5 text-right">{money(r.amount)}</td>
-                <td className="px-4 py-2.5 text-right font-medium text-destructive">{money(r.outstanding)}</td>
-                <td className="px-4 py-2.5">
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${BUCKET_COLORS[r.bucket]}`}>
-                    {r.bucket}d
-                  </span>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  No outstanding receivables from clients. All patient billing accounts are settled!
                 </td>
-                <td className="px-4 py-2.5"><StatusPill value={r.status} /></td>
               </tr>
-            ))}
+            ) : (
+              filtered.map((r, i) => (
+                <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                  <td className="px-4 py-2.5 font-medium">{r.owner}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-primary">{r.invoice}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground">{r.date}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground">{r.due}</td>
+                  <td className="px-4 py-2.5 text-right">{money(r.amount)}</td>
+                  <td className="px-4 py-2.5 text-right font-medium text-destructive">{money(r.outstanding)}</td>
+                  <td className="px-4 py-2.5">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${BUCKET_COLORS[r.bucket]}`}>
+                      {r.bucket}d
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5"><StatusPill value={r.status} /></td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -302,13 +306,25 @@ function APTable({ data, onPayment }: { data: APRow[]; onPayment: () => void }) 
   );
   const total = data.reduce((s, r) => s + r.outstanding, 0);
   const overdue = data.filter((r) => r.status === "Overdue").reduce((s, r) => s + r.outstanding, 0);
+
+  const avgDays = useMemo(() => {
+    if (data.length === 0) return "—";
+    const today = new Date();
+    const sumDays = data.reduce((s, r) => {
+      const d = r.date && r.date !== "—" ? new Date(r.date) : today;
+      return s + Math.max(0, Math.floor((today.getTime() - d.getTime()) / (1000 * 3600 * 24)));
+    }, 0);
+    const avg = Math.round(sumDays / data.length);
+    return `${avg} days`;
+  }, [data]);
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: "Total Payables", value: money(total), tone: "" },
           { label: "Overdue (all buckets)", value: money(overdue), tone: "text-destructive" },
-          { label: "Avg. Payment Cycle", value: "21 days", tone: "" },
+          { label: "Avg. Payment Cycle", value: avgDays, tone: "" },
         ].map((k) => (
           <div key={k.label} className="erp-card px-4 py-3">
             <p className="section-label">{k.label}</p>
@@ -342,22 +358,30 @@ function APTable({ data, onPayment }: { data: APRow[]; onPayment: () => void }) 
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r, i) => (
-              <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                <td className="px-4 py-2.5 font-medium">{r.supplier}</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-primary">{r.bill}</td>
-                <td className="px-4 py-2.5 text-muted-foreground">{r.date}</td>
-                <td className="px-4 py-2.5 text-muted-foreground">{r.due}</td>
-                <td className="px-4 py-2.5 text-right">{money(r.amount)}</td>
-                <td className="px-4 py-2.5 text-right font-medium text-destructive">{money(r.outstanding)}</td>
-                <td className="px-4 py-2.5">
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${BUCKET_COLORS[r.bucket]}`}>
-                    {r.bucket}d
-                  </span>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  No outstanding payables to suppliers. All supplier bills are settled!
                 </td>
-                <td className="px-4 py-2.5"><StatusPill value={r.status} /></td>
               </tr>
-            ))}
+            ) : (
+              filtered.map((r, i) => (
+                <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                  <td className="px-4 py-2.5 font-medium">{r.supplier}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-primary">{r.bill}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground">{r.date}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground">{r.due}</td>
+                  <td className="px-4 py-2.5 text-right">{money(r.amount)}</td>
+                  <td className="px-4 py-2.5 text-right font-medium text-destructive">{money(r.outstanding)}</td>
+                  <td className="px-4 py-2.5">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${BUCKET_COLORS[r.bucket]}`}>
+                      {r.bucket}d
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5"><StatusPill value={r.status} /></td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -365,17 +389,17 @@ function APTable({ data, onPayment }: { data: APRow[]; onPayment: () => void }) 
   );
 }
 
-import { listPurchaseBillsFn } from "@/lib/mongodb/serverFns/purchaseBills";
-
 // ─── Main Component ────────────────────────────────────────────────────────────
 export function ReceivablesPayables() {
   const [view, setView] = useState<"ar" | "ap">("ar");
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [paymentPartyType, setPaymentPartyType] = useState<"Customer" | "Supplier">("Customer");
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [templates, setTemplates] = useState<JETemplate[]>(INITIAL_TEMPLATES);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
   const [newTpl, setNewTpl] = useState({ name: "", accounts: "", narration: "" });
-  const [apRows, setApRows] = useState<APRow[]>(INITIAL_AP);
+  const [arRows, setArRows] = useState<ARRow[]>([]);
+  const [apRows, setApRows] = useState<APRow[]>([]);
 
   const fetchPayments = useCallback(async () => {
     try {
@@ -386,44 +410,22 @@ export function ReceivablesPayables() {
     }
   }, []);
 
+  const loadData = useCallback(async () => {
+    try {
+      const res = await getReceivablesPayablesFn();
+      if (res) {
+        setArRows((res.arRows || []) as ARRow[]);
+        setApRows((res.apRows || []) as APRow[]);
+      }
+    } catch (err) {
+      console.error("[ReceivablesPayables] Error loading AR/AP:", err);
+    }
+  }, []);
+
   useEffect(() => {
     void fetchPayments();
-
-    listPurchaseBillsFn({ data: { status: "ALL" } })
-      .then((bills) => {
-        const active = bills.filter((b) => b.status !== "VOID");
-        if (active.length > 0) {
-          const today = new Date();
-          const mapped: APRow[] = active.map((b) => {
-            const out = Math.max(0, b.grandTotal - b.amountPaid);
-            const billD = new Date(b.billDate);
-            const diffDays = Math.floor((today.getTime() - billD.getTime()) / (1000 * 3600 * 24));
-            let bucket: Bucket = "0–30";
-            if (diffDays > 90) bucket = "90+";
-            else if (diffDays > 60) bucket = "61–90";
-            else if (diffDays > 30) bucket = "31–60";
-
-            let status: APStatus = "Unpaid";
-            if (b.status === "PAID") status = "Unpaid";
-            else if (b.status === "PARTIAL") status = "Partially paid";
-            else if (diffDays > 30) status = "Overdue";
-
-            return {
-              supplier: b.supplierName,
-              bill: b.internalRef || b.billNumber,
-              date: b.billDate,
-              due: b.dueDate || b.billDate,
-              amount: b.grandTotal,
-              outstanding: out,
-              bucket,
-              status,
-            };
-          });
-          setApRows(mapped);
-        }
-      })
-      .catch((err) => console.error("Error loading bills in AP:", err));
-  }, [fetchPayments]);
+    void loadData();
+  }, [fetchPayments, loadData]);
 
   const addTemplate = () => {
     if (!newTpl.name || !newTpl.accounts) {
@@ -460,11 +462,21 @@ export function ReceivablesPayables() {
       <AnimatePresence mode="wait">
         <motion.div key={view} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }}>
           {view === "ar"
-            ? <ARTable data={INITIAL_AR} onPayment={() => setPaymentOpen(true)} />
-            : <APTable data={apRows} onPayment={() => setPaymentOpen(true)} />
+            ? <ARTable data={arRows} onPayment={() => { setPaymentPartyType("Customer"); setPaymentOpen(true); }} />
+            : <APTable data={apRows} onPayment={() => { setPaymentPartyType("Supplier"); setPaymentOpen(true); }} />
           }
         </motion.div>
       </AnimatePresence>
+
+      <PaymentEntryDialog
+        open={paymentOpen}
+        onClose={() => setPaymentOpen(false)}
+        partyType={paymentPartyType}
+        onPaymentSaved={() => {
+          void fetchPayments();
+          void loadData();
+        }}
+      />
 
       {/* Recorded MongoDB Payments */}
       {payments.length > 0 && (
@@ -533,13 +545,6 @@ export function ReceivablesPayables() {
           ))}
         </div>
       </div>
-
-      <PaymentEntryDialog
-        open={paymentOpen}
-        onClose={() => setPaymentOpen(false)}
-        partyType={view === "ar" ? "Customer" : "Supplier"}
-        onPaymentSaved={fetchPayments}
-      />
 
       <Dialog open={newTemplateOpen} onOpenChange={setNewTemplateOpen}>
         <DialogContent className="sm:max-w-md">

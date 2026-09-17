@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
 import { useInventory } from "@/components/erp/inventory/useInventoryStore";
-import { ALL_SEED_ITEMS } from "@/components/erp/inventory/seedData";
 
 export type CatalogueType = "medicine" | "food" | "accessory";
 
@@ -142,12 +141,9 @@ export function CatalogueSearch({
       }
     }
 
-    // 3. Fallback to passed catalogItems or ALL_SEED_ITEMS
+    // 3. Fallback to passed catalogItems if provided (no seed fallback)
     if (pool.length === 0 && catalogItems && catalogItems.length > 0) {
       pool = [...catalogItems];
-    }
-    if (pool.length === 0) {
-      pool = [...ALL_SEED_ITEMS];
     }
 
     // Strictly enforce catalogue type filter
@@ -199,6 +195,16 @@ export function CatalogueSearch({
     setIsOpen(false);
   };
 
+  const handleAddCustom = () => {
+    const trimmed = (debouncedQuery || query).trim();
+    if (!trimmed) return;
+    handleSelectItem({
+      name: trimmed,
+      unitPrice: type === "food" ? 850 : type === "accessory" ? 320 : 150,
+      unit: type === "food" ? "Kg" : type === "accessory" ? "Piece" : "Tablet",
+    });
+  };
+
   const defaultPlaceholder =
     type === "medicine"
       ? "Search medicine by name, generic, or brand..."
@@ -217,6 +223,16 @@ export function CatalogueSearch({
             setQuery(e.target.value);
             setIsOpen(true);
           }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (filteredResults.length > 0) {
+                handleSelectItem(filteredResults[0]);
+              } else if (query.trim()) {
+                handleAddCustom();
+              }
+            }
+          }}
           onFocus={() => setIsOpen(true)}
           placeholder={placeholder || defaultPlaceholder}
           className="pl-9 pr-9 h-10 bg-background text-sm rounded-lg border-border focus-visible:ring-2 focus-visible:ring-primary/20"
@@ -230,11 +246,21 @@ export function CatalogueSearch({
       {isOpen && (
         <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95">
           {filteredResults.length === 0 ? (
-            <div className="py-6 text-center text-xs text-muted-foreground">
+            <div className="py-5 px-3 text-center text-xs text-muted-foreground space-y-2">
               {debouncedQuery ? (
-                <span>No {type} items found matching &ldquo;{debouncedQuery}&rdquo; in Inventory.</span>
+                <>
+                  <p>No {type} items found matching &ldquo;{debouncedQuery}&rdquo; in inventory.</p>
+                  <button
+                    type="button"
+                    onClick={handleAddCustom}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shadow-xs"
+                  >
+                    <Plus className="size-3.5" />
+                    Add &ldquo;{debouncedQuery}&rdquo; to prescription
+                  </button>
+                </>
               ) : (
-                <span>No available {type} items found.</span>
+                <p>No {type} items in inventory. Type a name to add custom {type}.</p>
               )}
             </div>
           ) : (
@@ -294,6 +320,16 @@ export function CatalogueSearch({
                   </button>
                 );
               })}
+              {debouncedQuery && !filteredResults.some((it) => (it.name || "").toLowerCase() === debouncedQuery.toLowerCase()) && (
+                <button
+                  type="button"
+                  onClick={handleAddCustom}
+                  className="w-full flex items-center gap-2 p-2.5 hover:bg-muted/60 transition-colors text-left text-xs rounded-md text-primary font-medium border-t border-border/40"
+                >
+                  <Plus className="size-3.5" />
+                  <span>Add &ldquo;{debouncedQuery}&rdquo; as custom {type}</span>
+                </button>
+              )}
             </div>
           )}
         </div>

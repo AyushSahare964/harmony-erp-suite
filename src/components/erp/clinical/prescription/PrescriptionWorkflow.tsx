@@ -717,11 +717,135 @@ export function PrescriptionWorkflow({
     }
   };
 
+  const [isProceeding, setIsProceeding] = useState(false);
+
+  // Build full billable lines from all current prescription sections
+  const buildCurrentBillableLines = (): any[] => {
+    const linesList: any[] = [];
+
+    // Consultation Fee Line
+    if (consultationFee !== null && consultationFee !== undefined && consultationFee > 0) {
+      linesList.push({
+        id: `rx-fee-${visit?.visitId || Date.now()}`,
+        lineType: "Consultation",
+        name: "Veterinary Consultation & Physical Examination",
+        quantity: 1,
+        unitPrice: Number(consultationFee),
+        discountPercent: 0,
+        gstRate: visit?.billType === "GST" ? 18 : 0,
+        sourceType: "RX_CONSULT",
+        rxSection: "FEE",
+      });
+    }
+
+    // Immediate medicines
+    for (const m of immediateMedicines) {
+      linesList.push({
+        id: m.id || `rx-im-${Math.random()}`,
+        lineType: "Pharmacy",
+        itemCode: m.itemCode,
+        name: m.name || (m as any).medicineName || "Immediate Medicine",
+        dosageInstructions: m.dosageInstructions || (m as any).dosage || (m as any).instructions,
+        quantity: Number(m.quantity) || 1,
+        unitPrice: Number(m.unitPrice) || 0,
+        discountPercent: Number(m.discountPercent) || 0,
+        gstRate: visit?.billType === "GST" ? 12 : 0,
+        sourceType: "RX_ITEM",
+        rxSection: "IMMEDIATE_MED",
+      });
+    }
+
+    // Prescribed medicines
+    for (const m of prescribedMedicines) {
+      linesList.push({
+        id: m.id || `rx-pm-${Math.random()}`,
+        lineType: "Pharmacy",
+        itemCode: m.itemCode,
+        name: m.name || (m as any).medicineName || "Prescribed Medicine",
+        dosageInstructions: m.dosageInstructions || (m as any).dosage || (m as any).instructions,
+        quantity: Number(m.quantity) || 1,
+        unitPrice: Number(m.unitPrice) || 0,
+        discountPercent: Number(m.discountPercent) || 0,
+        gstRate: visit?.billType === "GST" ? 12 : 0,
+        sourceType: "RX_ITEM",
+        rxSection: "PRESCRIBED_MED",
+      });
+    }
+
+    // Injectables
+    for (const inj of injectables) {
+      linesList.push({
+        id: inj.id || `rx-inj-${Math.random()}`,
+        lineType: "Pharmacy",
+        itemCode: inj.itemCode,
+        name: inj.name,
+        dosageInstructions: inj.dosageInstructions || (inj as any).instructions || `${(inj as any).dose || 1} ${(inj as any).doseUnit || "ml"}`,
+        quantity: Number(inj.quantity) || 1,
+        unitPrice: Number(inj.unitPrice) || 0,
+        discountPercent: Number(inj.discountPercent) || 0,
+        gstRate: visit?.billType === "GST" ? 12 : 0,
+        sourceType: "RX_ITEM",
+        rxSection: "INJECTABLE",
+      });
+    }
+
+    // Animal Food
+    for (const f of animalFood) {
+      linesList.push({
+        id: f.id || `rx-food-${Math.random()}`,
+        lineType: "Food",
+        itemCode: f.itemCode,
+        name: f.name,
+        quantity: Number(f.quantity) || 1,
+        unitPrice: Number(f.unitPrice) || 0,
+        discountPercent: Number(f.discountPercent) || 0,
+        gstRate: visit?.billType === "GST" ? 18 : 0,
+        sourceType: "RX_ITEM",
+        rxSection: "ANIMAL_FOOD",
+      });
+    }
+
+    // Prescribed Food
+    for (const pf of prescribedFood) {
+      linesList.push({
+        id: pf.id || `rx-pfood-${Math.random()}`,
+        lineType: "Food",
+        itemCode: pf.itemCode,
+        name: pf.name,
+        quantity: Number(pf.quantity) || 1,
+        unitPrice: Number(pf.unitPrice) || 0,
+        discountPercent: Number(pf.discountPercent) || 0,
+        gstRate: visit?.billType === "GST" ? 18 : 0,
+        sourceType: "RX_ITEM",
+        rxSection: "PRESCRIBED_FOOD",
+      });
+    }
+
+    // Accessories
+    for (const a of accessories) {
+      linesList.push({
+        id: a.id || `rx-acc-${Math.random()}`,
+        lineType: "Accessory",
+        itemCode: a.itemCode,
+        name: a.name,
+        quantity: Number(a.quantity) || 1,
+        unitPrice: Number(a.unitPrice) || 0,
+        discountPercent: Number(a.discountPercent) || 0,
+        gstRate: visit?.billType === "GST" ? 18 : 0,
+        sourceType: "RX_ITEM",
+        rxSection: "ACCESSORY",
+      });
+    }
+
+    return linesList;
+  };
+
   // Proceed to Billing & Settlement (§13.3)
   const handleProceed = async () => {
-    if (hasAnyDirtySection && !isSettled) {
-      await handleSaveAllDraft();
-    }
+    if (isProceeding) return;
+    setIsProceeding(true);
+    const billableLines = buildCurrentBillableLines();
+
     // Build snapshot and navigate
     const rxSnapshot: IPrescriptionData = {
       prescriptionId: visit.prescriptionNo,
@@ -752,7 +876,17 @@ export function PrescriptionWorkflow({
       accessories: accessories as any,
       version,
     };
-    onProceedToBilling(rxSnapshot, []);
+
+    try {
+      if (hasAnyDirtySection && !isSettled) {
+        await handleSaveAllDraft().catch((err) => {
+          console.warn("Draft save warning on proceed to billing:", err);
+        });
+      }
+    } finally {
+      setIsProceeding(false);
+      onProceedToBilling(rxSnapshot, billableLines);
+    }
   };
 
   // Findings handler
@@ -1246,6 +1380,7 @@ export function PrescriptionWorkflow({
             accessories={accessories}
             hasUnsavedChanges={hasAnyDirtySection}
             isSavingAll={isSavingAll}
+            isProceeding={isProceeding}
             onSaveAllDraft={handleSaveAllDraft}
             onProceedToBilling={handleProceed}
             onClonePrevious={onClonePrevious}

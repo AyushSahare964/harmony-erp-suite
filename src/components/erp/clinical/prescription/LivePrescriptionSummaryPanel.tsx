@@ -12,6 +12,7 @@ import {
   IndianRupee,
   Clock,
   FileText,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,7 @@ export interface LiveSummaryPanelProps {
   accessories: InventoryItemLine[];
   hasUnsavedChanges: boolean;
   isSavingAll?: boolean | undefined;
+  isProceeding?: boolean | undefined;
   onSaveAllDraft: () => Promise<void>;
   onProceedToBilling: () => void;
   onClonePrevious?: (() => void) | undefined;
@@ -48,6 +50,7 @@ export function LivePrescriptionSummaryPanel({
   accessories,
   hasUnsavedChanges,
   isSavingAll = false,
+  isProceeding = false,
   onSaveAllDraft,
   onProceedToBilling,
   onClonePrevious,
@@ -348,22 +351,41 @@ export function LivePrescriptionSummaryPanel({
           <Button
             type="button"
             variant="outline"
-            disabled={!hasUnsavedChanges || isSavingAll}
+            disabled={!hasUnsavedChanges || isSavingAll || isProceeding}
             onClick={() => onSaveAllDraft()}
             className="w-full h-8 text-xs font-bold gap-1.5"
           >
-            <Save className="size-3.5" />
-            <span>Save All Draft</span>
+            {isSavingAll ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                <span>Saving All Draft...</span>
+              </>
+            ) : (
+              <>
+                <Save className="size-3.5" />
+                <span>Save All Draft</span>
+              </>
+            )}
           </Button>
         )}
 
         <Button
           type="button"
+          disabled={isProceeding}
           onClick={() => onProceedToBilling()}
           className="w-full h-9 text-xs font-bold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs"
         >
-          <span>Proceed to Billing &amp; Settlement</span>
-          <ArrowRight className="size-3.5" />
+          {isProceeding ? (
+            <>
+              <Loader2 className="size-3.5 animate-spin" />
+              <span>Proceeding to Billing...</span>
+            </>
+          ) : (
+            <>
+              <span>Proceed to Billing &amp; Settlement</span>
+              <ArrowRight className="size-3.5" />
+            </>
+          )}
         </Button>
       </div>
     </div>

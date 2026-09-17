@@ -19,13 +19,7 @@ import {
   type InventoryItemRow,
   type StockBatchRow,
 } from "@/lib/mongodb/serverFns/inventory";
-import {
-  ALL_SEED_ITEMS,
-  type SeedItem,
-  type MedicineDetails,
-  type FoodDetails,
-  type AccessoryDetails,
-} from "./seedData";
+
 
 // ─── Data Types ───────────────────────────────────────────────────────────────
 
@@ -378,99 +372,12 @@ interface InventoryContextValue {
 
 const InventoryContext = createContext<InventoryContextValue | null>(null);
 
-// ─── Seed Batches (in-memory only, for immediate display) ─────────────────────
-const SEED_BATCHES: Batch[] = [
-  { id: "B-0001", batchCode: "B-0001", medicineId: "M-0001", itemCode: "M-0001", itemName: "Amoxicillin 250mg", batchNo: "AMX-2024-01", manufacturingDate: "", expiryDate: "2026-11-30", supplierId: "SUP-01", supplierName: "MedVet Distributors", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-01-12", receivedQty: 100, acceptedQty: 100, rejectedQty: 0, rejectionReason: "", qty: 42, purchasePrice: 16, purchasePricePerUnit: 16, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 1600, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-01-12" },
-  { id: "B-0002", batchCode: "B-0002", medicineId: "M-0001", itemCode: "M-0001", itemName: "Amoxicillin 250mg", batchNo: "AMX-2024-02", manufacturingDate: "", expiryDate: "2026-08-20", supplierId: "SUP-01", supplierName: "MedVet Distributors", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-01-12", receivedQty: 50, acceptedQty: 50, rejectedQty: 0, rejectionReason: "", qty: 8, purchasePrice: 16, purchasePricePerUnit: 16, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 800, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-01-12" },
-  { id: "B-0003", batchCode: "B-0003", medicineId: "M-0002", itemCode: "M-0002", itemName: "Rabies Vaccine 1ml", batchNo: "RBV-2025-01", manufacturingDate: "", expiryDate: "2026-09-15", supplierId: "SUP-02", supplierName: "BioPharm", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-04-02", receivedQty: 30, acceptedQty: 30, rejectedQty: 0, rejectionReason: "", qty: 12, purchasePrice: 340, purchasePricePerUnit: 340, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 10200, storageLocation: "Cold Storage", qualityChecked: true, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-04-02" },
-  { id: "B-0004", batchCode: "B-0004", medicineId: "M-0003", itemCode: "M-0003", itemName: "IV Fluid RL 500ml", batchNo: "IVF-2025-03", manufacturingDate: "", expiryDate: "2027-03-01", supplierId: "SUP-03", supplierName: "CareSupplies", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-05-20", receivedQty: 48, acceptedQty: 48, rejectedQty: 0, rejectionReason: "", qty: 6, purchasePrice: 42, purchasePricePerUnit: 42, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 2016, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-05-20" },
-  { id: "B-0005", batchCode: "B-0005", medicineId: "M-0004", itemCode: "M-0004", itemName: "Dexamethasone 4mg", batchNo: "DEX-2025-01", manufacturingDate: "", expiryDate: "2026-12-31", supplierId: "SUP-02", supplierName: "BioPharm", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-03-01", receivedQty: 28, acceptedQty: 28, rejectedQty: 0, rejectionReason: "", qty: 28, purchasePrice: 68, purchasePricePerUnit: 68, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 1904, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-03-01" },
-  { id: "B-0006", batchCode: "B-0006", medicineId: "M-0005", itemCode: "M-0005", itemName: "Royal Canin Maxi 4kg", batchNo: "RC-2025-08", manufacturingDate: "", expiryDate: "2027-06-30", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-08-01", receivedQty: 18, acceptedQty: 18, rejectedQty: 0, rejectionReason: "", qty: 18, purchasePrice: 1400, purchasePricePerUnit: 1400, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 25200, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-08-01" },
-  { id: "B-0007", batchCode: "B-0007", medicineId: "M-0006", itemCode: "M-0006", itemName: "Tick & Flea Collar (L)", batchNo: "TFC-2024-06", manufacturingDate: "", expiryDate: "2026-08-23", supplierId: "SUP-05", supplierName: "Supplier 05", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2024-06-01", receivedQty: 20, acceptedQty: 20, rejectedQty: 0, rejectionReason: "", qty: 7, purchasePrice: 220, purchasePricePerUnit: 220, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 18, totalValue: 4400, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2024-06-01" },
-  { id: "B-0008", batchCode: "B-0008", medicineId: "M-0007", itemCode: "M-0007", itemName: "Deworming Syrup 30ml", batchNo: "DWS-2025-04", manufacturingDate: "", expiryDate: "2027-01-15", supplierId: "SUP-02", supplierName: "BioPharm", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-04-01", receivedQty: 25, acceptedQty: 25, rejectedQty: 0, rejectionReason: "", qty: 25, purchasePrice: 62, purchasePricePerUnit: 62, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 1550, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-04-01" },
-  { id: "B-0009", batchCode: "B-0009", medicineId: "M-0008", itemCode: "M-0008", itemName: "IV Catheter 20G", batchNo: "IVC-2025-02", manufacturingDate: "", expiryDate: "2028-01-01", supplierId: "SUP-03", supplierName: "CareSupplies", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-06-01", receivedQty: 50, acceptedQty: 50, rejectedQty: 0, rejectionReason: "", qty: 0, purchasePrice: 30, purchasePricePerUnit: 30, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 1500, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Exhausted", createdAt: "2025-06-01" },
-  { id: "B-0010", batchCode: "B-0010", medicineId: "M-0009", itemCode: "M-0009", itemName: "Metronidazole 200mg", batchNo: "MTZ-2025-01", manufacturingDate: "", expiryDate: "2027-05-31", supplierId: "SUP-01", supplierName: "MedVet Distributors", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-01-01", receivedQty: 180, acceptedQty: 180, rejectedQty: 0, rejectionReason: "", qty: 180, purchasePrice: 5, purchasePricePerUnit: 5, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 900, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-01-01" },
-  { id: "B-0011", batchCode: "B-0011", medicineId: "M-0009", itemCode: "M-0009", itemName: "Metronidazole 200mg", batchNo: "MTZ-2024-12", manufacturingDate: "", expiryDate: "2026-08-19", supplierId: "SUP-01", supplierName: "MedVet Distributors", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2024-12-01", receivedQty: 40, acceptedQty: 40, rejectedQty: 0, rejectionReason: "", qty: 40, purchasePrice: 5, purchasePricePerUnit: 5, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 12, totalValue: 200, storageLocation: "", qualityChecked: false, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2024-12-01" },
-  { id: "B-0012", batchCode: "B-0012", medicineId: "F-0001", itemCode: "F-0001", itemName: "Royal Canin Maxi Adult 4kg", batchNo: "RC-M-2025-01", manufacturingDate: "2025-01-01", expiryDate: "2027-01-01", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-08-01", receivedQty: 24, acceptedQty: 24, rejectedQty: 0, rejectionReason: "", qty: 24, purchasePrice: 1400, purchasePricePerUnit: 1400, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 33600, storageLocation: "Retail Shelf D1", qualityChecked: true, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-08-01" },
-  { id: "B-0013", batchCode: "B-0013", medicineId: "F-0002", itemCode: "F-0002", itemName: "Pedigree Adult Chicken 3kg", batchNo: "PED-2025-07", manufacturingDate: "2025-07-01", expiryDate: "2026-07-01", supplierId: "SUP-04", supplierName: "PetNutri", purchaseOrderRef: "", invoiceBillNo: "", receivedDate: "2025-07-15", receivedQty: 30, acceptedQty: 30, rejectedQty: 0, rejectionReason: "", qty: 30, purchasePrice: 680, purchasePricePerUnit: 680, landingCost: 0, landingCostPerUnit: 0, gstOnPurchase: 5, totalValue: 20400, storageLocation: "Retail Shelf D1", qualityChecked: true, qcInspectorName: "", remarks: "", status: "Active", createdAt: "2025-07-15" },
-];
 
-const SEED_LEDGER: LedgerEntry[] = [
-  { id: "L-0001", medicineId: "M-0001", medicineName: "Amoxicillin 250mg", batchId: "B-0001", batchNo: "AMX-2024-01", movementType: "purchase_in", quantity: 100, sourceType: "purchase", sourceRef: "PO-2024-001", balanceAfter: 100, actorName: "Dr. Ananya Rao", createdAt: "2025-01-12 10:00" },
-  { id: "L-0002", medicineId: "M-0001", medicineName: "Amoxicillin 250mg", batchId: "B-0001", batchNo: "AMX-2024-01", movementType: "sale_out", quantity: 58, sourceType: "invoice", sourceRef: "INV-20440", balanceAfter: 42, actorName: "Receptionist", createdAt: "2025-06-10 14:23" },
-  { id: "L-0003", medicineId: "M-0002", medicineName: "Rabies Vaccine 1ml", batchId: "B-0003", batchNo: "RBV-2025-01", movementType: "purchase_in", quantity: 30, sourceType: "purchase", sourceRef: "PO-2025-004", balanceAfter: 30, actorName: "Dr. Ananya Rao", createdAt: "2025-04-02 09:00" },
-  { id: "L-0004", medicineId: "M-0002", medicineName: "Rabies Vaccine 1ml", batchId: "B-0003", batchNo: "RBV-2025-01", movementType: "sale_out", quantity: 18, sourceType: "manual_bill", sourceRef: "MB-2025-112", balanceAfter: 12, actorName: "Receptionist", createdAt: "2026-07-15 11:30" },
-  { id: "L-0005", medicineId: "M-0003", medicineName: "IV Fluid RL 500ml", batchId: "B-0004", batchNo: "IVF-2025-03", movementType: "purchase_in", quantity: 48, sourceType: "purchase", sourceRef: "PO-2025-009", balanceAfter: 48, actorName: "Dr. Ananya Rao", createdAt: "2025-05-20 09:00" },
-  { id: "L-0006", medicineId: "M-0003", medicineName: "IV Fluid RL 500ml", batchId: "B-0004", batchNo: "IVF-2025-03", movementType: "adjustment_out", quantity: 42, sourceType: "manual_adjustment", sourceRef: "ADJ-001", balanceAfter: 6, actorName: "Dr. Ananya Rao", createdAt: "2026-08-01 16:00", reason: "Wastage — broken during handling" },
-  { id: "L-0007", medicineId: "M-0008", medicineName: "IV Catheter 20G", batchId: "B-0009", batchNo: "IVC-2025-02", movementType: "purchase_in", quantity: 50, sourceType: "purchase", sourceRef: "PO-2025-011", balanceAfter: 50, actorName: "Dr. Ananya Rao", createdAt: "2025-06-01 10:00" },
-  { id: "L-0008", medicineId: "M-0008", medicineName: "IV Catheter 20G", batchId: "B-0009", batchNo: "IVC-2025-02", movementType: "sale_out", quantity: 50, sourceType: "invoice", sourceRef: "INV-20460", balanceAfter: 0, actorName: "Receptionist", createdAt: "2026-08-14 13:45" },
-];
-
-// ─── Fallback Medicines (All 52 seed items mapped) ───────────────────────────
-
-const FALLBACK_MEDICINES: Medicine[] = ALL_SEED_ITEMS.map((item) => ({
-  id: item.itemCode,
-  itemCode: item.itemCode,
-  sku: item.sku,
-  name: item.name,
-  genericName: item.genericName,
-  brand: item.brand,
-  manufacturer: item.manufacturer,
-  description: item.description,
-  category: (item.productType === "MEDICINE" ? "Medicine" : item.productType === "FOOD" ? "Food" : "Accessory") as MedicineCategory,
-  productType: item.productType,
-  subGroup: item.subGroup,
-  hasVariants: item.hasVariants,
-  unit: item.unit as UnitOfMeasure,
-  purchaseUom: item.purchaseUom,
-  salesUom: item.salesUom,
-  uomConversions: (item.uomConversions || []) as UomConversion[],
-  maintainStock: item.maintainStock,
-  valuationMethod: item.valuationMethod as ValuationMethod,
-  reorderLevel: item.reorderLevel,
-  reorderQty: item.reorderQty,
-  safetyStock: item.safetyStock,
-  currentStock: item.currentStock,
-  minStockLevel: item.minStockLevel,
-  storageLocation: item.storageLocation,
-  batchTracking: item.batchTracking,
-  serialTracking: item.serialTracking,
-  allowNegativeStock: item.allowNegativeStock,
-  defaultSalePrice: item.defaultSalePrice,
-  defaultPurchasePrice: item.defaultPurchasePrice,
-  minSalePrice: item.minSalePrice,
-  maxDiscountPct: item.maxDiscountPct,
-  valuationRate: item.valuationRate,
-  lastPurchaseRate: item.lastPurchaseRate,
-  mrp: item.mrp,
-  samplePriceNote: item.samplePriceNote,
-  gstRate: item.gstRate,
-  hsnCode: item.hsnCode,
-  taxCategory: item.taxCategory,
-  isZeroRated: item.isZeroRated,
-  isExempt: item.isExempt,
-  isImport: item.isImport,
-  defaultSupplierId: item.defaultSupplierId,
-  defaultSupplierName: item.defaultSupplierName,
-  leadTimeDays: item.leadTimeDays,
-  minOrderQty: item.minOrderQty,
-  purchaseAccount: item.purchaseAccount,
-  expenseAccount: item.expenseAccount,
-  incomeAccount: item.incomeAccount,
-  costCenter: item.costCenter,
-  isSalesItem: item.isSalesItem,
-  allowAlternativeItem: item.allowAlternativeItem,
-  medicineDetails: item.medicineDetails,
-  foodDetails: item.foodDetails,
-  accessoryDetails: item.accessoryDetails,
-  status: item.status as MedicineStatus,
-  createdAt: "2026-08-23",
-}));
 
 export function InventoryProvider({ children }: { children: ReactNode }) {
-  const [medicines, setMedicines] = useState<Medicine[]>(FALLBACK_MEDICINES);
-  const [batches, setBatches] = useState<Batch[]>(SEED_BATCHES);
-  const [ledger, setLedger] = useState<LedgerEntry[]>(SEED_LEDGER);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [loadingItems, setLoadingItems] = useState(true);
 
   // ── Load items from MongoDB on mount ────────────────────────────────────────
@@ -478,11 +385,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     setLoadingItems(true);
     try {
       const raw = await getItemsFn();
-      if (raw && raw.length > 0) {
-        setMedicines(raw.map(mapToMedicine));
-      }
+      setMedicines(raw.map(mapToMedicine));
     } catch (err) {
-      console.warn("[InventoryProvider] Falling back to local data due to network:", err);
+      console.warn("[InventoryProvider] Failed to load inventory items:", err);
     } finally {
       setLoadingItems(false);
     }

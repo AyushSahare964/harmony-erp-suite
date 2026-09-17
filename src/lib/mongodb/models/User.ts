@@ -29,6 +29,8 @@ export interface IUser {
   approvedAt?: Date;
   rejectionReason?: string;
   isActive: boolean;
+  /** When true this account is a built-in system/developer credential and is hidden from the staff directory UI */
+  isSystemAccount?: boolean;
   lastLoginAt?: Date;
   loginCount: number;
   createdAt: Date;
@@ -58,6 +60,7 @@ const userSchema = new Schema<UserDocument>(
     approvedAt:      { type: Date },
     rejectionReason: { type: String },
     isActive:        { type: Boolean, default: true },
+    isSystemAccount: { type: Boolean, default: false },
     lastLoginAt:     { type: Date },
     loginCount:      { type: Number, default: 0 },
   },

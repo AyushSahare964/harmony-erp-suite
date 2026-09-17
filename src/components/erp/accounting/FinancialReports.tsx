@@ -103,51 +103,33 @@ export function FinancialReports() {
     
     // Income accounts
     const incomeAccts = leaf.filter((a) => a.type === "Income");
-    const totalIncome = incomeAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 2160000;
+    const totalIncome = incomeAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
     // Expense accounts
     const expenseAccts = leaf.filter((a) => a.type === "Expense");
-    const totalExpense = expenseAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 920000;
+    const totalExpense = expenseAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
     // Asset accounts
     const assetAccts = leaf.filter((a) => a.type === "Assets");
-    const totalAssets = assetAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 3270000;
+    const totalAssets = assetAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
     // Liability accounts
     const liabilityAccts = leaf.filter((a) => a.type === "Liabilities");
-    const totalLiabilities = liabilityAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 420000;
+    const totalLiabilities = liabilityAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
     // Equity accounts
     const equityAccts = leaf.filter((a) => a.type === "Equity");
-    const baseEquity = equityAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 1610000;
+    const baseEquity = equityAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
-    const netProfit = totalIncome - totalExpense; // 1,240,000
-    const totalEquity = baseEquity + netProfit;   // 2,850,000
-    const totalLiabilitiesAndEquity = totalLiabilities + totalEquity; // 3,270,000
+    const netProfit = totalIncome - totalExpense;
+    const totalEquity = baseEquity + netProfit;
+    const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
 
     return {
-      incomeAccts: incomeAccts.length > 0 ? incomeAccts : [
-        { code: "4100", name: "Consultation & OPD Fees", openingBalance: 845000 },
-        { code: "4200", name: "Pharmacy Sales Revenue", openingBalance: 462000 },
-        { code: "4300", name: "Laboratory & Diagnostic Fees", openingBalance: 411000 },
-        { code: "4400", name: "Pet Boarding & Daycare", openingBalance: 340000 },
-        { code: "4500", name: "Hydrotherapy & Spa Income", openingBalance: 102000 },
-      ],
-      expenseAccts: expenseAccts.length > 0 ? expenseAccts : [
-        { code: "5100", name: "Salaries & Professional Fees", openingBalance: 740000 },
-        { code: "5200", name: "Supplier & Vendor Payments", openingBalance: 112000 },
-        { code: "5300", name: "Clinic Utilities & Rent", openingBalance: 68000 },
-      ],
-      assetAccts: assetAccts.length > 0 ? assetAccts : [
-        { code: "1100", name: "Cash on Hand", openingBalance: 142000 },
-        { code: "1200", name: "Bank — HDFC Current A/C", openingBalance: 1288000 },
-        { code: "1300", name: "Accounts Receivable (Debtors)", openingBalance: 680000 },
-        { code: "1400", name: "Pharmacy & Medical Inventory", openingBalance: 1160000 },
-      ],
-      liabilityAccts: liabilityAccts.length > 0 ? liabilityAccts : [
-        { code: "2100", name: "Accounts Payable (Creditors)", openingBalance: 240000 },
-        { code: "2200", name: "GST & Tax Payable", openingBalance: 180000 },
-      ],
+      incomeAccts,
+      expenseAccts,
+      assetAccts,
+      liabilityAccts,
       totalIncome,
       totalExpense,
       netProfit,

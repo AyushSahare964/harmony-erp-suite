@@ -32,6 +32,8 @@ import { DietChartPrintModal } from "./DietChartPrintModal";
 import { CalorieCalculatorPanel } from "./CalorieCalculatorPanel";
 import { TherapeuticDietCatalog } from "./TherapeuticDietCatalog";
 import { listFeedingPlansFn, createFeedingPlanFn, deleteFeedingPlanFn } from "@/lib/mongodb/serverFns/nutrition";
+import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
+import { listVisitsFn } from "@/lib/mongodb/serverFns/clinical";
 import { cn } from "@/lib/utils";
 
 type NutritionTab = "plans" | "calculator" | "stock";
@@ -39,6 +41,8 @@ type NutritionTab = "plans" | "calculator" | "stock";
 export function FoodNutritionHub() {
   const [activeTab, setActiveTab] = useState<NutritionTab>("plans");
   const [plans, setPlans] = useState<any[]>([]);
+  const [foodItems, setFoodItems] = useState<any[]>([]);
+  const [visits, setVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [query, setQuery] = useState("");
@@ -50,22 +54,91 @@ export function FoodNutritionHub() {
   const [selectedPlan, setSelectedPlan] = useState<any | null>(null);
 
   useEffect(() => {
-    void loadPlans();
+    void loadData();
   }, []);
 
-  const loadPlans = async () => {
+  const loadData = async () => {
     setLoading(true);
     try {
-      const data = await listFeedingPlansFn();
-      setPlans(data || []);
+      const [plansData, foodData, visitsData] = await Promise.all([
+        listFeedingPlansFn().catch(() => []),
+        getItemsFn({ data: { type: "FOOD" } }).catch(() => []),
+        listVisitsFn().catch(() => []),
+      ]);
+      setPlans(plansData || []);
+      setFoodItems(foodData || []);
+      setVisits(visitsData || []);
     } catch (e) {
       console.error(e);
-      toast.error("Failed to load feeding plans");
+      toast.error("Failed to load nutrition data");
     } finally {
       setLoading(false);
     }
   };
 
+  // ─── Dynamic Nutrition KPIs ────────────────────────────────────────────────
+  const reorderDueItems = useMemo(() => {
+    return foodItems.filter(
+      (i) => (i.currentStock ?? 0) <= (i.reorderLevel ?? 0) && i.status === "Active"
+    );
+  }, [foodItems]);
+
+  const criticalLowCount = useMemo(() => {
+    return reorderDueItems.filter((i) => (i.currentStock ?? 0) === 0).length;
+  }, [reorderDueItems]);
+
+  const activePlansCount = useMemo(() => {
+    return plans.filter((p) => (p.status || "").toLowerCase() === "active").length;
+  }, [plans]);
+
+  const foodSalesMtd = useMemo(() => {
+    const now = new Date();
+    const yr = now.getFullYear();
+    const mo = now.getMonth();
+    return visits
+      .filter((v: any) => {
+        const d = new Date(v.date || v.createdAt || Date.now());
+        return !isNaN(d.getTime()) && d.getFullYear() === yr && d.getMonth() === mo;
+      })
+      .reduce((sum: number, v: any) => {
+        const items = v.items || [];
+        const foodTotal = items
+          .filter((item: any) => {
+            const type = (item.lineType || "").toLowerCase();
+            const name = (item.name || "").toLowerCase();
+            return (
+              type === "food" ||
+              type === "nutrition" ||
+              name.includes("diet") ||
+              name.includes("royal canin") ||
+              name.includes("kibble") ||
+              name.includes("food")
+            );
+          })
+          .reduce((acc: number, it: any) => acc + (Number(it.lineTotal || it.amount || 0) || 0), 0);
+        return sum + foodTotal;
+      }, 0);
+  }, [visits]);
+
+  const formattedFoodSales = useMemo(() => {
+    if (foodSalesMtd >= 100000) {
+      return `₹${(foodSalesMtd / 100000).toFixed(1)}L`;
+    }
+    return `₹${foodSalesMtd.toLocaleString("en-IN")}`;
+  }, [foodSalesMtd]);
+
+  const reviewsDue = useMemo(() => {
+    const in7Days = new Date();
+    in7Days.setDate(in7Days.getDate() + 7);
+    const in7DaysStr = in7Days.toISOString().slice(0, 10);
+
+    return plans.filter((p) => {
+      const s = (p.status || "").toLowerCase();
+      if (s === "review due" || s === "overdue") return true;
+      const reviewDate = (p.nextReview || "").slice(0, 10);
+      return reviewDate && reviewDate <= in7DaysStr;
+    });
+  }, [plans]);
 
   const filteredPlans = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -87,10 +160,10 @@ export function FoodNutritionHub() {
   }, [plans, query, statusFilter]);
 
   const handleReset = () => {
-    void loadPlans();
+    void loadData();
     setQuery("");
     setStatusFilter("all");
-    toast.success("Feeding plans reloaded from MongoDB");
+    toast.success("Feeding plans and diet stock reloaded from MongoDB");
   };
 
   const handleOpenPrint = (plan: any) => {
@@ -108,7 +181,6 @@ export function FoodNutritionHub() {
       toast.error("Failed to delete plan");
     }
   };
-
 
   const exportCsv = () => {
     const header = "Plan,Pet,Patient ID,Diet,Daily Quantity (g),Next Review,Status";
@@ -157,22 +229,50 @@ export function FoodNutritionHub() {
           </div>
         </div>
 
-        {/* Top 4 KPI Cards (Exact Screenshot Match) */}
+        {/* Top 4 KPI Cards (Dynamic System Values) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "REORDER DUE", value: "5", trend: "3 critical", trendTone: "down" }}
+            kpi={{
+              label: "REORDER DUE",
+              value: String(reorderDueItems.length),
+              trend:
+                reorderDueItems.length === 0
+                  ? "Stock levels optimal"
+                  : criticalLowCount > 0
+                  ? `${criticalLowCount} critical (out of stock)`
+                  : `${reorderDueItems.length} below reorder trigger`,
+              trendTone: reorderDueItems.length > 0 ? "down" : "up",
+            }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "ACTIVE FEEDING PLANS", value: "142", trend: "+8", trendTone: "up" }}
+            kpi={{
+              label: "ACTIVE FEEDING PLANS",
+              value: String(activePlansCount),
+              trend:
+                plans.length === 0
+                  ? "0 active plans"
+                  : `${activePlansCount} of ${plans.length} active`,
+              trendTone: activePlansCount > 0 ? "up" : "flat",
+            }}
             index={1}
           />
           <KpiCard
-            kpi={{ label: "FOOD SALES MTD", value: "₹2.7L", trend: "+6%", trendTone: "up" }}
+            kpi={{
+              label: "FOOD SALES MTD",
+              value: formattedFoodSales,
+              trend: foodSalesMtd > 0 ? "Prescription diet sales" : "₹0 billed this month",
+              trendTone: foodSalesMtd > 0 ? "up" : "flat",
+            }}
             index={2}
           />
           <KpiCard
-            kpi={{ label: "DIET REVIEWS DUE", value: "12", trend: "this week", trendTone: "flat" }}
+            kpi={{
+              label: "DIET REVIEWS DUE",
+              value: String(reviewsDue.length),
+              trend: reviewsDue.length === 0 ? "No reviews due this week" : `${reviewsDue.length} due within 7 days`,
+              trendTone: reviewsDue.length > 0 ? "down" : "flat",
+            }}
             index={3}
           />
         </div>
@@ -363,7 +463,7 @@ export function FoodNutritionHub() {
         {/* ── TAB 3: THERAPEUTIC DIETS STOCK ─────────────────────────────────── */}
         {activeTab === "stock" && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <TherapeuticDietCatalog />
+            <TherapeuticDietCatalog items={foodItems} />
           </motion.div>
         )}
 

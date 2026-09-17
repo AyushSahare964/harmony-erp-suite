@@ -16,8 +16,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "sonner";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { createSwimSessionFn } from "@/lib/mongodb/serverFns/facilities";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -72,7 +72,7 @@ export function BookSwimmingModal({ open, onClose, onBooked }: Props) {
     );
   }).slice(0, 6);
 
-  const handleBook = () => {
+  const handleBook = async () => {
     if (!selectedPet) {
       toast.error("Please select a patient");
       return;
@@ -80,6 +80,7 @@ export function BookSwimmingModal({ open, onClose, onBooked }: Props) {
 
     setSubmitting(true);
     const newSession = {
+      id: sessionId,
       session: sessionId,
       time: timeSlot,
       date,
@@ -95,14 +96,20 @@ export function BookSwimmingModal({ open, onClose, onBooked }: Props) {
       rate: Number(rate) || 650,
       lifeJacket,
       status: "Scheduled",
+      createdAt: new Date().toISOString(),
     };
 
-    setTimeout(() => {
-      setSubmitting(false);
+    try {
+      await createSwimSessionFn({ data: newSession });
       toast.success(`Swimming & Hydrotherapy slot booked for ${selectedPet.name}!`);
       onBooked?.(newSession);
       onClose();
-    }, 200);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save swim session");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

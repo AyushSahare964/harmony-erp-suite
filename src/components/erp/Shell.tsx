@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { ROLES, ROLE_ORDER, roleModules, type RoleId } from "@/lib/erp/config";
 import { useErp } from "@/lib/erp/store";
 import { getIcon } from "./icon";
+import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 import { getMongoStatusFn, type MongoStatusRow } from "@/lib/mongodb/serverFns/status";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import {
@@ -53,17 +54,23 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
 
   return (
     <div className="flex h-full w-[260px] flex-col border-r border-sidebar-border bg-sidebar select-none">
-      <div className="flex flex-col items-center gap-2 border-b border-sidebar-border px-5 py-6">
-        <Link to="/" className="flex flex-col items-center gap-1.5 group">
-          <motion.span 
-            whileHover={{ scale: 1.08, rotate: [0, -5, 5, 0] }}
-            transition={{ duration: 0.3 }}
-            className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md transition-shadow group-hover:shadow-primary/30"
+      <div className="flex flex-col items-center gap-2 border-b border-sidebar-border px-5 py-5">
+        <Link to="/" className="flex flex-col items-center gap-2 group">
+          <motion.div
+            whileHover={{ scale: 1.05 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center justify-center"
           >
-            <Stethoscope className="size-6" />
-          </motion.span>
-          <p className="text-lg font-bold tracking-tight text-navy">VetOS ERP</p>
-          <p className="text-xs text-muted-foreground">Clinic Management Suite</p>
+            <img
+              src={CLINIC_CONFIG.logoPath}
+              alt={CLINIC_CONFIG.shortName}
+              className="h-14 w-auto object-contain"
+            />
+          </motion.div>
+          <div className="text-center">
+            <p className="text-sm font-bold tracking-tight text-navy leading-tight">{CLINIC_CONFIG.shortName}</p>
+            <p className="text-[10px] text-muted-foreground leading-tight">{CLINIC_CONFIG.doctorName}</p>
+          </div>
         </Link>
         <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-[0.65rem] font-bold text-primary">
           <Sparkles className="size-2.5" /> v1.0 Production
