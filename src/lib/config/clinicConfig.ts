@@ -1,5 +1,5 @@
 /**
- * Real Care Animals Clinical Complex — Centralized Clinic Configuration
+ * Real Care Animals Clinical Complex - Centralized Clinic Configuration
  * Update this file to change clinic branding across the entire system.
  */
 
@@ -30,7 +30,7 @@ export const CLINIC_CONFIG = {
   gstin: "",
   /** Registration number */
   regNo: "",
-  /** Path to the clinic logo — served from /public */
+  /** Path to the clinic logo - served from /public */
   logoPath: "/clinic-logo.png",
   /** Tagline */
   tagline: "An Animal's Eyes Have The Power to Speak a Great Language",
