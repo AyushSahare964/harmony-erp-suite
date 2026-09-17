@@ -114,7 +114,7 @@ export function AccessoriesCatalogue() {
         label: "Total Units in Stock",
         value: String(totalUnits),
         trend: "across collars, beds, bowls & gear",
-        trendTone: "up" as const,
+        trendTone: totalUnits > 0 ? ("up" as const) : ("flat" as const),
       },
       {
         label: "Low Stock Items",

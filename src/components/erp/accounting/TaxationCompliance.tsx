@@ -38,17 +38,9 @@ const INITIAL_TAX_TEMPLATES: TaxTemplate[] = [
   { name: "Zero Rated", appliesTo: "Sales", rates: "0%", isDefault: false, status: "Inactive" },
 ];
 
-const INITIAL_OVERRIDES: ItemTaxOverride[] = [
-  { item: "Rabies Vaccine", override: "GST 5% (Medicines)", reason: "Exempt category medicine" },
-  { item: "Royal Canin Maxi 4kg", override: "GST 12% (Sales)", reason: "Pet food — reduced rate" },
-  { item: "Surgical Consultation", override: "GST 18% (Sales)", reason: "Professional service" },
-];
+const INITIAL_OVERRIDES: ItemTaxOverride[] = [];
 
-const TDS_ROWS: TDSRow[] = [
-  { party: "MedVet Distributors", section: "194C", rate: "1%", ytd: 8400, certificate: "None" },
-  { party: "Cleaning Services Ltd", section: "194C", rate: "2%", ytd: 2100, certificate: "None" },
-  { party: "Dr. Consulting Vet", section: "194J", rate: "10%", ytd: 14200, certificate: "Attached — expiry 2026-12-31" },
-];
+const TDS_ROWS: TDSRow[] = [];
 
 function money(v: number) { return `₹${v.toLocaleString("en-IN")}`; }
 
@@ -259,15 +251,15 @@ export function TaxationCompliance() {
         <div className="grid grid-cols-3 gap-4 text-center">
           <div className="rounded-lg bg-muted/40 p-3">
             <p className="text-xs text-muted-foreground">Taxable Value (Sales)</p>
-            <p className="mt-1 text-lg font-bold">₹21,60,000</p>
+            <p className="mt-1 text-lg font-bold">₹0</p>
           </div>
           <div className="rounded-lg bg-muted/40 p-3">
             <p className="text-xs text-muted-foreground">Taxable Value (Purchases)</p>
-            <p className="mt-1 text-lg font-bold">₹9,20,000</p>
+            <p className="mt-1 text-lg font-bold">₹0</p>
           </div>
           <div className="rounded-lg bg-success-soft/30 p-3 border border-success/30">
             <p className="text-xs text-success font-medium">Net Tax Due (GSTR-3B)</p>
-            <p className="mt-1 text-lg font-bold text-success">₹1,80,000</p>
+            <p className="mt-1 text-lg font-bold text-success">₹0</p>
           </div>
         </div>
       </div>
@@ -333,26 +325,34 @@ export function TaxationCompliance() {
               </tr>
             </thead>
             <tbody>
-              {overrides.map((o, i) => (
-                <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-2.5 font-medium">{o.item}</td>
-                  <td className="px-4 py-2.5 font-semibold text-primary">{o.override}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground">{o.reason}</td>
-                  <td className="px-4 py-2.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs text-destructive hover:text-destructive"
-                      onClick={() => {
-                        setOverrides(overrides.filter((_, idx) => idx !== i));
-                        toast.success("Override removed");
-                      }}
-                    >
-                      Remove
-                    </Button>
+              {overrides.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                    No item-level tax overrides configured.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                overrides.map((o, i) => (
+                  <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5 font-medium">{o.item}</td>
+                    <td className="px-4 py-2.5 font-semibold text-primary">{o.override}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{o.reason}</td>
+                    <td className="px-4 py-2.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-destructive hover:text-destructive"
+                        onClick={() => {
+                          setOverrides(overrides.filter((_, idx) => idx !== i));
+                          toast.success("Override removed");
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -374,15 +374,23 @@ export function TaxationCompliance() {
               </tr>
             </thead>
             <tbody>
-              {TDS_ROWS.map((r, i) => (
-                <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-2.5 font-medium">{r.party}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs">{r.section}</td>
-                  <td className="px-4 py-2.5">{r.rate}</td>
-                  <td className="px-4 py-2.5 font-medium">{money(r.ytd)}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{r.certificate}</td>
+              {TDS_ROWS.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                    No TDS deduction records found.
+                  </td>
                 </tr>
-              ))}
+              ) : (
+                TDS_ROWS.map((r, i) => (
+                  <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5 font-medium">{r.party}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">{r.section}</td>
+                    <td className="px-4 py-2.5">{r.rate}</td>
+                    <td className="px-4 py-2.5 font-medium">{money(r.ytd)}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{r.certificate}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

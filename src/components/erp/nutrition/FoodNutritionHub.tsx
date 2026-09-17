@@ -157,22 +157,32 @@ export function FoodNutritionHub() {
           </div>
         </div>
 
-        {/* Top 4 KPI Cards (Exact Screenshot Match) */}
+        {/* Top 4 KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "REORDER DUE", value: "5", trend: "3 critical", trendTone: "down" }}
+            kpi={{ label: "REORDER DUE", value: "0", trend: "inventory sync", trendTone: "flat" }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "ACTIVE FEEDING PLANS", value: "142", trend: "+8", trendTone: "up" }}
+            kpi={{
+              label: "ACTIVE FEEDING PLANS",
+              value: plans.filter((p) => p.status === "Active").length.toString(),
+              trend: `${plans.length} total plans`,
+              trendTone: "flat",
+            }}
             index={1}
           />
           <KpiCard
-            kpi={{ label: "FOOD SALES MTD", value: "₹2.7L", trend: "+6%", trendTone: "up" }}
+            kpi={{ label: "FOOD SALES MTD", value: "₹0", trend: "0%", trendTone: "flat" }}
             index={2}
           />
           <KpiCard
-            kpi={{ label: "DIET REVIEWS DUE", value: "12", trend: "this week", trendTone: "flat" }}
+            kpi={{
+              label: "DIET REVIEWS DUE",
+              value: plans.filter((p) => p.status === "Review due").length.toString(),
+              trend: "Clinical review",
+              trendTone: "flat",
+            }}
             index={3}
           />
         </div>

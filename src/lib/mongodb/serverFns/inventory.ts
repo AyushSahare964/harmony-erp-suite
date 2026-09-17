@@ -14,7 +14,6 @@ import { StockBatch } from "@/lib/mongodb/models/StockBatch";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { nextSeq, peekNextSeq } from "@/lib/mongodb/serverFns/counters";
 
-import { ALL_SEED_ITEMS, type SeedItem } from "@/components/erp/inventory/seedData";
 
 // ─── Concrete serializable return types ───────────────────────────────────────
 
@@ -269,20 +268,6 @@ export const getItemsFn = createServerFn({ method: "GET" })
   )
   .handler(async ({ data }): Promise<InventoryItemRow[]> => {
     await connectDB();
-
-    // Ensure all 52 classified seed items are in MongoDB
-    const count = await InventoryItem.countDocuments();
-    if (count < ALL_SEED_ITEMS.length) {
-      const bulkOps = ALL_SEED_ITEMS.map((item) => ({
-        updateOne: {
-          filter: { itemCode: item.itemCode },
-          update: { $set: item as unknown as Record<string, unknown> },
-          upsert: true,
-        },
-      }));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await InventoryItem.bulkWrite(bulkOps as any[], { ordered: false });
-    }
 
     const query: Record<string, unknown> = {};
     if (data?.type) query["productType"] = data.type;

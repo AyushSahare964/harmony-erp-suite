@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
 import { useInventory } from "@/components/erp/inventory/useInventoryStore";
-import { ALL_SEED_ITEMS } from "@/components/erp/inventory/seedData";
 
 export type CatalogueType = "medicine" | "food" | "accessory";
 
@@ -142,12 +141,9 @@ export function CatalogueSearch({
       }
     }
 
-    // 3. Fallback to passed catalogItems or ALL_SEED_ITEMS
+    // 3. Fallback to passed catalogItems
     if (pool.length === 0 && catalogItems && catalogItems.length > 0) {
       pool = [...catalogItems];
-    }
-    if (pool.length === 0) {
-      pool = [...ALL_SEED_ITEMS];
     }
 
     // Strictly enforce catalogue type filter

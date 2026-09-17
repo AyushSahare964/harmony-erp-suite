@@ -34,28 +34,9 @@ interface BankEntry {
 interface ModeOfPayment { mode: string; defaultLedger: string; }
 
 // ─── Initial Data ─────────────────────────────────────────────────────────────
-const INITIAL_ACCOUNTS: BankAccount[] = [
-  {
-    id: "hdfc", bank: "HDFC Bank", accountNo: "••••4821", type: "Current",
-    ledgerBalance: 1288000, statementBalance: 1248000, uncollectedAmount: 40000,
-    lastReconciled: "15 Aug 2026", status: "Pending",
-  },
-  {
-    id: "sbi", bank: "State Bank of India", accountNo: "••••1902", type: "Savings",
-    ledgerBalance: 450000, statementBalance: 450000, uncollectedAmount: 0,
-    lastReconciled: "01 Aug 2026", status: "Reconciled",
-  },
-];
+const INITIAL_ACCOUNTS: BankAccount[] = [];
 
-const INITIAL_ENTRIES: BankEntry[] = [
-  { date: "2026-08-15", party: "Consultation — Rahul Varma", reference: "UPI/260815/9901", amount: 1650, type: "Deposit", status: "Matched" },
-  { date: "2026-08-15", party: "Pet Shop Sale — Priya Sen", reference: "POS/2026/0441", amount: 4200, type: "Deposit", status: "Matched" },
-  { date: "2026-08-14", party: "Supplier — MedVet Distributors", reference: "NEFT/N08140021", amount: -48000, type: "Withdrawal", status: "Matched" },
-  { date: "2026-08-14", party: "Electricity Bill (BESCOM)", reference: "AUTODEBIT/BESCOM", amount: -14200, type: "Withdrawal", status: "Matched" },
-  { date: "2026-08-13", party: "Staff Salary — Dr. Ananya", reference: "SAL/2026/AUG/01", amount: -75000, type: "Withdrawal", status: "Unmatched" },
-  { date: "2026-08-12", party: "Surgery Advance — Vikram", reference: "IMPS/260812/0014", amount: 25000, type: "Deposit", status: "Unmatched" },
-  { date: "2026-08-11", party: "Pet Boarding — Tariq", reference: "UPI/260811/4481", amount: 6800, type: "Deposit", status: "Matched" },
-];
+const INITIAL_ENTRIES: BankEntry[] = [];
 
 const MOP: ModeOfPayment[] = [
   { mode: "Cash", defaultLedger: "Cash" },
@@ -231,31 +212,39 @@ function ReconciliationPanel({
             </tr>
           </thead>
           <tbody>
-            {entries.map((e, i) => (
-              <tr key={i} className={`border-b border-border/50 transition-colors ${checked.has(i) ? "bg-success-soft/10" : "hover:bg-muted/20"}`}>
-                <td className="px-4 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={checked.has(i)}
-                    onChange={() => toggle(i)}
-                    className="size-4 rounded accent-primary"
-                  />
-                </td>
-                <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap text-xs">{e.date}</td>
-                <td className="px-4 py-2.5 font-medium">{e.party}</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{e.reference}</td>
-                <td className={`px-4 py-2.5 text-right font-medium tabular-nums ${e.amount >= 0 ? "text-success" : "text-destructive"}`}>
-                  {money(e.amount)}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
-                    e.status === "Matched" ? "bg-success-soft text-success" : "bg-warning-soft text-warning"
-                  }`}>
-                    {e.status}
-                  </span>
+            {entries.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                  No bank statement entries found. Import an OFX/CSV statement to reconcile.
                 </td>
               </tr>
-            ))}
+            ) : (
+              entries.map((e, i) => (
+                <tr key={i} className={`border-b border-border/50 transition-colors ${checked.has(i) ? "bg-success-soft/10" : "hover:bg-muted/20"}`}>
+                  <td className="px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={checked.has(i)}
+                      onChange={() => toggle(i)}
+                      className="size-4 rounded accent-primary"
+                    />
+                  </td>
+                  <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap text-xs">{e.date}</td>
+                  <td className="px-4 py-2.5 font-medium">{e.party}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{e.reference}</td>
+                  <td className={`px-4 py-2.5 text-right font-medium tabular-nums ${e.amount >= 0 ? "text-success" : "text-destructive"}`}>
+                    {money(e.amount)}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                      e.status === "Matched" ? "bg-success-soft text-success" : "bg-warning-soft text-warning"
+                    }`}>
+                      {e.status}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-border bg-muted/30 font-semibold text-xs">
@@ -280,7 +269,7 @@ function ReconciliationPanel({
 // ─── Main Component ────────────────────────────────────────────────────────────
 export function BankingReconciliation() {
   const [accounts, setAccounts] = useState<BankAccount[]>(INITIAL_ACCOUNTS);
-  const [selected, setSelected] = useState("hdfc");
+  const [selected, setSelected] = useState("");
   const [addBankOpen, setAddBankOpen] = useState(false);
   const [entries, setEntries] = useState<BankEntry[]>(INITIAL_ENTRIES);
 
@@ -293,15 +282,16 @@ export function BankingReconciliation() {
           const mapped: BankAccount[] = banks.map((b: GLAccountRow) => ({
             id: b.code,
             bank: b.bankName || b.name,
-            accountNo: b.bankAccountNo ? `••••${b.bankAccountNo.slice(-4)}` : "••••4821",
+            accountNo: b.bankAccountNo ? `••••${b.bankAccountNo.slice(-4)}` : "••••0000",
             type: (b.bankAccountType as "Current" | "Savings") || "Current",
             ledgerBalance: b.openingBalance,
             statementBalance: b.openingBalance,
             uncollectedAmount: 0,
-            lastReconciled: "15 Aug 2026",
+            lastReconciled: "—",
             status: "Reconciled",
           }));
           setAccounts(mapped);
+          setSelected((prev) => prev || mapped[0]?.id || "");
         }
       }
     } catch (err) {
@@ -356,7 +346,12 @@ export function BankingReconciliation() {
       </div>
 
       {/* Account Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {accounts.length === 0 ? (
+        <div className="erp-card p-6 text-center text-sm text-muted-foreground">
+          No bank accounts linked yet. Click &ldquo;Add Bank Account&rdquo; to connect a ledger account.
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {accounts.map((a) => (
           <div
             key={a.id}
@@ -400,6 +395,7 @@ export function BankingReconciliation() {
           </div>
         ))}
       </div>
+      )}
 
       {/* Reconciliation table for selected account */}
       {selectedAcct && (

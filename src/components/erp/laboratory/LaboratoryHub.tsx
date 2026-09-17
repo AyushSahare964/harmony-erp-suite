@@ -181,19 +181,39 @@ export function LaboratoryHub() {
         {/* Top 4 KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "PENDING REPORTS", value: "8", trend: "2 urgent STAT", trendTone: "down" }}
+            kpi={{
+              label: "PENDING REPORTS",
+              value: orders.filter((o) => o.status !== "Completed" && o.status !== "Reported").length.toString(),
+              trend: "Diagnostic queue",
+              trendTone: "flat",
+            }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "ORDERS TODAY", value: "14", trend: "+3 vs yesterday", trendTone: "up" }}
+            kpi={{
+              label: "ORDERS TODAY",
+              value: orders.length.toString(),
+              trend: orders.length > 0 ? `${orders.length} active` : "No orders",
+              trendTone: "flat",
+            }}
             index={1}
           />
           <KpiCard
-            kpi={{ label: "SAMPLES IN PROCESS", value: "6", trend: "Mindray & Fuji", trendTone: "flat" }}
+            kpi={{
+              label: "SAMPLES IN PROCESS",
+              value: orders.filter((o) => o.status === "Processing" || o.status === "In process" || o.status === "Sample Collected").length.toString(),
+              trend: "Analyzer status",
+              trendTone: "flat",
+            }}
             index={2}
           />
           <KpiCard
-            kpi={{ label: "AVG. TURNAROUND (TAT)", value: "4.2 hrs", trend: "-40 min", trendTone: "up" }}
+            kpi={{
+              label: "AVG. TURNAROUND (TAT)",
+              value: orders.length > 0 ? "45 min" : "—",
+              trend: orders.length > 0 ? "Standard" : "No data",
+              trendTone: "flat",
+            }}
             index={3}
           />
         </div>

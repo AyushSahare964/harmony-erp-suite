@@ -23,20 +23,20 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 const LAB_VOLUME_DATA = [
-  { name: "Mon", cbc: 18, biochem: 12, serology: 6 },
-  { name: "Tue", cbc: 22, biochem: 15, serology: 8 },
-  { name: "Wed", cbc: 20, biochem: 14, serology: 7 },
-  { name: "Thu", cbc: 25, biochem: 18, serology: 9 },
-  { name: "Fri", cbc: 28, biochem: 20, serology: 11 },
-  { name: "Sat", cbc: 34, biochem: 24, serology: 15 },
-  { name: "Sun", cbc: 16, biochem: 10, serology: 4 },
+  { name: "Mon", cbc: 0, biochem: 0, serology: 0 },
+  { name: "Tue", cbc: 0, biochem: 0, serology: 0 },
+  { name: "Wed", cbc: 0, biochem: 0, serology: 0 },
+  { name: "Thu", cbc: 0, biochem: 0, serology: 0 },
+  { name: "Fri", cbc: 0, biochem: 0, serology: 0 },
+  { name: "Sat", cbc: 0, biochem: 0, serology: 0 },
+  { name: "Sun", cbc: 0, biochem: 0, serology: 0 },
 ];
 
 const ANALYZER_STATUS = [
-  { name: "Mindray BC-5000 Vet (Hematology)", status: "Calibrated & Online", lastQC: "Today 07:30 AM", reagentLevel: "88%", nextCalib: "2026-09-01" },
-  { name: "Fuji Dri-Chem NX500i (Biochemistry)", status: "Calibrated & Online", lastQC: "Today 08:00 AM", reagentLevel: "92%", nextCalib: "2026-08-30" },
-  { name: "Edan i15 Vet (Blood Gas / Electrolytes)", status: "Ready", lastQC: "Yesterday 05:00 PM", reagentLevel: "74%", nextCalib: "2026-09-15" },
-  { name: "Olympus CX23 Diagnostic Microscope", status: "Cleaned & Aligned", lastQC: "Weekly Review", reagentLevel: "—", nextCalib: "2026-10-01" },
+  { name: "Mindray BC-5000 Vet (Hematology)", status: "Online", lastQC: "—", reagentLevel: "—", nextCalib: "—" },
+  { name: "Fuji Dri-Chem NX500i (Biochemistry)", status: "Online", lastQC: "—", reagentLevel: "—", nextCalib: "—" },
+  { name: "Edan i15 Vet (Blood Gas / Electrolytes)", status: "Ready", lastQC: "—", reagentLevel: "—", nextCalib: "—" },
+  { name: "Olympus CX23 Diagnostic Microscope", status: "Ready", lastQC: "—", reagentLevel: "—", nextCalib: "—" },
 ];
 
 export function LabAnalytics() {
@@ -52,7 +52,7 @@ export function LabAnalytics() {
               <p className="text-[11px] text-muted-foreground">Breakdown of Hematology, Biochemistry &amp; Serology tests</p>
             </div>
             <Badge variant="outline" className="text-xs font-semibold text-primary bg-primary/10">
-              163 tests this week
+              0 tests this week
             </Badge>
           </div>
 

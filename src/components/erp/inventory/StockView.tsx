@@ -153,7 +153,7 @@ export function StockView() {
       { label: "Total active medicines", value: String(activeMeds.length), trend: "in catalogue", trendTone: "flat" as const },
       { label: "Low-stock items", value: String(low), trend: `${oos} out of stock`, trendTone: low > 0 ? "down" as const : "flat" as const },
       { label: "Expiring batches", value: String(expiring + expired), trend: `${expired} already expired`, trendTone: expiring + expired > 0 ? "down" as const : "flat" as const },
-      { label: "Total stock value", value: `₹${(totalValue / 1000).toFixed(1)}K`, trend: "at cost price", trendTone: "up" as const },
+      { label: "Total stock value", value: totalValue > 0 ? `₹${(totalValue / 1000).toFixed(1)}K` : "₹0", trend: "at cost price", trendTone: totalValue > 0 ? ("up" as const) : ("flat" as const) },
     ];
   }, [activeMeds, getBatches, getStockStatus, getExpiryStatus]);
 

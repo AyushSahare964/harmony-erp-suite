@@ -235,26 +235,26 @@ const TaxTemplateInputZ = z.object({
 // ─── Default Chart of Accounts ────────────────────────────────────────────────
 
 const SEED_ACCOUNTS: GLAccountRow[] = [
-  { code: "1000", name: "Assets",                type: "Assets",      subtype: "",            isGroup: true,  currency: "INR", openingBalance: 1430000, freezeAccount: false, allowReconciliation: false },
-  { code: "1100", name: "Cash",                  type: "Assets",      subtype: "Cash",        isGroup: false, parent: "1000", currency: "INR", openingBalance: 142000,  freezeAccount: false, allowReconciliation: true },
-  { code: "1200", name: "Bank — HDFC Current",   type: "Assets",      subtype: "Bank",        isGroup: false, parent: "1000", currency: "INR", openingBalance: 1288000, freezeAccount: false, allowReconciliation: true },
-  { code: "1300", name: "Accounts Receivable",   type: "Assets",      subtype: "Receivable",  isGroup: false, parent: "1000", currency: "INR", openingBalance: 680000,  freezeAccount: false, allowReconciliation: false },
-  { code: "1400", name: "Inventory",             type: "Assets",      subtype: "Stock",       isGroup: false, parent: "1000", currency: "INR", openingBalance: 1160000, freezeAccount: false, allowReconciliation: false },
-  { code: "2000", name: "Liabilities",           type: "Liabilities", subtype: "",            isGroup: true,  currency: "INR", openingBalance: 420000,  freezeAccount: false, allowReconciliation: false },
-  { code: "2100", name: "Accounts Payable",      type: "Liabilities", subtype: "Payable",     isGroup: false, parent: "2000", currency: "INR", openingBalance: 240000,  freezeAccount: false, allowReconciliation: false },
-  { code: "2200", name: "GST Payable",          type: "Liabilities", subtype: "Tax",         isGroup: false, parent: "2000", currency: "INR", openingBalance: 180000,  freezeAccount: false, allowReconciliation: false },
-  { code: "3000", name: "Equity",                type: "Equity",      subtype: "",            isGroup: true,  currency: "INR", openingBalance: 1610000, freezeAccount: false, allowReconciliation: false },
-  { code: "3100", name: "Owner's Capital",       type: "Equity",      subtype: "Equity",      isGroup: false, parent: "3000", currency: "INR", openingBalance: 1610000, freezeAccount: false, allowReconciliation: false },
-  { code: "4000", name: "Income",                type: "Income",      subtype: "",            isGroup: true,  currency: "INR", openingBalance: 2160000, freezeAccount: false, allowReconciliation: false },
-  { code: "4100", name: "Consultation Income",   type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 845000,  freezeAccount: false, allowReconciliation: false },
-  { code: "4200", name: "Pharmacy Income",       type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 462000,  freezeAccount: false, allowReconciliation: false },
-  { code: "4300", name: "Laboratory Income",     type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 411000,  freezeAccount: false, allowReconciliation: false },
-  { code: "4400", name: "Boarding Income",       type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 340000,  freezeAccount: false, allowReconciliation: false },
-  { code: "4500", name: "Swimming Income",       type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 102000,  freezeAccount: false, allowReconciliation: false },
-  { code: "5000", name: "Expense",               type: "Expense",     subtype: "",            isGroup: true,  currency: "INR", openingBalance: 920000,  freezeAccount: false, allowReconciliation: false },
-  { code: "5100", name: "Salaries",              type: "Expense",     subtype: "Other",       isGroup: false, parent: "5000", currency: "INR", openingBalance: 740000,  freezeAccount: false, allowReconciliation: false },
-  { code: "5200", name: "Supplier Payments",     type: "Expense",     subtype: "Payable",     isGroup: false, parent: "5000", currency: "INR", openingBalance: 112000,  freezeAccount: false, allowReconciliation: false },
-  { code: "5300", name: "Utilities & Rent",      type: "Expense",     subtype: "Other",       isGroup: false, parent: "5000", currency: "INR", openingBalance: 68000,   freezeAccount: false, allowReconciliation: false },
+  { code: "1000", name: "Assets",                type: "Assets",      subtype: "",            isGroup: true,  currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "1100", name: "Cash",                  type: "Assets",      subtype: "Cash",        isGroup: false, parent: "1000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: true },
+  { code: "1200", name: "Bank — HDFC Current",   type: "Assets",      subtype: "Bank",        isGroup: false, parent: "1000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: true },
+  { code: "1300", name: "Accounts Receivable",   type: "Assets",      subtype: "Receivable",  isGroup: false, parent: "1000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "1400", name: "Inventory",             type: "Assets",      subtype: "Stock",       isGroup: false, parent: "1000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "2000", name: "Liabilities",           type: "Liabilities", subtype: "",            isGroup: true,  currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "2100", name: "Accounts Payable",      type: "Liabilities", subtype: "Payable",     isGroup: false, parent: "2000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "2200", name: "GST Payable",          type: "Liabilities", subtype: "Tax",         isGroup: false, parent: "2000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "3000", name: "Equity",                type: "Equity",      subtype: "",            isGroup: true,  currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "3100", name: "Owner's Capital",       type: "Equity",      subtype: "Equity",      isGroup: false, parent: "3000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "4000", name: "Income",                type: "Income",      subtype: "",            isGroup: true,  currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "4100", name: "Consultation Income",   type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "4200", name: "Pharmacy Income",       type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "4300", name: "Laboratory Income",     type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "4400", name: "Boarding Income",       type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "4500", name: "Swimming Income",       type: "Income",      subtype: "Other",       isGroup: false, parent: "4000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "5000", name: "Expense",               type: "Expense",     subtype: "",            isGroup: true,  currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "5100", name: "Salaries",              type: "Expense",     subtype: "Other",       isGroup: false, parent: "5000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "5200", name: "Supplier Payments",     type: "Expense",     subtype: "Payable",     isGroup: false, parent: "5000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
+  { code: "5300", name: "Utilities & Rent",      type: "Expense",     subtype: "Other",       isGroup: false, parent: "5000", currency: "INR", openingBalance: 0, freezeAccount: false, allowReconciliation: false },
 ];
 
 // ─── DB & Serialization helpers ─────────────────────────────────────────────
@@ -594,7 +594,7 @@ export const getFinancialKpisFn = createServerFn({ method: "GET" })
       "data.paymentDate": { $gte: from, $lte: to },
     }).lean();
 
-    const totalRevenue = incomeTx.reduce((s, t: any) => s + (t.data?.paidAmount || 0), 0) || 2160000;
+    const totalRevenue = incomeTx.reduce((s, t: any) => s + (t.data?.paidAmount || 0), 0);
     const netIncome = totalRevenue - totalExpenses - totalPurchases;
 
     return {

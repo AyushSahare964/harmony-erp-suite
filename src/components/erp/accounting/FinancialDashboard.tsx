@@ -102,26 +102,31 @@ export function FinancialDashboard({ onGoToTab }: FinancialDashboardProps) {
     fetchKpis();
   }, [dateRange]);
 
-  // Chart demo series based on actual numbers
+  const netRev = kpis?.totalRevenue ?? 0;
+  const totExp = kpis?.totalExpenses ?? 0;
+  const totPurch = kpis?.totalPurchases ?? 0;
+  const totPayables = kpis?.totalPayables ?? 0;
+
+  const cashIn = kpis?.totalRevenue ?? 0;
+  const cashOut = kpis?.cashOutflow ?? 0;
+  const digitalOut = kpis?.digitalOutflow ?? 0;
+  const supplierPaid = kpis?.totalPaidToSuppliers ?? 0;
+
+  // Chart series based on actual numbers
   const plMonthlyData = [
-    { month: "Week 1", income: 510, expense: (kpis?.totalExpenses || 920000) / 4000, net: 290 },
-    { month: "Week 2", income: 540, expense: (kpis?.totalExpenses || 920000) / 4000, net: 310 },
-    { month: "Week 3", income: 580, expense: (kpis?.totalExpenses || 920000) / 4000, net: 340 },
-    { month: "Week 4", income: 530, expense: (kpis?.totalExpenses || 920000) / 4000, net: 300 },
+    { month: "Week 1", income: netRev > 0 ? Math.round(netRev / 4000) : 0, expense: totExp > 0 ? Math.round(totExp / 4000) : 0, net: (netRev > 0 || totExp > 0) ? Math.round((netRev - totExp) / 4000) : 0 },
+    { month: "Week 2", income: netRev > 0 ? Math.round(netRev / 4000) : 0, expense: totExp > 0 ? Math.round(totExp / 4000) : 0, net: (netRev > 0 || totExp > 0) ? Math.round((netRev - totExp) / 4000) : 0 },
+    { month: "Week 3", income: netRev > 0 ? Math.round(netRev / 4000) : 0, expense: totExp > 0 ? Math.round(totExp / 4000) : 0, net: (netRev > 0 || totExp > 0) ? Math.round((netRev - totExp) / 4000) : 0 },
+    { month: "Week 4", income: netRev > 0 ? Math.round(netRev / 4000) : 0, expense: totExp > 0 ? Math.round(totExp / 4000) : 0, net: (netRev > 0 || totExp > 0) ? Math.round((netRev - totExp) / 4000) : 0 },
   ];
 
   const cashFlowData = [
-    { day: "1st", in: 82, out: (kpis?.cashOutflow || 44000) / 1000 },
-    { day: "8th", in: 94, out: 51 },
-    { day: "15th", in: 110, out: 48 },
-    { day: "22nd", in: 96, out: 55 },
-    { day: "28th", in: 88, out: (kpis?.digitalOutflow || 42000) / 1000 },
+    { day: "1st", in: cashIn > 0 ? Math.round(cashIn / 5000) : 0, out: cashOut > 0 ? Math.round(cashOut / 5000) : 0 },
+    { day: "8th", in: cashIn > 0 ? Math.round(cashIn / 5000) : 0, out: cashOut > 0 ? Math.round(cashOut / 5000) : 0 },
+    { day: "15th", in: cashIn > 0 ? Math.round(cashIn / 5000) : 0, out: cashOut > 0 ? Math.round(cashOut / 5000) : 0 },
+    { day: "22nd", in: cashIn > 0 ? Math.round(cashIn / 5000) : 0, out: cashOut > 0 ? Math.round(cashOut / 5000) : 0 },
+    { day: "28th", in: cashIn > 0 ? Math.round(cashIn / 5000) : 0, out: digitalOut > 0 ? Math.round(digitalOut / 5000) : 0 },
   ];
-
-  const netRev = kpis?.totalRevenue ?? 2160000;
-  const totExp = kpis?.totalExpenses ?? 920000;
-  const totPurch = kpis?.totalPurchases ?? 680000;
-  const totPayables = kpis?.totalPayables ?? 250000;
 
   return (
     <div className="space-y-6">
@@ -249,7 +254,7 @@ export function FinancialDashboard({ onGoToTab }: FinancialDashboardProps) {
               Cash Inflow
             </p>
             <p className="mt-0.5 text-lg font-bold leading-none text-emerald-600">
-              ₹{((kpis?.cashOutflow ? 2410000 : 2410000) / 100000).toFixed(1)}L
+              ₹{(cashIn / 100000).toFixed(1)}L
             </p>
           </div>
         </div>
@@ -263,7 +268,7 @@ export function FinancialDashboard({ onGoToTab }: FinancialDashboardProps) {
               Cash Disbursed
             </p>
             <p className="mt-0.5 text-lg font-bold leading-none text-rose-600">
-              ₹{((kpis?.cashOutflow || 45000) / 1000).toFixed(1)}k
+              ₹{(cashOut / 1000).toFixed(1)}k
             </p>
           </div>
         </div>
@@ -277,7 +282,7 @@ export function FinancialDashboard({ onGoToTab }: FinancialDashboardProps) {
               Bank &amp; Digital Outflow
             </p>
             <p className="mt-0.5 text-lg font-bold leading-none text-foreground">
-              ₹{((kpis?.digitalOutflow || 850000) / 100000).toFixed(1)}L
+              ₹{(digitalOut / 100000).toFixed(1)}L
             </p>
           </div>
         </div>
@@ -291,7 +296,7 @@ export function FinancialDashboard({ onGoToTab }: FinancialDashboardProps) {
               Supplier Payments
             </p>
             <p className="mt-0.5 text-lg font-bold leading-none text-purple-600">
-              ₹{((kpis?.totalPaidToSuppliers || 420000) / 100000).toFixed(1)}L
+              ₹{(supplierPaid / 100000).toFixed(1)}L
             </p>
           </div>
         </div>
@@ -342,7 +347,9 @@ export function FinancialDashboard({ onGoToTab }: FinancialDashboardProps) {
           </ResponsiveContainer>
           <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-2">
             <span>Flow Status</span>
-            <span className="text-emerald-600 font-semibold">Positive Cash Delta</span>
+            <span className={`${cashIn >= cashOut ? "text-emerald-600" : "text-rose-600"} font-semibold`}>
+              {cashIn === 0 && cashOut === 0 ? "No Activity" : cashIn >= cashOut ? "Positive Cash Delta" : "Negative Cash Delta"}
+            </span>
           </div>
         </div>
       </div>

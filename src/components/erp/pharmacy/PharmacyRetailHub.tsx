@@ -39,12 +39,12 @@ import { cn } from "@/lib/utils";
 import { InventoryProvider } from "@/components/erp/inventory/useInventoryStore";
 
 const RETAIL_SALES_SERIES = [
-  { name: "Mar", value: 980 },
-  { name: "Apr", value: 1040 },
-  { name: "May", value: 1120 },
-  { name: "Jun", value: 1080 },
-  { name: "Jul", value: 1190 },
-  { name: "Aug", value: 1260 },
+  { name: "Mar", value: 0 },
+  { name: "Apr", value: 0 },
+  { name: "May", value: 0 },
+  { name: "Jun", value: 0 },
+  { name: "Jul", value: 0 },
+  { name: "Aug", value: 0 },
 ];
 
 function PharmacyRetailHubInner() {
@@ -53,6 +53,10 @@ function PharmacyRetailHubInner() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+
+  const totalSales = useMemo(() => bills.reduce((acc, b) => acc + (Number(b.amount) || 0), 0), [bills]);
+  const billsToday = bills.length;
+  const avgBill = billsToday > 0 ? Math.round(totalSales / billsToday) : 0;
 
   // Modals state
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
@@ -160,22 +164,22 @@ function PharmacyRetailHubInner() {
           </div>
         </div>
 
-        {/* Top 4 KPI Cards (Exact Screenshot Match) */}
+        {/* Top 4 KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "SALES TODAY", value: "₹46,200", trend: "+8.1%", trendTone: "up" }}
+            kpi={{ label: "SALES TODAY", value: `₹${totalSales.toLocaleString("en-IN")}`, trend: `${billsToday} sales`, trendTone: "flat" }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "BILLS TODAY", value: "37", trend: "+4", trendTone: "up" }}
+            kpi={{ label: "BILLS TODAY", value: billsToday.toString(), trend: billsToday > 0 ? `${billsToday} bills` : "No bills", trendTone: "flat" }}
             index={1}
           />
           <KpiCard
-            kpi={{ label: "AVG. BILL VALUE", value: "₹1,249", trend: "+3%", trendTone: "up" }}
+            kpi={{ label: "AVG. BILL VALUE", value: `₹${avgBill.toLocaleString("en-IN")}`, trend: "Retail counter", trendTone: "flat" }}
             index={2}
           />
           <KpiCard
-            kpi={{ label: "OUT OF STOCK", value: "6", trend: "reorder now", trendTone: "down" }}
+            kpi={{ label: "OUT OF STOCK", value: "0", trend: "inventory sync", trendTone: "flat" }}
             index={3}
           />
         </div>

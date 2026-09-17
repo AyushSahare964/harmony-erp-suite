@@ -27,13 +27,13 @@ interface Dimension { label: string; }
 
 // ─── Initial Data ─────────────────────────────────────────────────────────────
 const INITIAL_COST_CENTERS: CostCenter[] = [
-  { id: "root", name: "Clinic — All Departments", budgeted: 9800000, actual: 9200000 },
-  { id: "opd", name: "OPD", parent: "root", budgeted: 2400000, actual: 2280000 },
-  { id: "lab", name: "Laboratory", parent: "root", budgeted: 1500000, actual: 1390000 },
-  { id: "pharmacy", name: "Pharmacy", parent: "root", budgeted: 3800000, actual: 3960000 },
-  { id: "boarding", name: "Boarding", parent: "root", budgeted: 1900000, actual: 1820000 },
-  { id: "swimming", name: "Swimming & Hydrotherapy", parent: "root", budgeted: 1280000, actual: 1410000 },
-  { id: "hradmin", name: "HR & Admin", parent: "root", budgeted: 800000, actual: 740000 },
+  { id: "root", name: "Clinic — All Departments", budgeted: 0, actual: 0 },
+  { id: "opd", name: "OPD", parent: "root", budgeted: 0, actual: 0 },
+  { id: "lab", name: "Laboratory", parent: "root", budgeted: 0, actual: 0 },
+  { id: "pharmacy", name: "Pharmacy", parent: "root", budgeted: 0, actual: 0 },
+  { id: "boarding", name: "Boarding", parent: "root", budgeted: 0, actual: 0 },
+  { id: "swimming", name: "Swimming & Hydrotherapy", parent: "root", budgeted: 0, actual: 0 },
+  { id: "hradmin", name: "HR & Admin", parent: "root", budgeted: 0, actual: 0 },
 ];
 
 const DIMENSIONS: Dimension[] = [
@@ -54,12 +54,14 @@ function money(v: number) {
 }
 
 function pctDiff(b: number, a: number) {
+  if (b === 0) return { diff: a, pct: a > 0 ? "+100%" : "0.0%", positive: a >= 0 };
   const diff = a - b;
   const pct = ((diff / b) * 100).toFixed(1);
   return { diff, pct: `${diff >= 0 ? "+" : ""}${pct}%`, positive: diff >= 0 };
 }
 
 function getBudgetStatus(budgeted: number, actual: number): BudgetStatus {
+  if (budgeted === 0) return actual > 0 ? "Over budget" : "Within budget";
   const ratio = actual / budgeted;
   if (ratio > 1.0) return "Over budget";
   if (ratio > 0.9) return "Near limit";
@@ -352,12 +354,12 @@ export function BudgetingCostCenters() {
     if (dimInput.trim()) { setDims((d) => [...d, { label: dimInput.trim() }]); setDimInput(""); }
   };
 
-  const totalBudgeted = costCenters.find((c) => c.id === "root")!.budgeted;
-  const totalActual = costCenters.find((c) => c.id === "root")!.actual;
+  const totalBudgeted = costCenters.find((c) => c.id === "root")?.budgeted ?? 0;
+  const totalActual = costCenters.find((c) => c.id === "root")?.actual ?? 0;
   const overBudgetCount = costCenters.filter((c) => c.id !== "root" && c.actual > c.budgeted).length;
   const largestVariance = costCenters
     .filter((c) => c.id !== "root")
-    .map((c) => ({ name: c.name, pct: Math.abs((c.actual - c.budgeted) / c.budgeted * 100) }))
+    .map((c) => ({ name: c.name, pct: c.budgeted > 0 ? Math.abs((c.actual - c.budgeted) / c.budgeted * 100) : 0 }))
     .sort((a, b) => b.pct - a.pct)[0] ?? { name: "N/A", pct: 0 };
 
   return (

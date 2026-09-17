@@ -67,12 +67,12 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const MONTHLY_REGISTRATION_DATA = [
-  { name: "Mar", value: 118 },
-  { name: "Apr", value: 132 },
-  { name: "May", value: 141 },
-  { name: "Jun", value: 156 },
-  { name: "Jul", value: 149 },
-  { name: "Aug", value: 172 },
+  { name: "Mar", value: 0 },
+  { name: "Apr", value: 0 },
+  { name: "May", value: 0 },
+  { name: "Jun", value: 0 },
+  { name: "Jul", value: 0 },
+  { name: "Aug", value: 0 },
 ];
 
 export function PetOwnerCrmHub() {
@@ -136,9 +136,13 @@ export function PetOwnerCrmHub() {
   };
 
   // KPIs
-  const totalPets = pets.length || 3148;
-  const totalOwners = owners.length || 2406;
-  const vaccDueCount = pets.filter((p) => p.status === "Vaccination due").length || 56;
+  const totalPets = pets.length;
+  const totalOwners = owners.length;
+  const vaccDueCount = pets.filter((p) => p.status === "Vaccination due").length;
+  const avgMonthlyRegistrations = useMemo(() => {
+    const sum = MONTHLY_REGISTRATION_DATA.reduce((acc, curr) => acc + (curr.value || 0), 0);
+    return MONTHLY_REGISTRATION_DATA.length > 0 ? Math.round(sum / MONTHLY_REGISTRATION_DATA.length) : 0;
+  }, []);
 
   // Filtered Pets list
   const filteredPets = useMemo(() => {
@@ -321,15 +325,15 @@ export function PetOwnerCrmHub() {
         {/* ── KPI Stat Cards Grid (Screenshot 1) ─────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "REGISTERED PETS", value: String(totalPets), trend: "+9 today", trendTone: "up" }}
+            kpi={{ label: "REGISTERED PETS", value: String(totalPets), trend: totalPets > 0 ? "+0 today" : "0 today", trendTone: "flat" }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "OWNERS", value: String(totalOwners), trend: "+7 today", trendTone: "up" }}
+            kpi={{ label: "OWNERS", value: String(totalOwners), trend: totalOwners > 0 ? "+0 today" : "0 today", trendTone: "flat" }}
             index={1}
           />
           <KpiCard
-            kpi={{ label: "VISITS THIS MONTH", value: "912", trend: "+11%", trendTone: "up" }}
+            kpi={{ label: "VISITS THIS MONTH", value: "0", trend: "0%", trendTone: "flat" }}
             index={2}
           />
           <KpiCard
@@ -351,7 +355,7 @@ export function PetOwnerCrmHub() {
               <p className="text-[11px] text-muted-foreground">Monthly patient onboarding pace</p>
             </div>
             <Badge variant="outline" className="text-xs font-semibold text-primary bg-primary/10">
-              Avg. 144 / month
+              Avg. {avgMonthlyRegistrations} / month
             </Badge>
           </div>
 

@@ -103,51 +103,33 @@ export function FinancialReports() {
     
     // Income accounts
     const incomeAccts = leaf.filter((a) => a.type === "Income");
-    const totalIncome = incomeAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 2160000;
+    const totalIncome = incomeAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
     // Expense accounts
     const expenseAccts = leaf.filter((a) => a.type === "Expense");
-    const totalExpense = expenseAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 920000;
+    const totalExpense = expenseAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
     // Asset accounts
     const assetAccts = leaf.filter((a) => a.type === "Assets");
-    const totalAssets = assetAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 3270000;
+    const totalAssets = assetAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
     // Liability accounts
     const liabilityAccts = leaf.filter((a) => a.type === "Liabilities");
-    const totalLiabilities = liabilityAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 420000;
+    const totalLiabilities = liabilityAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
     // Equity accounts
     const equityAccts = leaf.filter((a) => a.type === "Equity");
-    const baseEquity = equityAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0) || 1610000;
+    const baseEquity = equityAccts.reduce((sum, a) => sum + (a.openingBalance || 0), 0);
 
-    const netProfit = totalIncome - totalExpense; // 1,240,000
-    const totalEquity = baseEquity + netProfit;   // 2,850,000
-    const totalLiabilitiesAndEquity = totalLiabilities + totalEquity; // 3,270,000
+    const netProfit = totalIncome - totalExpense;
+    const totalEquity = baseEquity + netProfit;
+    const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
 
     return {
-      incomeAccts: incomeAccts.length > 0 ? incomeAccts : [
-        { code: "4100", name: "Consultation & OPD Fees", openingBalance: 845000 },
-        { code: "4200", name: "Pharmacy Sales Revenue", openingBalance: 462000 },
-        { code: "4300", name: "Laboratory & Diagnostic Fees", openingBalance: 411000 },
-        { code: "4400", name: "Pet Boarding & Daycare", openingBalance: 340000 },
-        { code: "4500", name: "Hydrotherapy & Spa Income", openingBalance: 102000 },
-      ],
-      expenseAccts: expenseAccts.length > 0 ? expenseAccts : [
-        { code: "5100", name: "Salaries & Professional Fees", openingBalance: 740000 },
-        { code: "5200", name: "Supplier & Vendor Payments", openingBalance: 112000 },
-        { code: "5300", name: "Clinic Utilities & Rent", openingBalance: 68000 },
-      ],
-      assetAccts: assetAccts.length > 0 ? assetAccts : [
-        { code: "1100", name: "Cash on Hand", openingBalance: 142000 },
-        { code: "1200", name: "Bank — HDFC Current A/C", openingBalance: 1288000 },
-        { code: "1300", name: "Accounts Receivable (Debtors)", openingBalance: 680000 },
-        { code: "1400", name: "Pharmacy & Medical Inventory", openingBalance: 1160000 },
-      ],
-      liabilityAccts: liabilityAccts.length > 0 ? liabilityAccts : [
-        { code: "2100", name: "Accounts Payable (Creditors)", openingBalance: 240000 },
-        { code: "2200", name: "GST & Tax Payable", openingBalance: 180000 },
-      ],
+      incomeAccts,
+      expenseAccts,
+      assetAccts,
+      liabilityAccts,
       totalIncome,
       totalExpense,
       netProfit,
@@ -300,18 +282,22 @@ export function FinancialReports() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Revenue</p>
                 <p className="mt-1 text-2xl font-extrabold text-foreground">{fullMoney(financialData.totalIncome)}</p>
                 <p className="mt-1 text-xs text-success flex items-center gap-1">
-                  <TrendingUp className="size-3.5" /> +12.4% vs previous period
+                  <TrendingUp className="size-3.5" /> {financialData.totalIncome > 0 ? "+12.4% vs previous period" : "No revenue recorded"}
                 </p>
               </div>
               <div className="erp-card p-5 border-l-4 border-l-destructive">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Operating Expenses</p>
                 <p className="mt-1 text-2xl font-extrabold text-foreground">{fullMoney(financialData.totalExpense)}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Operating margin: 42.6%</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Operating margin: {financialData.totalIncome > 0 ? `${((financialData.totalExpense / financialData.totalIncome) * 100).toFixed(1)}%` : "0.0%"}
+                </p>
               </div>
               <div className="erp-card p-5 border-l-4 border-l-primary bg-primary-soft/10">
                 <p className="text-xs font-semibold uppercase tracking-wider text-primary">Net Profit (EBITDA)</p>
                 <p className="mt-1 text-2xl font-extrabold text-primary">{fullMoney(financialData.netProfit)}</p>
-                <p className="mt-1 text-xs text-primary font-medium">Net Profit Margin: 57.4%</p>
+                <p className="mt-1 text-xs text-primary font-medium">
+                  Net Profit Margin: {financialData.totalIncome > 0 ? `${((financialData.netProfit / financialData.totalIncome) * 100).toFixed(1)}%` : "0.0%"}
+                </p>
               </div>
             </div>
 
@@ -335,15 +321,19 @@ export function FinancialReports() {
                     <span className="text-xs font-semibold text-muted-foreground">Amount (INR)</span>
                   </div>
                   <div className="space-y-2.5">
-                    {financialData.incomeAccts.map((a) => (
-                      <div key={a.name} className="flex items-center justify-between text-sm py-1 border-b border-border/30 last:border-0 hover:bg-muted/20 px-2 rounded">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-muted-foreground">{a.code}</span>
-                          <span>{a.name}</span>
+                    {financialData.incomeAccts.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center">No income ledger entries recorded</p>
+                    ) : (
+                      financialData.incomeAccts.map((a) => (
+                        <div key={a.name} className="flex items-center justify-between text-sm py-1 border-b border-border/30 last:border-0 hover:bg-muted/20 px-2 rounded">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs text-muted-foreground">{a.code}</span>
+                            <span>{a.name}</span>
+                          </div>
+                          <span className="font-medium tabular-nums text-foreground">{fullMoney(a.openingBalance || 0)}</span>
                         </div>
-                        <span className="font-medium tabular-nums text-foreground">{fullMoney(a.openingBalance || 0)}</span>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-dashed border-border pt-3 font-semibold text-sm">
                     <span>Total Revenue (A)</span>
@@ -358,15 +348,19 @@ export function FinancialReports() {
                     <span className="text-xs font-semibold text-muted-foreground">Amount (INR)</span>
                   </div>
                   <div className="space-y-2.5">
-                    {financialData.expenseAccts.map((a) => (
-                      <div key={a.name} className="flex items-center justify-between text-sm py-1 border-b border-border/30 last:border-0 hover:bg-muted/20 px-2 rounded">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-muted-foreground">{a.code}</span>
-                          <span>{a.name}</span>
+                    {financialData.expenseAccts.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center">No expense ledger entries recorded</p>
+                    ) : (
+                      financialData.expenseAccts.map((a) => (
+                        <div key={a.name} className="flex items-center justify-between text-sm py-1 border-b border-border/30 last:border-0 hover:bg-muted/20 px-2 rounded">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs text-muted-foreground">{a.code}</span>
+                            <span>{a.name}</span>
+                          </div>
+                          <span className="font-medium tabular-nums text-foreground">{fullMoney(a.openingBalance || 0)}</span>
                         </div>
-                        <span className="font-medium tabular-nums text-foreground">{fullMoney(a.openingBalance || 0)}</span>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-dashed border-border pt-3 font-semibold text-sm">
                     <span>Total Operating Expenses (B)</span>
@@ -417,12 +411,16 @@ export function FinancialReports() {
                 </div>
                 <div className="p-5 space-y-3">
                   <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Current &amp; Liquid Assets</p>
-                  {financialData.assetAccts.map((a) => (
-                    <div key={a.name} className="flex items-center justify-between text-sm py-1.5 border-b border-border/40 last:border-0">
-                      <span className="text-foreground">{a.name}</span>
-                      <span className="font-semibold tabular-nums">{fullMoney(a.openingBalance || 0)}</span>
-                    </div>
-                  ))}
+                  {financialData.assetAccts.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-2 text-center">No asset accounts recorded</p>
+                  ) : (
+                    financialData.assetAccts.map((a) => (
+                      <div key={a.name} className="flex items-center justify-between text-sm py-1.5 border-b border-border/40 last:border-0">
+                        <span className="text-foreground">{a.name}</span>
+                        <span className="font-semibold tabular-nums">{fullMoney(a.openingBalance || 0)}</span>
+                      </div>
+                    ))
+                  )}
                   <div className="mt-6 flex items-center justify-between border-t-2 border-border pt-4 font-bold text-base">
                     <span>Total Assets</span>
                     <span className="text-primary">{fullMoney(financialData.totalAssets)}</span>
@@ -439,12 +437,16 @@ export function FinancialReports() {
                   {/* Liabilities */}
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-destructive mb-2">Current Liabilities</p>
-                    {financialData.liabilityAccts.map((a) => (
-                      <div key={a.name} className="flex items-center justify-between text-sm py-1 border-b border-border/40 last:border-0">
-                        <span className="text-foreground">{a.name}</span>
-                        <span className="font-semibold tabular-nums">{fullMoney(a.openingBalance || 0)}</span>
-                      </div>
-                    ))}
+                    {financialData.liabilityAccts.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center">No liability accounts recorded</p>
+                    ) : (
+                      financialData.liabilityAccts.map((a) => (
+                        <div key={a.name} className="flex items-center justify-between text-sm py-1 border-b border-border/40 last:border-0">
+                          <span className="text-foreground">{a.name}</span>
+                          <span className="font-semibold tabular-nums">{fullMoney(a.openingBalance || 0)}</span>
+                        </div>
+                      ))
+                    )}
                     <div className="mt-2 flex items-center justify-between text-xs font-semibold text-muted-foreground pt-1">
                       <span>Total Liabilities</span>
                       <span>{fullMoney(financialData.totalLiabilities)}</span>
@@ -501,20 +503,18 @@ export function FinancialReports() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between py-1 border-b border-border/40">
                       <span>Cash receipts from patient billing &amp; counter sales</span>
-                      <span className="text-success font-semibold">+₹24,10,000</span>
+                      <span className="text-success font-semibold">+{fullMoney(financialData.totalIncome)}</span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-border/40">
-                      <span>Cash paid to medicine suppliers &amp; lab vendors</span>
-                      <span className="text-destructive font-semibold">-₹2,80,000</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-border/40">
-                      <span>Cash paid for doctor &amp; staff salaries</span>
-                      <span className="text-destructive font-semibold">-₹7,40,000</span>
+                      <span>Cash paid for operating expenses &amp; suppliers</span>
+                      <span className="text-destructive font-semibold">-{fullMoney(financialData.totalExpense)}</span>
                     </div>
                   </div>
                   <div className="mt-2 flex justify-between font-bold text-sm text-foreground pt-1">
                     <span>Net Cash from Operating Activities</span>
-                    <span className="text-success">+₹13,90,000</span>
+                    <span className={financialData.netProfit >= 0 ? "text-success" : "text-destructive"}>
+                      {financialData.netProfit >= 0 ? `+${fullMoney(financialData.netProfit)}` : fullMoney(financialData.netProfit)}
+                    </span>
                   </div>
                 </div>
 
@@ -523,13 +523,13 @@ export function FinancialReports() {
                   <p className="text-xs font-bold uppercase tracking-wider text-warning mb-3">2. Cash Flows from Investing Activities</p>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between py-1 border-b border-border/40">
-                      <span>Purchase of Digital X-Ray Sensor &amp; ICU Equipment</span>
-                      <span className="text-destructive font-semibold">-₹1,20,000</span>
+                      <span>Capital equipment &amp; investments</span>
+                      <span className="text-muted-foreground font-semibold">₹0</span>
                     </div>
                   </div>
                   <div className="mt-2 flex justify-between font-bold text-sm text-foreground pt-1">
                     <span>Net Cash used in Investing Activities</span>
-                    <span className="text-destructive">-₹1,20,000</span>
+                    <span className="text-muted-foreground">₹0</span>
                   </div>
                 </div>
 
@@ -539,19 +539,21 @@ export function FinancialReports() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between py-1 border-b border-border/40">
                       <span>Owner drawings &amp; capital repayments</span>
-                      <span className="text-destructive font-semibold">-₹80,000</span>
+                      <span className="text-muted-foreground font-semibold">₹0</span>
                     </div>
                   </div>
                   <div className="mt-2 flex justify-between font-bold text-sm text-foreground pt-1">
                     <span>Net Cash from Financing Activities</span>
-                    <span className="text-destructive">-₹80,000</span>
+                    <span className="text-muted-foreground">₹0</span>
                   </div>
                 </div>
 
                 {/* Net Change */}
                 <div className="border-t-2 border-border bg-muted/30 p-4 rounded-xl flex items-center justify-between font-extrabold text-base">
-                  <span>Net Increase in Cash &amp; Bank Balances</span>
-                  <span className="text-success text-xl">+₹11,90,000</span>
+                  <span>Net Increase / (Decrease) in Cash &amp; Bank Balances</span>
+                  <span className={`${financialData.netProfit >= 0 ? "text-success" : "text-destructive"} text-xl`}>
+                    {financialData.netProfit >= 0 ? `+${fullMoney(financialData.netProfit)}` : fullMoney(financialData.netProfit)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -574,7 +576,7 @@ export function FinancialReports() {
                   <p className="text-xs text-muted-foreground">Listing of all ledger accounts with debit/credit equality validation</p>
                 </div>
                 <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-3 py-1 text-xs font-bold text-success">
-                  <CheckCircle2 className="size-3.5" /> Balanced: Debits = Credits (₹41.90L)
+                  <CheckCircle2 className="size-3.5" /> Balanced: Debits = Credits ({money(financialData.totalAssets + financialData.totalExpense)})
                 </span>
               </div>
 
