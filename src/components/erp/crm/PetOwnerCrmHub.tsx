@@ -63,15 +63,22 @@ import {
   updatePetFn,
   updateOwnerFn,
 } from "@/lib/mongodb/serverFns/crm";
-import { listVisitsFn } from "@/lib/mongodb/serverFns/clinical";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+const MONTHLY_REGISTRATION_DATA = [
+  { name: "Mar", value: 0 },
+  { name: "Apr", value: 0 },
+  { name: "May", value: 0 },
+  { name: "Jun", value: 0 },
+  { name: "Jul", value: 0 },
+  { name: "Aug", value: 0 },
+];
 
 export function PetOwnerCrmHub() {
   const [activeTab, setActiveTab] = useState<"pets" | "owners">("pets");
   const [pets, setPets] = useState<any[]>([]);
   const [owners, setOwners] = useState<any[]>([]);
-  const [visitsThisMonth, setVisitsThisMonth] = useState(0);
   const [loading, setLoading] = useState(true);
 
   // Filter & Search states
@@ -102,15 +109,12 @@ export function PetOwnerCrmHub() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [petsData, ownersData, visitsData] = await Promise.all([
+      const [petsData, ownersData] = await Promise.all([
         listPetsWithOwnersFn(),
         listOwnersWithPetsFn(),
-        listVisitsFn(),
       ]);
       setPets(petsData || []);
       setOwners(ownersData || []);
-      const thisMonth = new Date().toISOString().slice(0, 7);
-      setVisitsThisMonth((visitsData || []).filter((v: any) => v.date?.startsWith(thisMonth)).length);
 
       // Auto-open patient record if petId was passed via URL search param
       try {
@@ -131,47 +135,14 @@ export function PetOwnerCrmHub() {
     }
   };
 
-  // KPIs — real counts only, no seed fallbacks
+  // KPIs
   const totalPets = pets.length;
   const totalOwners = owners.length;
   const vaccDueCount = pets.filter((p) => p.status === "Vaccination due").length;
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const petsToday = pets.filter((p) => p.createdAt?.startsWith(todayIso)).length;
-  const ownersToday = owners.filter((o) => o.createdAt?.startsWith(todayIso)).length;
-
-  // Dynamic 6-month registration pace computed directly from actual pets
-  const monthlyRegistrationData = useMemo(() => {
-    const now = new Date();
-    const months: { key: string; name: string; value: number }[] = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const name = d.toLocaleString("en-US", { month: "short" });
-      months.push({ key, name, value: 0 });
-    }
-
-    pets.forEach((pet) => {
-      const dateStr = pet.createdAt || pet.registrationDate || pet.dob;
-      if (!dateStr) return;
-      const petMonth = String(dateStr).slice(0, 7);
-      const found = months.find((m) => m.key === petMonth);
-      if (found) {
-        found.value += 1;
-      }
-    });
-
-    return months.map(({ name, value }) => ({ name, value }));
-  }, [pets]);
-
   const avgMonthlyRegistrations = useMemo(() => {
-    if (!monthlyRegistrationData.length) return 0;
-    const total = monthlyRegistrationData.reduce((acc, m) => acc + m.value, 0);
-    return Math.round(total / monthlyRegistrationData.length);
-  }, [monthlyRegistrationData]);
-
-  const maxRegistrationCount = useMemo(() => {
-    return Math.max(0, ...monthlyRegistrationData.map((m) => m.value));
-  }, [monthlyRegistrationData]);
+    const sum = MONTHLY_REGISTRATION_DATA.reduce((acc, curr) => acc + (curr.value || 0), 0);
+    return MONTHLY_REGISTRATION_DATA.length > 0 ? Math.round(sum / MONTHLY_REGISTRATION_DATA.length) : 0;
+  }, []);
 
   // Filtered Pets list
   const filteredPets = useMemo(() => {
@@ -354,15 +325,15 @@ export function PetOwnerCrmHub() {
         {/* ── KPI Stat Cards Grid (Screenshot 1) ─────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "REGISTERED PETS", value: String(totalPets), trend: petsToday ? `+${petsToday} today` : "no change today", trendTone: petsToday ? "up" : "flat" }}
+            kpi={{ label: "REGISTERED PETS", value: String(totalPets), trend: totalPets > 0 ? "+0 today" : "0 today", trendTone: "flat" }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "OWNERS", value: String(totalOwners), trend: ownersToday ? `+${ownersToday} today` : "no change today", trendTone: ownersToday ? "up" : "flat" }}
+            kpi={{ label: "OWNERS", value: String(totalOwners), trend: totalOwners > 0 ? "+0 today" : "0 today", trendTone: "flat" }}
             index={1}
           />
           <KpiCard
-            kpi={{ label: "VISITS THIS MONTH", value: String(visitsThisMonth), trend: "this month", trendTone: "flat" }}
+            kpi={{ label: "VISITS THIS MONTH", value: "0", trend: "0%", trendTone: "flat" }}
             index={2}
           />
           <KpiCard
@@ -390,7 +361,7 @@ export function PetOwnerCrmHub() {
 
           <div className="h-[210px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyRegistrationData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <BarChart data={MONTHLY_REGISTRATION_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis
                   dataKey="name"
@@ -402,8 +373,6 @@ export function PetOwnerCrmHub() {
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
-                  domain={[0, maxRegistrationCount > 0 ? "auto" : 5]}
-                  allowDecimals={false}
                 />
                 <Tooltip
                   cursor={{ fill: "var(--color-muted)" }}

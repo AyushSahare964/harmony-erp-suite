@@ -7,13 +7,7 @@ function toPlain<T>(v: any): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
-const SEED_RETAIL_BILLS = [
-  { bill: "RET-401", item: "Amoxicillin 250mg (x20), Royal Canin Maxi 4kg", category: "Medicine", qty: 21, amount: 2330, payment: "UPI", customer: "Tariq Hussain (Bruno)", date: "2026-08-22", status: "Completed" },
-  { bill: "RET-402", item: "Ergonomic Padded Dog Harness (L), Nylon Leash 6ft", category: "Accessory", qty: 2, amount: 1700, payment: "Card", customer: "Vikram Shetty (Luna)", date: "2026-08-22", status: "Completed" },
-  { bill: "RET-403", item: "Deworming Syrup 30ml, Tick & Flea Collar (L)", category: "Medicine", qty: 2, amount: 415, payment: "Cash", customer: "Walk-in Customer", date: "2026-08-22", status: "Completed" },
-  { bill: "RET-404", item: "Orthopedic Memory Foam Pet Bed (XL)", category: "Accessory", qty: 1, amount: 3200, payment: "UPI", customer: "Kavitha Nair (Rocky)", date: "2026-08-22", status: "Completed" },
-  { bill: "RET-405", item: "Hooded Feline Litter Box (Anti-Odour)", category: "Accessory", qty: 1, amount: 1850, payment: "UPI", customer: "Nalini Prasad (Simba)", date: "2026-08-22", status: "Completed" },
-];
+const SEED_RETAIL_BILLS: any[] = [];
 
 export const listRetailSalesFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {

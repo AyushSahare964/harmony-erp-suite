@@ -107,7 +107,7 @@ export function FoodCatalogue() {
         label: "Total Units in Stock",
         value: String(totalUnits),
         trend: "across canine & feline diets",
-        trendTone: "up" as const,
+        trendTone: totalUnits > 0 ? ("up" as const) : ("flat" as const),
       },
       {
         label: "Low Stock Diets",

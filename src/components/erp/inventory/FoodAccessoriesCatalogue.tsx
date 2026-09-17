@@ -152,10 +152,10 @@ export function FoodAccessoriesCatalogue() {
     const allBatches = active.flatMap((m) => batches.filter((b) => b.itemCode === m.id));
     const totalValue = allBatches.reduce((s, b) => s + b.qty * b.purchasePrice, 0);
     return [
-      { label: "Animal Food SKUs", value: String(food.length), trend: "active items", trendTone: "up" as const },
-      { label: "Animal Accessories", value: String(acc.length), trend: "active items", trendTone: "up" as const },
+      { label: "Animal Food SKUs", value: String(food.length), trend: "active items", trendTone: food.length > 0 ? "up" as const : "flat" as const },
+      { label: "Animal Accessories", value: String(acc.length), trend: "active items", trendTone: acc.length > 0 ? "up" as const : "flat" as const },
       { label: "Low / Out of Stock", value: String(lowStock), trend: "need reorder", trendTone: lowStock > 0 ? "down" as const : "flat" as const },
-      { label: "Total Stock Value", value: `Rs.${(totalValue / 1000).toFixed(1)}K`, trend: "at cost price", trendTone: "up" as const },
+      { label: "Total Stock Value", value: totalValue > 0 ? `₹${(totalValue / 1000).toFixed(1)}K` : "₹0", trend: "at cost price", trendTone: totalValue > 0 ? "up" as const : "flat" as const },
     ];
   }, [foodAccItems, batches, getStockStatus]);
 

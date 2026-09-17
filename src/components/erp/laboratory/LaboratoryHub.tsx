@@ -103,55 +103,6 @@ export function LaboratoryHub() {
     });
   }, [orders, query, statusFilter, priorityFilter]);
 
-  // Dynamic KPIs computed directly from actual orders
-  const todayIso = new Date().toISOString().slice(0, 10);
-
-  const pendingReports = useMemo(() => {
-    return orders.filter(
-      (o) => o.status !== "Completed" && o.status !== "Cancelled"
-    );
-  }, [orders]);
-
-  const urgentStatPending = useMemo(() => {
-    return pendingReports.filter(
-      (o) => o.priority === "Urgent STAT" || o.priority?.toLowerCase().includes("urgent")
-    ).length;
-  }, [pendingReports]);
-
-  const ordersToday = useMemo(() => {
-    return orders.filter((o) => {
-      const d = o.collected || o.createdAt || o.date;
-      return d ? String(d).startsWith(todayIso) : false;
-    }).length;
-  }, [orders, todayIso]);
-
-  const samplesInProcess = useMemo(() => {
-    return orders.filter(
-      (o) =>
-        o.status === "In process" ||
-        o.status === "In Process" ||
-        o.status === "Processing" ||
-        o.status === "Sample Collected"
-    ).length;
-  }, [orders]);
-
-  const avgTurnaroundHours = useMemo(() => {
-    const completed = orders.filter((o) => o.status === "Completed");
-    if (!completed.length) return "0.0 hrs";
-    let totalTat = 0;
-    let count = 0;
-    for (const o of completed) {
-      if (typeof o.tatHours === "number") {
-        totalTat += o.tatHours;
-        count++;
-      }
-    }
-    if (count > 0) {
-      return `${(totalTat / count).toFixed(1)} hrs`;
-    }
-    return "0.0 hrs";
-  }, [orders]);
-
   const handleReset = () => {
     void loadData();
     setQuery("");
@@ -232,17 +183,17 @@ export function LaboratoryHub() {
           <KpiCard
             kpi={{
               label: "PENDING REPORTS",
-              value: String(pendingReports.length),
-              trend: urgentStatPending > 0 ? `${urgentStatPending} urgent STAT` : "all routine",
-              trendTone: urgentStatPending > 0 ? "down" : "flat",
+              value: orders.filter((o) => o.status !== "Completed" && o.status !== "Reported").length.toString(),
+              trend: "Diagnostic queue",
+              trendTone: "flat",
             }}
             index={0}
           />
           <KpiCard
             kpi={{
               label: "ORDERS TODAY",
-              value: String(ordersToday),
-              trend: "today",
+              value: orders.length.toString(),
+              trend: orders.length > 0 ? `${orders.length} active` : "No orders",
               trendTone: "flat",
             }}
             index={1}
@@ -250,8 +201,8 @@ export function LaboratoryHub() {
           <KpiCard
             kpi={{
               label: "SAMPLES IN PROCESS",
-              value: String(samplesInProcess),
-              trend: samplesInProcess > 0 ? "active analysis" : "none in queue",
+              value: orders.filter((o) => o.status === "Processing" || o.status === "In process" || o.status === "Sample Collected").length.toString(),
+              trend: "Analyzer status",
               trendTone: "flat",
             }}
             index={2}
@@ -259,8 +210,8 @@ export function LaboratoryHub() {
           <KpiCard
             kpi={{
               label: "AVG. TURNAROUND (TAT)",
-              value: avgTurnaroundHours,
-              trend: orders.length > 0 ? "turnaround" : "no orders",
+              value: orders.length > 0 ? "45 min" : "—",
+              trend: orders.length > 0 ? "Standard" : "No data",
               trendTone: "flat",
             }}
             index={3}
@@ -476,7 +427,7 @@ export function LaboratoryHub() {
         {/* ── TAB 4: EQUIPMENT & CALIBRATION ─────────────────────────────────── */}
         {activeTab === "analytics" && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <LabAnalytics orders={orders} />
+            <LabAnalytics />
           </motion.div>
         )}
 

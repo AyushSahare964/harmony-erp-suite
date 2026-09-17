@@ -19,7 +19,13 @@ import {
   type InventoryItemRow,
   type StockBatchRow,
 } from "@/lib/mongodb/serverFns/inventory";
-
+import {
+  ALL_SEED_ITEMS,
+  type SeedItem,
+  type MedicineDetails,
+  type FoodDetails,
+  type AccessoryDetails,
+} from "./seedData";
 
 // ─── Data Types ───────────────────────────────────────────────────────────────
 
@@ -372,7 +378,13 @@ interface InventoryContextValue {
 
 const InventoryContext = createContext<InventoryContextValue | null>(null);
 
+// ─── Seed Batches (empty by default) ─────────────────────────────────────────
+const SEED_BATCHES: Batch[] = [];
 
+const SEED_LEDGER: LedgerEntry[] = [];
+
+// ─── Fallback Medicines (empty by default) ───────────────────────────────────
+const FALLBACK_MEDICINES: Medicine[] = [];
 
 export function InventoryProvider({ children }: { children: ReactNode }) {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
@@ -385,9 +397,10 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     setLoadingItems(true);
     try {
       const raw = await getItemsFn();
-      setMedicines(raw.map(mapToMedicine));
+      setMedicines((raw || []).map(mapToMedicine));
     } catch (err) {
-      console.warn("[InventoryProvider] Failed to load inventory items:", err);
+      console.warn("[InventoryProvider] Error loading items:", err);
+      setMedicines([]);
     } finally {
       setLoadingItems(false);
     }

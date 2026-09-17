@@ -32,31 +32,9 @@ export const updateBoardingStatusFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<boolean> => {
     await connectDB();
     await ErpRow.findOneAndUpdate(
-      {
-        moduleId: "boarding_bookings",
-        $or: [
-          { "data.id": data.id },
-          { "data.booking": data.id },
-          { "data.bookingId": data.id },
-        ],
-      },
+      { moduleId: "boarding_bookings", $or: [{ "data.booking": data.id }, { "data.id": data.id }] },
       { $set: { "data.status": data.status } }
     );
-    return true;
-  });
-
-export const deleteBoardingBookingFn = createServerFn({ method: "POST" })
-  .validator((raw: unknown) => z.object({ id: z.string() }).parse(raw))
-  .handler(async ({ data }): Promise<boolean> => {
-    await connectDB();
-    await ErpRow.findOneAndDelete({
-      moduleId: "boarding_bookings",
-      $or: [
-        { "data.id": data.id },
-        { "data.booking": data.id },
-        { "data.bookingId": data.id },
-      ],
-    });
     return true;
   });
 
@@ -85,30 +63,8 @@ export const updateSwimStatusFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<boolean> => {
     await connectDB();
     await ErpRow.findOneAndUpdate(
-      {
-        moduleId: "swimming_sessions",
-        $or: [
-          { "data.id": data.id },
-          { "data.session": data.id },
-          { "data.sessionId": data.id },
-        ],
-      },
+      { moduleId: "swimming_sessions", $or: [{ "data.session": data.id }, { "data.id": data.id }] },
       { $set: { "data.status": data.status } }
     );
-    return true;
-  });
-
-export const deleteSwimSessionFn = createServerFn({ method: "POST" })
-  .validator((raw: unknown) => z.object({ id: z.string() }).parse(raw))
-  .handler(async ({ data }): Promise<boolean> => {
-    await connectDB();
-    await ErpRow.findOneAndDelete({
-      moduleId: "swimming_sessions",
-      $or: [
-        { "data.id": data.id },
-        { "data.session": data.id },
-        { "data.sessionId": data.id },
-      ],
-    });
     return true;
   });

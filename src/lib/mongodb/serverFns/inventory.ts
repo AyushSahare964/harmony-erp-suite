@@ -15,7 +15,6 @@ import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { nextSeq, peekNextSeq } from "@/lib/mongodb/serverFns/counters";
 
 
-
 // ─── Concrete serializable return types ───────────────────────────────────────
 
 export interface InventoryItemRow {
@@ -270,7 +269,6 @@ export const getItemsFn = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<InventoryItemRow[]> => {
     await connectDB();
 
-
     const query: Record<string, unknown> = {};
     if (data?.type) query["productType"] = data.type;
     if (data?.status && data.status !== "all") query["status"] = data.status;
@@ -522,24 +520,4 @@ export const getLedgerFn = createServerFn({ method: "GET" })
     if (data.itemCode) filter["data.medicineId"] = data.itemCode;
     const docs = await ErpRow.find(filter).sort({ createdAt: -1 }).limit(data.limit).lean();
     return toPlain(docs.map((d) => d.data)) as unknown as LedgerEntryRow[];
-  });
-
-// ─── clearInventoryFn ─────────────────────────────────────────────────────────
-// Deletes all InventoryItem, StockBatch, and inventory ledger rows from MongoDB.
-
-export const clearInventoryFn = createServerFn({ method: "POST" })
-  .handler(async (): Promise<{ deleted: { items: number; batches: number; ledger: number } }> => {
-    await connectDB();
-    const [items, batches, ledger] = await Promise.all([
-      InventoryItem.deleteMany({}),
-      StockBatch.deleteMany({}),
-      ErpRow.deleteMany({ moduleId: "inventory_ledger" }),
-    ]);
-    return {
-      deleted: {
-        items: items.deletedCount ?? 0,
-        batches: batches.deletedCount ?? 0,
-        ledger: ledger.deletedCount ?? 0,
-      },
-    };
   });

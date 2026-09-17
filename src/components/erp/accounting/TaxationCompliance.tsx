@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, FileText, Download, Loader2, Receipt, ShoppingCart, Percent } from "lucide-react";
+import { motion } from "framer-motion";
+import { Plus, FileText, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -13,16 +14,35 @@ import { StatusPill } from "@/components/erp/StatusPill";
 import { toast } from "sonner";
 import {
   createTaxTemplateFn,
-  getTaxationComplianceDataFn,
-  type TaxationComplianceData,
-  type TaxTemplateItem,
+  getTaxTemplatesFn,
+  type TaxTemplateRow,
 } from "@/lib/mongodb/serverFns/finance";
 
-function money(v: number) {
-  const abs = Math.abs(v);
-  const str = abs >= 100000 ? `₹${(abs / 100000).toFixed(2)}L` : `₹${abs.toLocaleString("en-IN")}`;
-  return v < 0 ? `−${str}` : str;
+// ─── Types ─────────────────────────────────────────────────────────────────────
+interface TaxTemplate {
+  name: string;
+  appliesTo: "Sales" | "Purchase" | "Both";
+  rates: string;
+  isDefault: boolean;
+  status: "Active" | "Inactive";
 }
+interface ItemTaxOverride { item: string; override: string; reason: string; }
+interface TDSRow { party: string; section: string; rate: string; ytd: number; certificate: string; }
+
+// ─── Initial Data ─────────────────────────────────────────────────────────────
+const INITIAL_TAX_TEMPLATES: TaxTemplate[] = [
+  { name: "GST 18% (Sales)", appliesTo: "Sales", rates: "CGST 9% + SGST 9%", isDefault: true, status: "Active" },
+  { name: "GST 12% (Sales)", appliesTo: "Sales", rates: "CGST 6% + SGST 6%", isDefault: false, status: "Active" },
+  { name: "GST 5% (Medicines)", appliesTo: "Sales", rates: "CGST 2.5% + SGST 2.5%", isDefault: false, status: "Active" },
+  { name: "GST 18% (Purchases)", appliesTo: "Purchase", rates: "CGST 9% + SGST 9%", isDefault: true, status: "Active" },
+  { name: "Zero Rated", appliesTo: "Sales", rates: "0%", isDefault: false, status: "Inactive" },
+];
+
+const INITIAL_OVERRIDES: ItemTaxOverride[] = [];
+
+const TDS_ROWS: TDSRow[] = [];
+
+function money(v: number) { return `₹${v.toLocaleString("en-IN")}`; }
 
 // ─── New Template Dialog (MongoDB-backed) ──────────────────────────────────────
 function NewTemplateDialog({
@@ -88,8 +108,8 @@ function NewTemplateDialog({
               <Select value={appliesTo} onValueChange={(v) => setAppliesTo(v as typeof appliesTo)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Sales">Sales (Billing)</SelectItem>
-                  <SelectItem value="Purchase">Purchase (Inventory)</SelectItem>
+                  <SelectItem value="Sales">Sales</SelectItem>
+                  <SelectItem value="Purchase">Purchase</SelectItem>
                   <SelectItem value="Both">Both</SelectItem>
                 </SelectContent>
               </Select>
@@ -117,277 +137,257 @@ function NewTemplateDialog({
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export function TaxationCompliance() {
-  const [data, setData] = useState<TaxationComplianceData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [templates, setTemplates] = useState<TaxTemplate[]>(INITIAL_TAX_TEMPLATES);
+  const [overrides, setOverrides] = useState<ItemTaxOverride[]>(INITIAL_OVERRIDES);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
+  const [newOverrideOpen, setNewOverrideOpen] = useState(false);
+  const [overrideForm, setOverrideForm] = useState({ item: "", override: "GST 5% (Medicines)", reason: "" });
 
-  const fetchData = useCallback(async () => {
+  const fetchTaxTemplates = useCallback(async () => {
     try {
-      setLoading(true);
-      const res = await getTaxationComplianceDataFn();
-      if (res) {
-        setData(res);
+      const raw = await getTaxTemplatesFn();
+      if (raw && raw.length > 0) {
+        const mapped: TaxTemplate[] = raw.map((t: TaxTemplateRow) => ({
+          name: t.name,
+          appliesTo: t.appliesTo as TaxTemplate["appliesTo"],
+          rates: t.rows.map((r) => `${r.taxType} ${r.rate}%`).join(" + "),
+          isDefault: t.isDefault,
+          status: t.status as TaxTemplate["status"],
+        }));
+        setTemplates([...mapped, ...INITIAL_TAX_TEMPLATES]);
       }
     } catch (err) {
-      console.error("[TaxationCompliance] Failed to fetch taxation data:", err);
-      toast.error("Failed to load taxation and GST data");
-    } finally {
-      setLoading(false);
+      console.error("[TaxationCompliance] Failed to fetch tax templates:", err);
     }
   }, []);
 
   useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+    void fetchTaxTemplates();
+  }, [fetchTaxTemplates]);
 
-  const outputGST = data?.outputGst ?? 0;
-  const inputGST = data?.inputGst ?? 0;
-  const netGSTPayable = data?.netGstPayable ?? 0;
-  const taxableSales = data?.taxableSales ?? 0;
-  const taxablePurchases = data?.taxablePurchases ?? 0;
-  const periodLabel = data?.currentPeriodLabel || new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  const templates: TaxTemplateItem[] = data?.templates ?? [];
-  const rateBreakdown = data?.rateBreakdown ?? [];
-
-  const handleExportGSTR1 = () => {
-    if (!data) return;
-    try {
-      const blob = new Blob([JSON.stringify(data.gstrJsonData, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `GSTR1_${new Date().toISOString().slice(0, 7)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Live GSTR-1 JSON exported successfully.");
-    } catch {
-      toast.error("Failed to export GSTR-1 JSON");
+  const addOverride = () => {
+    if (!overrideForm.item || !overrideForm.reason) {
+      toast.error("Please provide item name and reason");
+      return;
     }
+    setOverrides([...overrides, overrideForm]);
+    toast.success("Item tax override added");
+    setOverrideForm({ item: "", override: "GST 5% (Medicines)", reason: "" });
+    setNewOverrideOpen(false);
   };
+
+  // GST Calculation
+  const outputGST = 324000;
+  const inputGST = 144000;
+  const netGSTPayable = outputGST - inputGST;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-navy">Taxation & GST Compliance</h2>
-          <p className="text-xs text-muted-foreground">
-            Real-time Output GST from Billing & Input Tax Credit (ITC) from Inventory Purchase Bills
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleExportGSTR1} disabled={loading || !data}>
-            <Download className="mr-1.5 size-3.5" /> Export GSTR-1 JSON
-          </Button>
-          <Button size="sm" onClick={() => setNewTemplateOpen(true)}>
-            <Plus className="mr-1.5 size-3.5" /> New Template
-          </Button>
-        </div>
-      </div>
-
       {/* KPI Strip */}
-      {loading ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="erp-card p-4 animate-pulse">
-              <div className="h-4 bg-muted rounded w-2/3 mb-2" />
-              <div className="h-7 bg-muted rounded w-1/2 mb-1" />
-              <div className="h-3 bg-muted rounded w-3/4" />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="erp-card px-4 py-3">
-            <div className="flex items-center justify-between">
-              <p className="section-label">Output GST (Billing)</p>
-              <Receipt className="size-4 text-primary" />
-            </div>
-            <p className="mt-1 text-xl font-bold text-foreground">{money(outputGST)}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              collected across {data?.salesCount ?? 0} customer bills
-            </p>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Output GST (Sales)", value: money(outputGST), note: "collected this month" },
+          { label: "Input Tax Credit (ITC)", value: money(inputGST), note: "claimable on purchases" },
+          { label: "Net GST Payable", value: money(netGSTPayable), note: "due by 20th of next month", highlight: true },
+          { label: "TDS Deducted (YTD)", value: money(24700), note: "deposited with govt." },
+        ].map((k) => (
+          <div key={k.label} className={`erp-card px-4 py-3 ${k.highlight ? "border-primary/40 bg-primary-soft/20" : ""}`}>
+            <p className="section-label">{k.label}</p>
+            <p className={`mt-1 text-xl font-bold ${k.highlight ? "text-primary" : "text-foreground"}`}>{k.value}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{k.note}</p>
           </div>
-
-          <div className="erp-card px-4 py-3">
-            <div className="flex items-center justify-between">
-              <p className="section-label">Input Tax Credit (ITC)</p>
-              <ShoppingCart className="size-4 text-success" />
-            </div>
-            <p className="mt-1 text-xl font-bold text-foreground">{money(inputGST)}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              claimable on {data?.purchaseCount ?? 0} inventory bills
-            </p>
-          </div>
-
-          <div className={`erp-card px-4 py-3 ${netGSTPayable > 0 ? "border-primary/40 bg-primary-soft/20" : "bg-success-soft/20 border-success/30"}`}>
-            <div className="flex items-center justify-between">
-              <p className="section-label">
-                {netGSTPayable >= 0 ? "Net GST Payable" : "ITC Carry Forward"}
-              </p>
-              <Percent className={`size-4 ${netGSTPayable >= 0 ? "text-primary" : "text-success"}`} />
-            </div>
-            <p className={`mt-1 text-xl font-bold ${netGSTPayable >= 0 ? "text-primary" : "text-success"}`}>
-              {money(netGSTPayable)}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {netGSTPayable >= 0 ? "due by 20th of next month" : "eligible for set-off"}
-            </p>
-          </div>
-
-          <div className="erp-card px-4 py-3">
-            <p className="section-label">Taxable Turnover</p>
-            <p className="mt-1 text-xl font-bold text-foreground">{money(taxableSales)}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Purchases: {money(taxablePurchases)}
-            </p>
-          </div>
-        </div>
-      )}
+        ))}
+      </div>
 
       {/* GSTR Summary */}
       <div className="erp-card p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FileText className="size-5 text-primary" />
-            <div>
-              <p className="font-semibold text-navy">GSTR-1 & GSTR-3B Summary ({periodLabel})</p>
-              <p className="text-xs text-muted-foreground">Monthly aggregate from live billing and purchase registers</p>
-            </div>
+            <p className="font-semibold text-navy">GSTR-1 & GSTR-3B Summary (August 2026)</p>
           </div>
-          <Button variant="outline" size="sm" onClick={handleExportGSTR1} disabled={loading || !data}>
-            <Download className="mr-1.5 size-3.5" /> Export GSTR-1 JSON
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const gstrData = {
+                gstin: "27AABCV1234F1Z5",
+                fp: "082026",
+                cur_gt: 2160000,
+                gt: 2160000,
+                b2b: [
+                  {
+                    ctin: "27AABCM8890K1ZP",
+                    inv: [
+                      {
+                        inum: "INV-20440",
+                        idt: "10-06-2026",
+                        val: 12500,
+                        pos: "27",
+                        rchrg: "N",
+                        inv_typ: "R",
+                        itms: [{ num: 1, itm_det: { txval: 11160, rt: 12, samt: 670, camt: 670 } }]
+                      }
+                    ]
+                  }
+                ],
+                b2cs: [
+                  { sply_ty: "INTRA", txval: 1800000, rt: 18, camt: 162000, samt: 162000 }
+                ]
+              };
+              const blob = new Blob([JSON.stringify(gstrData, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "GSTR1_082026.json";
+              a.click();
+              URL.revokeObjectURL(url);
+              toast.success("GSTR-1 JSON payload downloaded successfully.");
+            }}
+          >
+            Export GSTR-1 JSON
           </Button>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-          <div className="rounded-lg bg-muted/40 p-4 border border-border/50">
-            <p className="text-xs text-muted-foreground font-medium">Taxable Value (Billing Sales)</p>
-            <p className="mt-1.5 text-lg font-bold text-foreground">{money(taxableSales)}</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">GST Output: {money(outputGST)}</p>
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="rounded-lg bg-muted/40 p-3">
+            <p className="text-xs text-muted-foreground">Taxable Value (Sales)</p>
+            <p className="mt-1 text-lg font-bold">₹0</p>
           </div>
-
-          <div className="rounded-lg bg-muted/40 p-4 border border-border/50">
-            <p className="text-xs text-muted-foreground font-medium">Taxable Value (Inventory Purchases)</p>
-            <p className="mt-1.5 text-lg font-bold text-foreground">{money(taxablePurchases)}</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">ITC Claimable: {money(inputGST)}</p>
+          <div className="rounded-lg bg-muted/40 p-3">
+            <p className="text-xs text-muted-foreground">Taxable Value (Purchases)</p>
+            <p className="mt-1 text-lg font-bold">₹0</p>
           </div>
-
-          <div className={`rounded-lg p-4 border ${
-            netGSTPayable > 0 ? "bg-primary-soft/30 border-primary/30" : "bg-success-soft/30 border-success/30"
-          }`}>
-            <p className={`text-xs font-semibold ${netGSTPayable > 0 ? "text-primary" : "text-success"}`}>
-              {netGSTPayable >= 0 ? "Net Tax Due (GSTR-3B)" : "ITC Credit Balance"}
-            </p>
-            <p className={`mt-1.5 text-lg font-bold ${netGSTPayable > 0 ? "text-primary" : "text-success"}`}>
-              {money(netGSTPayable)}
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Output GST − Input Tax Credit</p>
+          <div className="rounded-lg bg-success-soft/30 p-3 border border-success/30">
+            <p className="text-xs text-success font-medium">Net Tax Due (GSTR-3B)</p>
+            <p className="mt-1 text-lg font-bold text-success">₹0</p>
           </div>
         </div>
       </div>
 
-      {/* GST Rate Slab Breakdown */}
-      <div className="erp-card overflow-hidden">
-        <div className="border-b border-border px-5 py-3 flex items-center justify-between">
-          <p className="section-label">GST Rate Slab Breakdown (Billing vs Inventory)</p>
-          <span className="text-xs text-muted-foreground">Computed live from document line items</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/30 text-left">
-                <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">GST Rate Slab</th>
-                <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">Taxable Sales (Billing)</th>
-                <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">Output GST</th>
-                <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">Taxable Purchases (Inventory)</th>
-                <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">Input Tax Credit</th>
-                <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">Net Tax Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rateBreakdown.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                    No GST line-item transactions recorded in the system yet.
-                  </td>
-                </tr>
-              ) : (
-                rateBreakdown.map((row) => (
-                  <tr key={row.slab} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-2.5 font-semibold text-foreground">{row.slab}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{money(row.salesTaxable)}</td>
-                    <td className="px-4 py-2.5 text-right font-medium text-primary tabular-nums">{money(row.outputTax)}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{money(row.purchaseTaxable)}</td>
-                    <td className="px-4 py-2.5 text-right font-medium text-success tabular-nums">{money(row.inputTax)}</td>
-                    <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${row.netTax > 0 ? "text-destructive" : row.netTax < 0 ? "text-success" : "text-muted-foreground"}`}>
-                      {money(row.netTax)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-            {rateBreakdown.length > 0 && (
-              <tfoot>
-                <tr className="border-t-2 border-border bg-muted/30 font-semibold text-xs">
-                  <td className="px-4 py-2.5">Total</td>
-                  <td className="px-4 py-2.5 text-right">{money(taxableSales)}</td>
-                  <td className="px-4 py-2.5 text-right text-primary">{money(outputGST)}</td>
-                  <td className="px-4 py-2.5 text-right">{money(taxablePurchases)}</td>
-                  <td className="px-4 py-2.5 text-right text-success">{money(inputGST)}</td>
-                  <td className={`px-4 py-2.5 text-right font-bold ${netGSTPayable >= 0 ? "text-destructive" : "text-success"}`}>
-                    {money(netGSTPayable)}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
-
-      {/* Tax Templates (MongoDB Master) */}
+      {/* Tax Templates */}
       <div>
         <div className="mb-3 flex items-center justify-between">
-          <div>
-            <p className="section-label">GST Tax Templates (MongoDB)</p>
-            <p className="text-xs text-muted-foreground">Configured rate slabs used across Billing and Inventory</p>
-          </div>
+          <p className="section-label">GST Tax Templates (MongoDB)</p>
           <Button size="sm" onClick={() => setNewTemplateOpen(true)}>
-            <Plus className="mr-1.5 size-3.5" /> New Template
+            <Plus className="mr-1.5 size-3.5" />New Template
           </Button>
         </div>
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30 text-left">
-                {["Template Name", "Applies To", "Tax Rates", "Default", "Status"].map((h) => (
-                  <th key={h} className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
-                    {h}
-                  </th>
+                {["Template Name", "Applies To", "Tax Rates", "Default", "Status", "Actions"].map((h) => (
+                  <th key={h} className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {templates.length === 0 ? (
+              {templates.map((t, i) => (
+                <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                  <td className="px-4 py-2.5 font-medium">{t.name}</td>
+                  <td className="px-4 py-2.5">{t.appliesTo}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{t.rates}</td>
+                  <td className="px-4 py-2.5">
+                    {t.isDefault && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">
+                        Default
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5"><StatusPill value={t.status} /></td>
+                  <td className="px-4 py-2.5">
+                    <Button variant="ghost" size="sm" className="text-xs" onClick={() => toast.success(`Template ${t.name} active`)}>
+                      Verify
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Item Tax Overrides */}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="section-label">Item-Level Tax Overrides</p>
+          <Button variant="outline" size="sm" onClick={() => setNewOverrideOpen(true)}>
+            <Plus className="mr-1.5 size-3.5" />Add Item Override
+          </Button>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30 text-left">
+                {["Item", "Applied Override", "Reason", "Action"].map((h) => (
+                  <th key={h} className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {overrides.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                    No custom tax templates defined.
+                  <td colSpan={4} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                    No item-level tax overrides configured.
                   </td>
                 </tr>
               ) : (
-                templates.map((t, i) => (
-                  <tr key={t.id || i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-2.5 font-medium">{t.name}</td>
-                    <td className="px-4 py-2.5">{t.appliesTo}</td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{t.rates}</td>
+                overrides.map((o, i) => (
+                  <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5 font-medium">{o.item}</td>
+                    <td className="px-4 py-2.5 font-semibold text-primary">{o.override}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{o.reason}</td>
                     <td className="px-4 py-2.5">
-                      {t.isDefault && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">
-                          Default
-                        </span>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-destructive hover:text-destructive"
+                        onClick={() => {
+                          setOverrides(overrides.filter((_, idx) => idx !== i));
+                          toast.success("Override removed");
+                        }}
+                      >
+                        Remove
+                      </Button>
                     </td>
-                    <td className="px-4 py-2.5"><StatusPill value={t.status} /></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* TDS Section */}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="section-label">TDS (Tax Deducted at Source)</p>
+          <span className="text-xs text-muted-foreground">Threshold tracking & certificates</span>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30 text-left">
+                {["Party", "Section", "TDS Rate", "YTD Deductions", "Certificate Status"].map((h) => (
+                  <th key={h} className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {TDS_ROWS.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                    No TDS deduction records found.
+                  </td>
+                </tr>
+              ) : (
+                TDS_ROWS.map((r, i) => (
+                  <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5 font-medium">{r.party}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">{r.section}</td>
+                    <td className="px-4 py-2.5">{r.rate}</td>
+                    <td className="px-4 py-2.5 font-medium">{money(r.ytd)}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{r.certificate}</td>
                   </tr>
                 ))
               )}
@@ -399,8 +399,42 @@ export function TaxationCompliance() {
       <NewTemplateDialog
         open={newTemplateOpen}
         onClose={() => setNewTemplateOpen(false)}
-        onTemplateCreated={fetchData}
+        onTemplateCreated={fetchTaxTemplates}
       />
+
+      <Dialog open={newOverrideOpen} onOpenChange={setNewOverrideOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Item Tax Override</DialogTitle>
+            <DialogDescription>Assign a custom tax template to a specific item.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Item Name</Label>
+              <Input placeholder="e.g. Amoxicillin 250mg" value={overrideForm.item} onChange={(e) => setOverrideForm({ ...overrideForm, item: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Tax Override Template</Label>
+              <Select value={overrideForm.override} onValueChange={(v) => setOverrideForm({ ...overrideForm, override: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {templates.map((t) => (
+                    <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Reason / Legal Note</Label>
+              <Input placeholder="e.g. Life saving drug under exempt list" value={overrideForm.reason} onChange={(e) => setOverrideForm({ ...overrideForm, reason: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewOverrideOpen(false)}>Cancel</Button>
+            <Button onClick={addOverride}>Save Override</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

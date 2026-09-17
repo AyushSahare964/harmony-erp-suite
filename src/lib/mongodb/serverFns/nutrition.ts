@@ -7,6 +7,8 @@ function toPlain<T>(v: any): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
+const SEED_FEEDING_PLANS: any[] = [];
+
 export const listFeedingPlansFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();

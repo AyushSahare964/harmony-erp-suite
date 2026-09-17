@@ -107,7 +107,7 @@ export function MedicineCatalogue() {
         label: "Total Units in Dispensary",
         value: String(totalUnits),
         trend: "tablets, vials, syrups & drops",
-        trendTone: "up" as const,
+        trendTone: totalUnits > 0 ? ("up" as const) : ("flat" as const),
       },
       {
         label: "Low Stock Formulations",
