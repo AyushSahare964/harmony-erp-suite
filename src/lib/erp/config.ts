@@ -218,7 +218,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             title: "Identity & Access (Global)",
             subtitle: "Global roles, permission templates, security policy",
             metricLabel: "Admins across tenants",
-            metricValue: "74",
+            metricValue: "0",
           },
           {
             module: "integrations-global",
@@ -226,7 +226,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             title: "Integration Hub & Settings (Global)",
             subtitle: "WhatsApp, SMS, payment gateway, GST providers",
             metricLabel: "Integrations connected",
-            metricValue: "11",
+            metricValue: "0",
             accent: "green",
           },
           {
@@ -278,7 +278,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             title: "Identity, Roles & Access",
             subtitle: "Manage branch staff and permissions",
             metricLabel: "Active staff accounts",
-            metricValue: "31",
+            metricValue: "0",
           },
           {
             module: "crm-pets",
@@ -419,7 +419,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             title: "HRMS",
             subtitle: "Staff attendance, leave and payroll status",
             metricLabel: "On leave today",
-            metricValue: "2",
+            metricValue: "0",
           },
           {
             module: "identity-global",
@@ -442,7 +442,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             title: "CRM & Marketing",
             subtitle: "Reminders, campaigns and loyalty",
             metricLabel: "Reminders due today",
-            metricValue: "34",
+            metricValue: "0",
             accent: "amber",
           },
           {
@@ -451,7 +451,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             title: "Communication Center",
             subtitle: "WhatsApp/SMS/email delivery log",
             metricLabel: "Messages sent today",
-            metricValue: "418",
+            metricValue: "0",
             accent: "green",
           },
           {
@@ -468,7 +468,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             title: "Integration Hub & Settings (Branch)",
             subtitle: "Branch-level service catalogue and config",
             metricLabel: "Active integrations",
-            metricValue: "6",
+            metricValue: "0",
             accent: "green",
           },
         ],
@@ -647,7 +647,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             title: "HRMS — Payroll",
             subtitle: "Salary runs, advances and incentives",
             metricLabel: "Payroll due date",
-            metricValue: "30 Aug",
+            metricValue: "—",
             accent: "amber",
           },
         ],

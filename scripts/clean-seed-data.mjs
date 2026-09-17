@@ -78,6 +78,15 @@ async function run() {
       "accounting",
       "inventory",
       "live_inventory",
+      "identity",
+      "identity-global",
+      "hrms",
+      "payroll",
+      "marketing",
+      "communication",
+      "documents",
+      "integrations",
+      "integrations-global",
     ];
 
     const erpRes = await db.collection("erp_rows").deleteMany({
