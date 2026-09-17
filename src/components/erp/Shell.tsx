@@ -432,11 +432,28 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
 export function Shell({ title, children }: { title: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { isAuthenticated, isLoadingAuth } = useErp();
+  const navigate = useNavigate();
 
   // Scroll to top smoothly on feature/route transition
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [pathname]);
+
+  // Guard every Shell-wrapped page: unauthenticated visitors go to /login first.
+  useEffect(() => {
+    if (!isLoadingAuth && !isAuthenticated) {
+      navigate({ to: "/login" });
+    }
+  }, [isLoadingAuth, isAuthenticated, navigate]);
+
+  if (isLoadingAuth || !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-background">
+        <div className="size-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full bg-background">
