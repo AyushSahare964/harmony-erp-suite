@@ -16,6 +16,8 @@ export interface CatalogueSearchProps {
   catalogItems?: any[];
   className?: string;
   autoClearOnSelect?: boolean;
+  /** When false, the "+ Add custom" fallback button is hidden. Use false for stock-bound sections (Immediate, Injectable). Default true. */
+  allowCustomAdd?: boolean;
 }
 
 /**
@@ -82,6 +84,7 @@ export function CatalogueSearch({
   catalogItems,
   className,
   autoClearOnSelect = true,
+  allowCustomAdd = true,
 }: CatalogueSearchProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");

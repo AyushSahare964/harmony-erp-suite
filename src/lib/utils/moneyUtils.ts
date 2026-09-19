@@ -103,8 +103,10 @@ export function calcBillSummary(
     discountType?: "percentage" | "fixed" | "%" | "₹" | undefined;
     discountValue?: number | undefined;
     gstRate: number;
+    /** Per-line override — when set, wins over the bill-wide `defaultApplyGst` below. */
+    applyGst?: boolean | undefined;
   }>,
-  applyGst: boolean
+  defaultApplyGst: boolean
 ): {
   subtotal: number;        // sum of taxable amounts (post-discount, pre-GST)
   totalGst: number;        // sum of all GST amounts
@@ -122,7 +124,7 @@ export function calcBillSummary(
       discountType: line.discountType,
       discountValue: line.discountValue,
       gstRate: line.gstRate,
-      applyGst,
+      applyGst: line.applyGst ?? defaultApplyGst,
     });
     subtotal = addMoney(subtotal, calc.taxableAmount);
     totalGst = addMoney(totalGst, calc.gstAmount);

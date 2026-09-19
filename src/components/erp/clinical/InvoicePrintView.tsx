@@ -85,7 +85,7 @@ export function InvoicePrintView({ visit, open, onClose }: Props) {
           {/* Header */}
           <div className="border-b-2 border-black pb-4 flex items-start justify-between">
             <div>
-              <h1 className="text-xl font-black tracking-tight text-gray-900">VETCARE SPECIALTY PET HOSPITAL</h1>
+              <h1 className="text-xl font-black tracking-tight text-gray-900">Real Care Small Animal Clinic</h1>
               <p className="text-xs text-gray-600">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
               <p className="text-xs text-gray-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
               {isGst && <p className="text-xs font-mono font-bold text-gray-800">GSTIN: 27AABCV1234F1Z5</p>}

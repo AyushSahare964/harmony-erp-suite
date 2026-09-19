@@ -20,6 +20,9 @@ import {
   Edit,
   Sparkles,
   Info,
+  Trash2,
+  Check,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +49,8 @@ export function AccessoriesCatalogue() {
     refetchItems,
     loadingItems,
     toggleStatus,
+    deleteItem,
+    setStock,
   } = useInventory();
 
   const [query, setQuery] = useState("");
@@ -56,6 +61,34 @@ export function AccessoriesCatalogue() {
   const [addOpen, setAddOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Medicine | undefined>(undefined);
   const [detailItem, setDetailItem] = useState<Medicine | null>(null);
+
+  // Manual stock quantity override (inline in the table row)
+  const [editingStockCode, setEditingStockCode] = useState<string | null>(null);
+  const [stockDraft, setStockDraft] = useState("");
+
+  const handleSaveStock = async (itemCode: string) => {
+    const value = Math.max(0, Number(stockDraft) || 0);
+    try {
+      await setStock(itemCode, value);
+      toast.success(`Stock updated to ${value}`);
+    } catch (e) {
+      toast.error("Could not update stock. Please try again.");
+    } finally {
+      setEditingStockCode(null);
+    }
+  };
+
+  const handleDeleteAccessory = async (item: Medicine) => {
+    if (!window.confirm(`Delete "${item.name}" (${item.itemCode}) from the catalogue? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteItem(item.itemCode);
+      toast.success(`${item.name} deleted from catalogue`);
+    } catch (e) {
+      toast.error("Could not delete this item. Please try again.");
+    }
+  };
 
   // Filtered Accessory items
   const visible = useMemo(() => {
@@ -336,23 +369,73 @@ export function AccessoriesCatalogue() {
                           {item.accessoryDetails?.material || "Standard"}
                         </td>
 
-                        <td className="px-3 py-3">
-                          <div className="flex items-center gap-1.5 font-bold">
-                            <span
-                              className={`text-sm ${
-                                isOOS
-                                  ? "text-destructive"
-                                  : isLow
-                                  ? "text-amber-600 dark:text-amber-400"
-                                  : "text-emerald-600 dark:text-emerald-400"
-                              }`}
-                            >
-                              {currentQty} {item.unit}s
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            Min level: {item.reorderLevel}
-                          </div>
+                        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                          {editingStockCode === item.itemCode ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                autoFocus
+                                value={stockDraft}
+                                onChange={(e) => setStockDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") void handleSaveStock(item.itemCode);
+                                  if (e.key === "Escape") setEditingStockCode(null);
+                                }}
+                                className="h-7 w-20 text-xs font-mono"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => void handleSaveStock(item.itemCode)}
+                                title="Save stock quantity"
+                              >
+                                <Check className="size-3.5 text-emerald-600" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => setEditingStockCode(null)}
+                                title="Cancel"
+                              >
+                                <X className="size-3.5" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="group/stock flex items-center gap-1.5">
+                              <div>
+                                <div className="flex items-center gap-1.5 font-bold">
+                                  <span
+                                    className={`text-sm ${
+                                      isOOS
+                                        ? "text-destructive"
+                                        : isLow
+                                        ? "text-amber-600 dark:text-amber-400"
+                                        : "text-emerald-600 dark:text-emerald-400"
+                                    }`}
+                                  >
+                                    {currentQty} {item.unit}s
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  Min level: {item.reorderLevel}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingStockCode(item.itemCode);
+                                  setStockDraft(String(currentQty));
+                                }}
+                                className="opacity-0 group-hover/stock:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+                                title="Manually set stock quantity"
+                              >
+                                <Edit className="size-3" />
+                              </button>
+                            </div>
+                          )}
                         </td>
 
                         <td className="px-3 py-3">
@@ -413,6 +496,15 @@ export function AccessoriesCatalogue() {
                               title="View Ledger & Batches"
                             >
                               <Eye className="size-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => void handleDeleteAccessory(item)}
+                              title="Delete Accessory"
+                            >
+                              <Trash2 className="size-3.5" />
                             </Button>
                           </div>
                         </td>

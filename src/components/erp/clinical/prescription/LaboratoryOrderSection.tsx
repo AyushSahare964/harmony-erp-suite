@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   FlaskConical,
   Clock,
@@ -36,20 +36,8 @@ export interface LaboratoryOrderSectionProps {
   isLocked?: boolean | undefined;
 }
 
-const COMMON_LAB_TESTS = [
-  "Complete Blood Count (CBC)",
-  "Kidney Function Profile (BUN / Creatinine)",
-  "Liver Function Biochemistry (ALT / ALP)",
-  "Electrolytes Panel (Na / K / Cl)",
-  "Blood Glucose STAT",
-  "Pre-Operative Coagulation Panel",
-  "Urinalysis & Sediment Microscopic",
-  "Skin Scraping Cytology & Fungal DTM",
-  "Canine Parvovirus Antigen ELISA",
-  "Feline Panleukopenia / Giardia Antigen",
-  "Thyroid Panel (T4 / TSH)",
-  "Lipid Profile (Cholesterol / Triglycerides)",
-];
+// COMMON_LAB_TESTS removed — no hardcoded seed tests. The search is type-to-add-custom only,
+// matching the empty-inventory behaviour of other catalogue sections across the app.
 
 export function LaboratoryOrderSection({
   id = "sec-laboratory",
@@ -64,8 +52,20 @@ export function LaboratoryOrderSection({
 }: LaboratoryOrderSectionProps) {
   const [testSearch, setTestSearch] = useState("");
   const [testDropdownOpen, setTestDropdownOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const baseDate = visitDate || new Date().toISOString().slice(0, 10);
+
+  // Close dropdown when clicking outside the search container
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setTestDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleToggleEnabled = (enabled: boolean) => {
     if (isLocked) return;
@@ -120,9 +120,7 @@ export function LaboratoryOrderSection({
     });
   };
 
-  const filteredTests = COMMON_LAB_TESTS.filter((t) =>
-    t.toLowerCase().includes(testSearch.toLowerCase().trim())
-  );
+
 
   return (
     <SectionCard
@@ -290,7 +288,7 @@ export function LaboratoryOrderSection({
 
             {/* Search & Pick Laboratory Blood Test Input */}
             {!isLocked && (
-              <div className="relative pt-1">
+              <div className="relative pt-1" ref={searchContainerRef}>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                   <Input
@@ -301,7 +299,7 @@ export function LaboratoryOrderSection({
                       setTestDropdownOpen(true);
                     }}
                     onFocus={() => setTestDropdownOpen(true)}
-                    placeholder="Search or pick laboratory blood test to order..."
+                    placeholder="Type a lab test name to add..."
                     className="h-9 text-xs pl-8 bg-background"
                   />
                   {testSearch && (
@@ -315,54 +313,23 @@ export function LaboratoryOrderSection({
                   )}
                 </div>
 
-                {/* Dropdown Suggestions */}
+                {/* Dropdown — only shows when there is typed text */}
                 {testDropdownOpen && (
                   <div className="absolute z-30 mt-1.5 w-full max-h-56 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 shadow-xl">
-                    <p className="px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                      Suggested Laboratory Diagnostic Tests:
-                    </p>
-                    {filteredTests.length === 0 && !testSearch.trim() ? (
-                      <div className="p-3 text-xs text-muted-foreground text-center">
-                        No matching tests found.
-                      </div>
-                    ) : (
-                      <>
-                        {filteredTests.map((testName) => (
-                          <button
-                            key={testName}
-                            type="button"
-                            onClick={() => handleAddBloodTest(testName)}
-                            className="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-muted text-foreground flex items-center justify-between transition-colors cursor-pointer"
-                          >
-                            <span>{testName}</span>
-                            <Plus className="size-3 text-primary" />
-                          </button>
-                        ))}
-                        {testSearch.trim() &&
-                          !COMMON_LAB_TESTS.some(
-                            (t) => t.toLowerCase() === testSearch.trim().toLowerCase()
-                          ) && (
-                            <button
-                              type="button"
-                              onClick={() => handleAddBloodTest(testSearch.trim())}
-                              className="w-full text-left px-3 py-2 rounded-lg text-xs bg-primary/10 text-primary hover:bg-primary/20 flex items-center justify-between font-bold border-t border-border/40 mt-1 cursor-pointer"
-                            >
-                              <span>+ Add Custom Test &ldquo;{testSearch.trim()}&rdquo;</span>
-                              <Plus className="size-3.5" />
-                            </button>
-                          )}
-                      </>
-                    )}
-                    <div className="p-1 border-t border-border/40 text-right mt-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setTestDropdownOpen(false)}
-                        className="h-6 text-[11px] px-2.5"
+                    {testSearch.trim() ? (
+                      <button
+                        type="button"
+                        onClick={() => handleAddBloodTest(testSearch.trim())}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs bg-primary/10 text-primary hover:bg-primary/20 flex items-center justify-between font-bold cursor-pointer"
                       >
-                        Done
-                      </Button>
-                    </div>
+                        <span>+ Add Custom Test &ldquo;{testSearch.trim()}&rdquo;</span>
+                        <Plus className="size-3.5" />
+                      </button>
+                    ) : (
+                      <div className="p-3 text-xs text-muted-foreground text-center">
+                        Type a lab test name above to add it.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

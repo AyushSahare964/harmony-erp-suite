@@ -24,6 +24,8 @@ export interface IPrescriptionLine {
   discountAmount?: number | undefined; // computed monetary discount (stored for audit)
   taxableAmount?: number | undefined; // amount after discount, before tax
   gstRate: number;
+  /** Per-line GST toggle in the Billing & Settlement tab; falls back to the bill-wide billType when unset. */
+  gstApplicable?: boolean | undefined;
   lineTotal: number;
   // ── Stable Client ID and Idempotent Sync Tracking (§1.2 & §4.5) ──
   id?: string | undefined;
@@ -275,6 +277,7 @@ const PrescriptionLineSchema = new Schema<IPrescriptionLine>({
   discountAmount: { type: Number },
   taxableAmount: { type: Number },
   gstRate: { type: Number, default: 0 },
+  gstApplicable: { type: Boolean },
   lineTotal: { type: Number, required: true, default: 0 },
   id: { type: String },
   sourceType: { type: String, enum: ["RX_ITEM", "RX_CONSULT", "RX_LAB", null] },

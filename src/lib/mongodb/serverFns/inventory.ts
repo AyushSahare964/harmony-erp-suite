@@ -404,6 +404,62 @@ export const deactivateItemFn = createServerFn({ method: "POST" })
     return { success: true };
   });
 
+// ─── deleteItemFn ─────────────────────────────────────────────────────────────
+
+export const deleteItemFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => z.object({ itemCode: z.string().min(1) }).parse(raw))
+  .handler(async ({ data }): Promise<{ success: boolean }> => {
+    await connectDB();
+    await InventoryItem.findOneAndDelete({ itemCode: data.itemCode });
+    return { success: true };
+  });
+
+// ─── setItemStockFn ───────────────────────────────────────────────────────────
+// Direct, manual stock-quantity override for the catalogue's inline "set stock" control.
+// Distinct from addStockFn/adjustStockFn (which are GRN/reason-coded batch adjustments) —
+// this just sets InventoryItem.currentStock to the given number and logs the delta.
+
+export const setItemStockFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) =>
+    z.object({
+      itemCode: z.string().min(1),
+      newStock: z.number().min(0, "Stock cannot be negative"),
+      actor: z.string().optional(),
+    }).parse(raw)
+  )
+  .handler(async ({ data }): Promise<InventoryItemRow> => {
+    await connectDB();
+    const item = await InventoryItem.findOne({ itemCode: data.itemCode });
+    if (!item) throw new Error(`Item not found: ${data.itemCode}`);
+
+    const previousStock = item.currentStock || 0;
+    const delta = data.newStock - previousStock;
+    item.currentStock = data.newStock;
+    await item.save();
+
+    if (delta !== 0) {
+      await ErpRow.create({
+        moduleId: "inventory_ledger",
+        data: {
+          id: `LEDGER-${Date.now()}`,
+          medicineId: item.itemCode,
+          medicineName: item.name,
+          batchId: "",
+          batchNo: "",
+          movementType: delta > 0 ? "adjustment_in" : "adjustment_out",
+          quantity: Math.abs(delta),
+          sourceType: "MANUAL_ADJUSTMENT",
+          sourceRef: "Catalogue quick edit",
+          balanceAfter: data.newStock,
+          actorName: data.actor || "Front Desk",
+          createdAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    return toPlain(item.toObject ? item.toObject() : item) as unknown as InventoryItemRow;
+  });
+
 // ─── addStockFn ───────────────────────────────────────────────────────────────
 
 export const addStockFn = createServerFn({ method: "POST" })

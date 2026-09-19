@@ -248,7 +248,15 @@ function GlobalSearch() {
             ) : (
               <div className="divide-y divide-border/50 max-h-80 overflow-y-auto">
                 {results.map(p => (
-                  <div key={p.petId} className="px-4 py-3 hover:bg-muted/40 transition-colors">
+                  <div
+                    key={p.petId}
+                    className="px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer"
+                    onClick={() => {
+                      setFocused(false);
+                      setQuery("");
+                      void navigate({ to: "/m/$moduleId", params: { moduleId: "crm-pets" }, search: { petId: p.petId, petName: p.name } as any });
+                    }}
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary text-sm font-bold">
@@ -280,7 +288,8 @@ function GlobalSearch() {
                         <button
                           key={lnk.module}
                           type="button"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setFocused(false);
                             setQuery("");
                             void navigate({ to: "/m/$moduleId", params: { moduleId: lnk.module }, search: { petId: p.petId, petName: p.name } as any });

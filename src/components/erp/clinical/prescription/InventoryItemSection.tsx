@@ -2,19 +2,11 @@ import React, { useState, useMemo } from "react";
 import {
   Trash2,
   AlertTriangle,
-  Pill,
-  Syringe,
-  Utensils,
-  ShoppingBag,
-  Check,
   Plus,
-  Info,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SectionCard, type SaveStatus } from "./SectionCard";
 import { CatalogueSearch } from "./CatalogueSearch";
@@ -69,6 +61,10 @@ export interface InventoryItemSectionProps {
   showFrequencyDuration?: boolean | undefined;
   showRoute?: boolean | undefined;
   showDiscount?: boolean | undefined;
+  /** When false, hides the Net (₹) column and the section subtotal footer. Use for PRESCRIBED_MED. Default true. */
+  showPrice?: boolean | undefined;
+  /** When false, hides the "+ Add custom" fallback in CatalogueSearch. Use for stock-bound sections. Default true. */
+  allowCustomAdd?: boolean | undefined;
 }
 
 const STANDARD_MED_UNITS = [
@@ -114,9 +110,11 @@ export function InventoryItemSection({
   showFrequencyDuration = false,
   showRoute = false,
   showDiscount = false,
+  showPrice = true,
+  allowCustomAdd = true,
 }: InventoryItemSectionProps) {
-  // Untagged medicine fallback toggle for Injectable
-  const [showAllMedicines, setShowAllMedicines] = useState(false);
+  // Inline add state for Prescribed Medicine (free-text, no inventory search)
+  const [prescribedAddName, setPrescribedAddName] = useState("");
 
   const excludeCodes = useMemo(
     () => items.map((it) => it.itemCode).filter(Boolean) as string[],
@@ -172,6 +170,25 @@ export function InventoryItemSection({
     onChange(items.filter((line) => line.id !== lineId));
   };
 
+  // Inline add handler for Prescribed Medicine — no inventory lookup, no price
+  const handleAddPrescribed = () => {
+    const trimmed = prescribedAddName.trim();
+    if (!trimmed) return;
+    const newLine: InventoryItemLine = {
+      id: generateStableId("prx"),
+      name: trimmed,
+      quantity: 1,
+      unit: "Tablet",
+      unitPrice: 0, // prescribed (take-home) — clinic is not charging for this
+      discountPercent: 0,
+      dosageInstructions: showDosage ? "" : undefined,
+      frequency: showFrequencyDuration ? "" : undefined,
+      duration: showFrequencyDuration ? "" : undefined,
+    };
+    onChange([...items, newLine]);
+    setPrescribedAddName("");
+  };
+
   const sectionSubtotal = useMemo(() => {
     return items.reduce((sum, line) => {
       const disc = Number(line.discountPercent) || 0;
@@ -203,50 +220,71 @@ export function InventoryItemSection({
       {/* Search Bar Container */}
       {!isLocked && (
         <div className="space-y-2">
-          {section === "INJECTABLE" && (
-            <div className="flex items-center justify-between pb-1 text-xs">
-              <span className="text-[11px] text-muted-foreground font-medium">
-                Filtered to injectable / vaccine dosage forms.
-              </span>
-              <div className="flex items-center gap-2">
-                <Label
-                  htmlFor={`toggle-all-${id}`}
-                  className="text-[11px] font-semibold text-muted-foreground cursor-pointer"
-                >
-                  Show all medicines (fallback)
-                </Label>
-                <Switch
-                  id={`toggle-all-${id}`}
-                  checked={showAllMedicines}
-                  onCheckedChange={setShowAllMedicines}
-                />
-              </div>
+          {section === "PRESCRIBED_MED" ? (
+            // Prescribed Medicine: always-visible inline free-text add (no inventory fetch, no price)
+            <div className="flex items-center gap-2">
+              <Input
+                type="text"
+                value={prescribedAddName}
+                onChange={(e) => setPrescribedAddName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && prescribedAddName.trim()) {
+                    handleAddPrescribed();
+                  }
+                }}
+                placeholder="Type medicine name and press Add or Enter..."
+                className="h-9 text-xs bg-background flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!prescribedAddName.trim()}
+                onClick={handleAddPrescribed}
+                className="h-9 text-xs font-bold px-3 text-primary border-primary/30 hover:bg-primary hover:text-primary-foreground shrink-0"
+              >
+                <Plus className="size-3.5 mr-1" /> Add
+              </Button>
             </div>
+          ) : (
+            <>
+              {section === "INJECTABLE" && (
+                <div className="flex items-center pb-1 text-xs">
+                  <span className="text-[11px] text-muted-foreground font-medium">
+                    Filtered to injectable / vaccine dosage forms.
+                  </span>
+                </div>
+              )}
+              <CatalogueSearch
+                type={catalogueType}
+                placeholder={
+                  catalogueType === "food"
+                    ? "Search food items by name, brand, formula, or bag size..."
+                    : catalogueType === "accessory"
+                    ? "Search accessories by name, category, or type..."
+                    : section === "INJECTABLE"
+                    ? "Search injectable medicines, vaccines, or vials..."
+                    : "Search medicines by brand, generic name, or composition..."
+                }
+                onSelect={handleSelectItem}
+                excludeCodes={excludeCodes}
+                catalogItems={catalogItems}
+                autoClearOnSelect={true}
+                allowCustomAdd={allowCustomAdd}
+              />
+            </>
           )}
-
-          <CatalogueSearch
-            type={catalogueType}
-            placeholder={
-              catalogueType === "food"
-                ? "Search food items by name, brand, formula, or bag size..."
-                : catalogueType === "accessory"
-                ? "Search accessories by name, category, or type..."
-                : section === "INJECTABLE"
-                ? "Search injectable medicines, vaccines, or vials..."
-                : "Search medicines by brand, generic name, or composition..."
-            }
-            onSelect={handleSelectItem}
-            excludeCodes={excludeCodes}
-            catalogItems={catalogItems}
-            autoClearOnSelect={true}
-          />
         </div>
       )}
 
       {/* Items Table */}
       {items.length === 0 ? (
         <div className="py-5 text-center text-xs text-muted-foreground rounded-lg border border-dashed border-border/80 bg-muted/20">
-          <span>No items added in this section yet. Search above to add.</span>
+          <span>
+            {section === "PRESCRIBED_MED"
+              ? "No prescribed medicines added yet. Type a medicine name above and press Add."
+              : "No items added in this section yet. Search above to add."}
+          </span>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border/70">
@@ -262,7 +300,7 @@ export function InventoryItemSection({
                 <th className="px-2 py-2 text-center w-20">Qty</th>
                 <th className="px-2 py-2 text-center w-24">Unit</th>
                 {showDiscount && <th className="px-2 py-2 text-center w-16">Disc %</th>}
-                <th className="px-3 py-2 text-right w-24">Net (₹)</th>
+                {showPrice && <th className="px-3 py-2 text-right w-24">Net (₹)</th>}
                 {!isLocked && <th className="px-2 py-2 w-10"></th>}
               </tr>
             </thead>
@@ -434,9 +472,11 @@ export function InventoryItemSection({
                     )}
 
                     {/* Net Total */}
-                    <td className="px-3 py-2 align-top text-right font-mono font-bold text-foreground">
-                      ₹{lineNet.toFixed(2)}
-                    </td>
+                    {showPrice && (
+                      <td className="px-3 py-2 align-top text-right font-mono font-bold text-foreground">
+                        ₹{lineNet.toFixed(2)}
+                      </td>
+                    )}
 
                     {/* Remove Action */}
                     {!isLocked && (
@@ -457,18 +497,20 @@ export function InventoryItemSection({
             </tbody>
           </table>
 
-          {/* Section Footer Subtotal */}
-          <div className="px-4 py-2 bg-muted/20 border-t border-border flex items-center justify-between text-xs">
-            <span className="text-muted-foreground font-medium">
-              {items.length} item(s) in {title}
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground font-semibold">Subtotal:</span>
-              <span className="font-mono font-extrabold text-foreground">
-                ₹{sectionSubtotal.toFixed(2)}
+          {/* Section Footer Subtotal — hidden when showPrice=false (e.g. Prescribed Medicine) */}
+          {showPrice && (
+            <div className="px-4 py-2 bg-muted/20 border-t border-border flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-medium">
+                {items.length} item(s) in {title}
               </span>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground font-semibold">Subtotal:</span>
+                <span className="font-mono font-extrabold text-foreground">
+                  ₹{sectionSubtotal.toFixed(2)}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </SectionCard>

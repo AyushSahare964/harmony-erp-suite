@@ -13,6 +13,8 @@ import {
   updateItemFn,
   deactivateItemFn,
   toggleItemStatusFn,
+  deleteItemFn,
+  setItemStockFn,
   addStockFn,
   adjustStockFn,
   getBatchesFn,
@@ -321,6 +323,8 @@ interface InventoryContextValue {
   updateMedicine: (itemCode: string, patch: Partial<Medicine>) => Promise<void>;
   deactivateMedicine: (itemCode: string) => Promise<void>;
   toggleStatus: (itemCode: string) => Promise<void>;
+  deleteItem: (itemCode: string) => Promise<void>;
+  setStock: (itemCode: string, newStock: number, actor?: string) => Promise<void>;
 
   addStock: (batchData: {
     itemCode: string;
@@ -577,6 +581,36 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     [medicines, refetchItems]
   );
 
+  const deleteItem = useCallback(
+    async (itemCode: string) => {
+      const prevMedicines = medicines;
+      setMedicines((prev) => prev.filter((m) => m.itemCode !== itemCode));
+      try {
+        await deleteItemFn({ data: { itemCode } });
+      } catch (err) {
+        setMedicines(prevMedicines);
+        throw err;
+      }
+    },
+    [medicines]
+  );
+
+  const setStock = useCallback(
+    async (itemCode: string, newStock: number, actor?: string) => {
+      const prevMedicines = medicines;
+      setMedicines((prev) =>
+        prev.map((m) => (m.itemCode === itemCode ? { ...m, currentStock: newStock } : m))
+      );
+      try {
+        await setItemStockFn({ data: { itemCode, newStock, actor } });
+      } catch (err) {
+        setMedicines(prevMedicines);
+        throw err;
+      }
+    },
+    [medicines]
+  );
+
   // ── CRUD — Stock ─────────────────────────────────────────────────────────
   const addStock = useCallback(
     async (batchData: Parameters<InventoryContextValue["addStock"]>[0]) => {
@@ -776,6 +810,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
       updateMedicine,
       deactivateMedicine,
       toggleStatus,
+      deleteItem,
+      setStock,
       addStock,
       adjustStock,
       removeStock,
@@ -789,7 +825,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     }),
     [
       medicines, medicinesList, foodList, accessoriesList, batches, ledger, loadingItems,
-      addMedicine, updateMedicine, deactivateMedicine, toggleStatus,
+      addMedicine, updateMedicine, deactivateMedicine, toggleStatus, deleteItem, setStock,
       addStock, adjustStock, removeStock, recordSale,
       getTotalQty, getBatchesForItem, getStockStatus, getExpiryStatus,
       refetchItems, refetchBatches,
@@ -814,6 +850,8 @@ export function useInventory(): InventoryContextValue {
       updateMedicine: async () => {},
       deactivateMedicine: async () => {},
       toggleStatus: async () => {},
+      deleteItem: async () => {},
+      setStock: async () => {},
       addStock: async () => {},
       adjustStock: async (data: any) => ({ newQty: 0, referenceNo: "" }),
       removeStock: () => {},

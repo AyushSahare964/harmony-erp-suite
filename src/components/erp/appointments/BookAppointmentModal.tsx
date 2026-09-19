@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { listPetsWithOwnersFn, createOwnerWithMultiplePetsFn, updatePetFn } from "@/lib/mongodb/serverFns/crm";
 import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { createAppointmentFn, updateAppointmentFn } from "@/lib/mongodb/serverFns/appointments";
 import { cn } from "@/lib/utils";
@@ -49,6 +49,21 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
   const [priority, setPriority] = useState<"Normal" | "High" | "Emergency">("Normal");
   const [complaint, setComplaint] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Quick-add: when the typed patient name matches no existing record
+  const [newPetSpecies, setNewPetSpecies] = useState<"Canine" | "Feline" | "Avian" | "Rabbit" | "Exotic" | "Other">("Canine");
+  const [newPetBreed, setNewPetBreed] = useState("");
+  const [newOwnerName, setNewOwnerName] = useState("");
+  const [newOwnerPhone, setNewOwnerPhone] = useState("");
+  const [newPetAllergies, setNewPetAllergies] = useState("");
+  const [creatingPatient, setCreatingPatient] = useState(false);
+
+  // Known allergies for the currently selected patient (editable — saved back to the Pet record)
+  const [allergiesInput, setAllergiesInput] = useState("");
+
+  useEffect(() => {
+    setAllergiesInput((selectedPet?.allergies || []).join(", "));
+  }, [selectedPet?.petId]);
 
   useEffect(() => {
     if (open) {
@@ -142,6 +157,50 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
     );
   }).slice(0, 6);
 
+  const handleCreateNewPatient = async () => {
+    const petName = searchPetQuery.trim();
+    if (!petName) {
+      toast.error("Type the new patient's name in the search box above first");
+      return;
+    }
+    if (!newPetBreed.trim()) {
+      toast.error("Breed is required for a new patient");
+      return;
+    }
+    if (!newOwnerName.trim() || newOwnerPhone.trim().length < 8) {
+      toast.error("Owner name and a valid phone number are required");
+      return;
+    }
+
+    setCreatingPatient(true);
+    try {
+      const allergies = newPetAllergies
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean);
+      const result = await createOwnerWithMultiplePetsFn({
+        data: {
+          owner: { name: newOwnerName.trim(), phone: newOwnerPhone.trim() },
+          pets: [{ name: petName, species: newPetSpecies, breed: newPetBreed.trim(), allergies }],
+        },
+      });
+      const newPet = { ...result.pets[0], owner: result.owner };
+      setPets((prev) => [newPet, ...prev]);
+      setSelectedPet(newPet);
+      setSearchPetQuery("");
+      setNewPetBreed("");
+      setNewOwnerName("");
+      setNewOwnerPhone("");
+      setNewPetAllergies("");
+      toast.success(`New patient ${newPet.name} (${newPet.petId}) added and selected`);
+    } catch (e) {
+      console.error("[BookAppointmentModal] Could not create new patient:", e);
+      toast.error("Could not save new patient — please check the details and try again");
+    } finally {
+      setCreatingPatient(false);
+    }
+  };
+
   const handleBook = async () => {
     if (!selectedPet) {
       toast.error("Please select a patient");
@@ -149,6 +208,12 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
     }
 
     setSubmitting(true);
+    const parsedAllergies = allergiesInput.split(",").map((a) => a.trim()).filter(Boolean);
+    const existingAllergies: string[] = selectedPet.allergies || [];
+    const allergiesChanged =
+      parsedAllergies.length !== existingAllergies.length ||
+      parsedAllergies.some((a: string, i: number) => a !== existingAllergies[i]);
+
     const appointmentPayload = {
       ...(appointmentToEdit || {}),
       token: appointmentToEdit?.token ?? token,
@@ -174,9 +239,18 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
         tempC: 38.5,
         complaint: complaint.trim(),
       },
+      allergies: parsedAllergies,
     };
 
     try {
+      // Persist allergy edits back onto the patient record so the doctor's
+      // prescription screen picks them up (it reads Pet.allergies via getPetFn)
+      if (allergiesChanged && selectedPet.petId) {
+        await updatePetFn({ data: { petId: selectedPet.petId, updates: { allergies: parsedAllergies } } }).catch((err) =>
+          console.warn("[BookAppointmentModal] Could not save allergy update:", err)
+        );
+      }
+
       if (appointmentToEdit) {
         await updateAppointmentFn({ data: appointmentPayload });
         toast.success(`Appointment ${token} updated successfully`);
@@ -233,11 +307,18 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
               <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
                 <Dog className="size-4 text-primary" /> Select Patient &amp; Owner
               </Label>
-              {selectedPet && (
-                <Badge variant="outline" className="font-mono text-xs text-primary bg-primary/10 border-primary/30">
-                  {selectedPet.petId} · {selectedPet.name} ({selectedPet.owner?.name})
-                </Badge>
-              )}
+              <div className="flex items-center gap-1.5">
+                {selectedPet && (
+                  <Badge variant="outline" className="font-mono text-xs text-primary bg-primary/10 border-primary/30">
+                    {selectedPet.petId} · {selectedPet.name} ({selectedPet.owner?.name})
+                  </Badge>
+                )}
+                {selectedPet && allergiesInput.trim() && (
+                  <Badge variant="destructive" className="text-[10px] font-bold gap-1">
+                    <AlertTriangle className="size-3" /> Allergy
+                  </Badge>
+                )}
+              </div>
             </div>
 
             <div className="relative">
@@ -280,7 +361,108 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
                 );
               })}
             </div>
+
+            {searchPetQuery.trim() && filteredPets.length === 0 && (
+              <div className="p-3 rounded-xl border border-dashed border-primary/40 bg-primary/5 space-y-2.5">
+                <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Plus className="size-3.5 text-primary" /> No match for &ldquo;{searchPetQuery.trim()}&rdquo; — add as a new patient
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Species</Label>
+                    <Select value={newPetSpecies} onValueChange={(v) => setNewPetSpecies(v as any)}>
+                      <SelectTrigger className="h-8 text-xs bg-card">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Canine">Canine</SelectItem>
+                        <SelectItem value="Feline">Feline</SelectItem>
+                        <SelectItem value="Avian">Avian</SelectItem>
+                        <SelectItem value="Rabbit">Rabbit</SelectItem>
+                        <SelectItem value="Exotic">Exotic</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Breed</Label>
+                    <Input
+                      value={newPetBreed}
+                      onChange={(e) => setNewPetBreed(e.target.value)}
+                      placeholder="e.g. Labrador"
+                      className="h-8 text-xs bg-card"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Owner Name</Label>
+                    <Input
+                      value={newOwnerName}
+                      onChange={(e) => setNewOwnerName(e.target.value)}
+                      placeholder="Owner's full name"
+                      className="h-8 text-xs bg-card"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Owner Phone</Label>
+                    <Input
+                      value={newOwnerPhone}
+                      onChange={(e) => setNewOwnerPhone(e.target.value)}
+                      placeholder="+91 ..."
+                      className="h-8 text-xs bg-card"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Known Allergies (optional, comma separated)</Label>
+                    <Input
+                      value={newPetAllergies}
+                      onChange={(e) => setNewPetAllergies(e.target.value)}
+                      placeholder="e.g. Penicillin, Chicken protein"
+                      className="h-8 text-xs bg-card"
+                    />
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleCreateNewPatient}
+                  disabled={creatingPatient}
+                  className="h-8 text-xs font-bold gap-1.5"
+                >
+                  <CheckCircle2 className="size-3.5" /> {creatingPatient ? "Saving..." : "Save New Patient"}
+                </Button>
+              </div>
+            )}
           </div>
+
+          {/* Known Allergies (for the selected patient — highlighted bold for the doctor if present) */}
+          {selectedPet && (
+            <div
+              className={cn(
+                "p-3 rounded-xl border space-y-1.5",
+                allergiesInput.trim() ? "border-destructive/50 bg-destructive/5" : "border-border bg-muted/20"
+              )}
+            >
+              <Label
+                className={cn(
+                  "text-xs font-bold flex items-center gap-1.5",
+                  allergiesInput.trim() ? "text-destructive" : "text-foreground"
+                )}
+              >
+                <AlertTriangle className="size-3.5" /> Known Allergies
+              </Label>
+              <Input
+                value={allergiesInput}
+                onChange={(e) => setAllergiesInput(e.target.value)}
+                placeholder="No known allergies — type to add (comma separated)"
+                className={cn("text-xs h-9 bg-card", allergiesInput.trim() && "font-bold border-destructive/40")}
+              />
+              {allergiesInput.trim() && (
+                <p className="text-[10px] font-semibold text-destructive">
+                  ⚠ Will show as a bold allergy alert on the doctor's prescription screen.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Appointment Timing, Category & Token Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 p-3.5 rounded-xl border border-border bg-muted/20">

@@ -27,11 +27,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useErp } from "@/lib/erp/store";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
 import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn, savePrescriptionFn, getVisitByIdFn } from "@/lib/mongodb/serverFns/clinical";
+import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { PrescriptionWorkflow } from "./prescription/PrescriptionWorkflow";
 import { SectionJumpBar, DEFAULT_RX_JUMP_SECTIONS, type SectionJumpItem } from "./prescription/SectionJumpBar";
 import type { IPrescriptionData } from "@/lib/mongodb/models/ClinicalVisit";
@@ -65,30 +67,14 @@ interface BillLine {
   discountValue?: number | undefined;      // raw user input
   discountAmount?: number | undefined;    // computed
   gstRate: number;
+  /** Per-line GST toggle; falls back to the bill-wide Bill Type when unset. */
+  gstApplicable?: boolean | undefined;
   sourceType?: "RX_ITEM" | "RX_CONSULT" | "RX_LAB" | null | undefined;
   sourceId?: string | null | undefined;
   rxSection?: string | null | undefined;
 }
 
-const FALLBACK_CATALOG = [
-  { itemCode: "M-0001", name: "Amoxicillin 250mg", defaultSalePrice: 24, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
-  { itemCode: "M-0002", name: "Rabies Vaccine 1ml", defaultSalePrice: 480, gstRate: 5, lineType: "Vaccine", category: "Medicine" },
-  { itemCode: "M-0003", name: "IV Fluid RL 500ml", defaultSalePrice: 65, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
-  { itemCode: "M-0004", name: "Dexamethasone 4mg", defaultSalePrice: 95, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
-  { itemCode: "M-0005", name: "Royal Canin Maxi 4kg", brand: "Royal Canin", defaultSalePrice: 1850, gstRate: 18, lineType: "Pharmacy", category: "Animal Food", unit: "Box" },
-  { itemCode: "M-0006", name: "Tick & Flea Collar (L)", brand: "PawShield", defaultSalePrice: 320, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Collars & Leashes", unit: "Piece" },
-  { itemCode: "M-0007", name: "Meloxicam Injection 10ml", defaultSalePrice: 150, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
-  { itemCode: "M-0008", name: "Cefpet Dry Syrup 30ml", defaultSalePrice: 220, gstRate: 12, lineType: "Pharmacy", category: "Medicine" },
-  { itemCode: "M-0010", name: "Grooming Shampoo 500ml", defaultSalePrice: 390, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Grooming", unit: "Bottle" },
-  { itemCode: "M-0011", name: "Ergonomic Padded Dog Harness (L)", brand: "PawShield", defaultSalePrice: 1250, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Collars & Leashes", unit: "Piece" },
-  { itemCode: "M-0012", name: "Nylon Training Leash 6ft (Reflective)", brand: "PawShield", defaultSalePrice: 450, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Collars & Leashes", unit: "Piece" },
-  { itemCode: "M-0013", name: "Hooded Feline Litter Box (Anti-Odour)", brand: "PurrClean", defaultSalePrice: 1850, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Housing/Cages", unit: "Unit" },
-  { itemCode: "M-0014", name: "Orthopedic Memory Foam Pet Bed (XL)", brand: "ComfyPaws", defaultSalePrice: 3200, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Other", unit: "Piece" },
-  { itemCode: "M-0015", name: "Stainless Steel Anti-Skid Feeding Bowl", brand: "DinePaws", defaultSalePrice: 650, gstRate: 18, lineType: "Pharmacy", category: "Animal Accessories", subGroup: "Other", unit: "Unit" },
-  { itemCode: "M-0016", name: "Pedigree Adult Chicken & Vegetables 3kg", brand: "Pedigree", defaultSalePrice: 750, gstRate: 18, lineType: "Pharmacy", category: "Animal Food", unit: "Bag" },
-  { itemCode: "M-0017", name: "Farmina N&D Grain-Free Pumpkin Puppy 2.5kg", brand: "Farmina", defaultSalePrice: 2400, gstRate: 18, lineType: "Pharmacy", category: "Animal Food", unit: "Bag" },
-  { itemCode: "M-0018", name: "Whiskas Ocean Fish Adult Cat Food 1.2kg", brand: "Whiskas", defaultSalePrice: 480, gstRate: 18, lineType: "Pharmacy", category: "Animal Food", unit: "Bag" },
-];
+// FALLBACK_CATALOG removed — real inventory is always used. Empty inventory shows "no items found" correctly.
 
 export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: VisitWorkspaceProps) {
   const { currentUser, role } = useErp();
@@ -103,7 +89,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
   const activeDoctorName = activeVisit?.doctorName || visit?.doctorName || currentUser?.fullName || role?.person || "Dr. Rohit Sharma";
 
-  const [catalogItems, setCatalogItems] = useState<any[]>(FALLBACK_CATALOG);
+  // Doctor specialty/title lookup — keeps the printed Rx/invoice letterhead accurate per treating doctor
+  const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
+  useEffect(() => {
+    listApprovedDoctorsFn()
+      .then((docs) => setDoctorsList(docs || []))
+      .catch((e) => console.warn("Could not load doctors list:", e));
+  }, []);
+  const getDoctorTitle = (doctorName: string | undefined) =>
+    doctorsList.find((d) => d.name === doctorName)?.specialty || "Chief Veterinary Physician & Surgeon";
+
+  const [catalogItems, setCatalogItems] = useState<any[]>([]);
   const [petDetails, setPetDetails] = useState<any>(null);
 
   const [tab, setTab] = useState<"consultation" | "billing" | "completed">("consultation");
@@ -243,6 +239,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             discountAmount: l.discountAmount,
             taxableAmount: l.taxableAmount,
             gstRate: Number(l.gstRate) || 0,
+            gstApplicable: l.gstApplicable,
             lineTotal: l.lineTotal,
             sourceType: l.sourceType,
             sourceId: l.sourceId,
@@ -267,9 +264,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const loadCatalog = async () => {
     try {
       const items = await getItemsFn();
-      if (items && items.length > 0) {
-        setCatalogItems(items);
-      }
+      // Always replace — even an empty inventory should show no results (not fake fallback items)
+      setCatalogItems(items ?? []);
     } catch (e) {
       console.warn("Could not load catalog items:", e);
     }
@@ -352,29 +348,34 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       if (rxData.followUp?.nextTreatmentDate) setNextVisitDate(rxData.followUp.nextTreatmentDate);
       if (rxData.followUp?.nextDewormingDate) setNextDewormingDate(rxData.followUp.nextDewormingDate);
 
-      // Keep consultation fees & diagnostic procedures, sync pharmacy, food, accessories
-      const feeLines = lines.filter(
-        (l) => l.lineType === "Consultation" || l.lineType === "Procedure" || l.lineType === "Diagnostic" || l.lineType === "Service"
-      );
-
-      const mergedLines: BillLine[] = [
-        ...feeLines,
-        ...billableLines.map((bl, i) => ({
-          id: bl.id || `bl-${Date.now()}-${i}`,
-          lineType: bl.lineType || "Pharmacy",
-          itemCode: bl.itemCode,
-          batchNo: bl.batchNo,
-          name: bl.name,
-          dosageInstructions: bl.dosageInstructions,
-          quantity: bl.quantity || 1,
-          unitPrice: bl.unitPrice || 0,
-          discountPercent: bl.discountPercent || 0,
-          discountType: bl.discountType || "percentage",
-          discountValue: bl.discountValue ?? bl.discountPercent ?? 0,
-          discountAmount: bl.discountAmount,
-          gstRate: bl.gstRate || 0,
-        })),
-      ];
+      // Each prescription section (Immediate Meds, Injectables, Fee, Food, Accessories, ...) already
+      // syncs its own lines into `lines` via onSyncLines as it's saved — that's the authoritative,
+      // complete bill. `billableLines` here is an optional caller-supplied override; when it's empty
+      // (the normal "Proceed to Billing" case) we must NOT collapse `lines` down to fee-only, or we'd
+      // wipe out every already-saved medicine/food/accessory line from the bill.
+      const mergedLines: BillLine[] =
+        billableLines.length > 0
+          ? [
+              ...lines.filter(
+                (l) => l.lineType === "Consultation" || l.lineType === "Procedure" || l.lineType === "Diagnostic" || l.lineType === "Service"
+              ),
+              ...billableLines.map((bl, i) => ({
+                id: bl.id || `bl-${Date.now()}-${i}`,
+                lineType: bl.lineType || "Pharmacy",
+                itemCode: bl.itemCode,
+                batchNo: bl.batchNo,
+                name: bl.name,
+                dosageInstructions: bl.dosageInstructions,
+                quantity: bl.quantity || 1,
+                unitPrice: bl.unitPrice || 0,
+                discountPercent: bl.discountPercent || 0,
+                discountType: bl.discountType || "percentage",
+                discountValue: bl.discountValue ?? bl.discountPercent ?? 0,
+                discountAmount: bl.discountAmount,
+                gstRate: bl.gstRate || 0,
+              })),
+            ]
+          : lines;
 
       setLines(mergedLines);
 
@@ -422,8 +423,9 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const handleProceedToBilling = async (rxData: IPrescriptionData, billableLines: any[]) => {
     try {
       await handleSavePrescription(rxData, billableLines);
-    } catch (e) {
+    } catch (e: any) {
       console.warn("Auto-save on proceed to billing encountered an issue:", e);
+      toast.error(e?.message || "Some changes could not be saved, but you can still review the bill.");
     }
     setTab("billing");
   };
@@ -869,7 +871,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
           quantity: 1,
           unitPrice: validAmount,
           discountPercent: 0,
-          gstRate: billType === "GST" ? 18 : 0,
+          gstRate: 18,
+          gstApplicable: billType === "GST",
         },
         ...prev,
       ];
@@ -883,8 +886,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   };
 
   // Dynamic Financial Computations — decimal-safe (REQ-DISC-04, moneyUtils)
+  // Each line's own GST toggle wins; the Bill Type dropdown is just the default for lines that haven't been overridden.
   const billSummary = useMemo(() => {
-    const applyGst = billType === "GST";
     const result = calcBillSummary(
       lines.map((l) => ({
         quantity: l.quantity,
@@ -892,8 +895,9 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         discountType: l.discountType || "percentage",
         discountValue: l.discountValue ?? l.discountPercent ?? 0,
         gstRate: l.gstRate,
+        applyGst: l.gstApplicable,
       })),
-      applyGst
+      billType === "GST"
     );
     return {
       subtotal: result.subtotal,
@@ -958,7 +962,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         discountPercent: 0,
         discountType: "percentage",
         discountValue: 0,
-        gstRate: selectedMedicine.gstRate || 5,
+        gstRate: selectedMedicine.gstRate || 18,
+        gstApplicable: billType === "GST",
       };
 
       setLines((prev) => [...prev, newLine]);
@@ -981,7 +986,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         quantity: 1,
         unitPrice: price,
         discountPercent: 0,
-        gstRate: cat === "Pharmacy" || cat === "Vaccine" ? 5 : 18,
+        gstRate: 18,
+        gstApplicable: billType === "GST",
       },
     ]);
     toast.success(`Added ${name}`);
@@ -1031,7 +1037,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
           complaint: effectiveRx?.symptomsText || complaint || activeVisit?.vitals?.complaint || visit?.vitals?.complaint,
         },
         items: lines.map((l) => {
-          const applyGst = billType === "GST";
+          const applyGst = l.gstApplicable ?? (billType === "GST");
           const dType: "percentage" | "fixed" = (l.discountType === "fixed" || l.discountType === "₹") ? "fixed" : "percentage";
           const discVal = l.discountValue ?? l.discountPercent ?? 0;
           const calc = calcLineItem({
@@ -1057,6 +1063,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             discountAmount: calc.discountAmount,
             taxableAmount: calc.taxableAmount,
             gstRate: l.gstRate,
+            gstApplicable: applyGst,
             lineTotal: calc.lineTotal,
             sourceType: l.sourceType || null,
             sourceId: l.sourceId || null,
@@ -1282,7 +1289,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         <th className="px-3 py-2.5 text-center w-20">Qty</th>
                         <th className="px-3 py-2.5 text-right w-28">Price (₹)</th>
                         <th className="px-3 py-2.5 text-center w-20">Disc (%)</th>
-                        {billType === "GST" && <th className="px-3 py-2.5 text-center w-20">GST %</th>}
+                        <th className="px-3 py-2.5 text-center w-32">GST</th>
                         <th className="px-4 py-2.5 text-right w-28">Total (₹)</th>
                         <th className="px-2 py-2.5 w-10"></th>
                       </tr>
@@ -1343,9 +1350,38 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                               className="h-7 w-16 text-center text-xs font-mono mx-auto bg-card"
                             />
                           </td>
-                          {billType === "GST" && <td className="px-3 py-2.5 text-center text-muted-foreground font-mono">{l.gstRate}%</td>}
+                          <td className="px-3 py-2.5 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Switch
+                                checked={l.gstApplicable ?? (billType === "GST")}
+                                onCheckedChange={(v) => updateLine(l.id, "gstApplicable", v)}
+                                className="scale-75 shrink-0"
+                              />
+                              <div className="relative w-14 shrink-0">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={l.gstRate}
+                                  onChange={(e) =>
+                                    updateLine(l.id, "gstRate", Math.min(100, Math.max(0, Number(e.target.value) || 0)))
+                                  }
+                                  title="GST rate — enter manually (commonly 0, 5, 12, 18, 28)"
+                                  className="h-7 w-14 pr-4 text-center text-[10px] font-mono bg-card"
+                                />
+                                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground pointer-events-none">%</span>
+                              </div>
+                            </div>
+                          </td>
                           <td className="px-4 py-2.5 text-right font-bold text-foreground font-mono">
-                            ₹{((l.quantity * l.unitPrice) * (1 - l.discountPercent / 100)).toFixed(2)}
+                            ₹{calcLineItem({
+                              quantity: l.quantity,
+                              unitPrice: l.unitPrice,
+                              discountType: l.discountType || "percentage",
+                              discountValue: l.discountValue ?? l.discountPercent ?? 0,
+                              gstRate: l.gstRate,
+                              applyGst: l.gstApplicable ?? (billType === "GST"),
+                            }).lineTotal.toFixed(2)}
                           </td>
                           <td className="px-2 py-2.5 text-right">
                             <button onClick={() => handleRemoveLine(l.id)} className="text-muted-foreground hover:text-destructive">
@@ -1383,7 +1419,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       <span>Subtotal</span>
                       <span className="font-mono">₹{billSummary.subtotal.toFixed(2)}</span>
                     </div>
-                    {billType === "GST" && (
+                    {billSummary.gstAmount > 0 && (
                       <div className="flex justify-between text-muted-foreground">
                         <span>GST (CGST + SGST)</span>
                         <span className="font-mono">+₹{billSummary.gstAmount.toFixed(2)}</span>
@@ -1704,14 +1740,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   >
                     {/* Clinic Header */}
                     <div className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between">
-                      <div>
-                        <h2 className="text-base font-black tracking-tight text-blue-900 uppercase">VETCARE SPECIALTY PET HOSPITAL</h2>
-                        <p className="text-[11px] text-slate-600 mt-0.5">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
-                        <p className="text-[11px] text-slate-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
+                      <div className="flex items-start gap-2.5">
+                        <img src="/clinic-logo.png" alt="Clinic Logo" style={{ height: 32, width: "auto" }} />
+                        <div>
+                          <h2 className="text-base font-black tracking-tight text-blue-900 uppercase">Real Care Small Animal Clinic</h2>
+                          <p className="text-[11px] text-slate-600 mt-0.5">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
+                          <p className="text-[11px] text-slate-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
+                        </div>
                       </div>
                       <div className="text-right text-[11px] space-y-0.5">
                         <p className="font-bold text-xs text-blue-900">{finalizedVisit.doctorName || activeDoctorName}</p>
-                        <p className="text-slate-500 text-[10px]">Chief Veterinary Physician &amp; Surgeon</p>
+                        <p className="text-slate-500 text-[10px]">{getDoctorTitle(finalizedVisit.doctorName || activeDoctorName)}</p>
                         <p className="text-slate-500 font-mono text-[10px]">Date: {formatDisplayDate(finalizedVisit.date) || finalizedVisit.date || new Date().toISOString().slice(0, 10)}</p>
                       </div>
                     </div>
@@ -1985,14 +2024,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   >
                     {/* Header */}
                     <div className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between">
-                      <div>
-                        <h2 className="text-base font-black tracking-tight text-slate-900 uppercase">VETCARE SPECIALTY PET HOSPITAL</h2>
-                        <p className="text-[11px] text-slate-600">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
-                        <p className="text-[11px] text-slate-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
-                        {finalizedVisit.billType === "GST" && (
-                          <p className="text-[11px] font-mono font-bold text-slate-800">GSTIN: 27AABCV1234F1Z5</p>
-                        )}
-                        <p className="text-[11px] text-slate-600">Branch: {finalizedVisit.branch || "Central Avenue, Nagpur"}</p>
+                      <div className="flex items-start gap-2.5">
+                        <img src="/clinic-logo.png" alt="Clinic Logo" style={{ height: 32, width: "auto" }} />
+                        <div>
+                          <h2 className="text-base font-black tracking-tight text-slate-900 uppercase">Real Care Small Animal Clinic</h2>
+                          <p className="text-[11px] text-slate-600">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
+                          <p className="text-[11px] text-slate-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
+                          {finalizedVisit.billType === "GST" && (
+                            <p className="text-[11px] font-mono font-bold text-slate-800">GSTIN: 27AABCV1234F1Z5</p>
+                          )}
+                          <p className="text-[11px] text-slate-600">Branch: {finalizedVisit.branch || "Central Avenue, Nagpur"}</p>
+                        </div>
                       </div>
                       <div className="text-right text-[11px] space-y-1">
                         <span className="inline-block bg-slate-900 text-white font-bold px-2 py-0.5 rounded text-[9px] uppercase tracking-wider">
@@ -2062,11 +2104,26 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         <p className="font-bold text-slate-700 uppercase text-[9px]">Payment Summary</p>
                         <div className="flex justify-between text-slate-800">
                           <span>Paid via {finalizedVisit.paymentMode || "UPI"}:</span>
-                          <span className="font-bold font-mono">₹{(finalizedVisit.totalAmount || 0).toFixed(2)}</span>
+                          <span className="font-bold font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between text-emerald-700 font-bold pt-1 border-t border-slate-200">
+                        {finalizedVisit.paymentStatus === "Partial" && (finalizedVisit.pendingAmount || 0) > 0 && (
+                          <div className="flex justify-between text-amber-700 font-semibold">
+                            <span>Balance Due:</span>
+                            <span className="font-mono">₹{finalizedVisit.pendingAmount.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div
+                          className={cn(
+                            "flex justify-between font-bold pt-1 border-t border-slate-200",
+                            finalizedVisit.paymentStatus === "Partial" ? "text-amber-700" : "text-emerald-700"
+                          )}
+                        >
                           <span>Payment Status:</span>
-                          <span>PAID IN FULL ✓</span>
+                          <span>
+                            {finalizedVisit.paymentStatus === "Partial"
+                              ? `PARTIAL PAYMENT ⚠`
+                              : "PAID IN FULL ✓"}
+                          </span>
                         </div>
                       </div>
 
@@ -2094,7 +2151,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         </div>
                         <div className="flex justify-between text-[10px] font-semibold text-slate-600">
                           <span>Amount Received:</span>
-                          <span className="font-mono">₹{(finalizedVisit.totalAmount || 0).toLocaleString("en-IN")}</span>
+                          <span className="font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toLocaleString("en-IN")}</span>
                         </div>
                       </div>
                     </div>

@@ -26,6 +26,8 @@ export interface FollowUpEntry {
   dueDate: string; // YYYY-MM-DD
   quickOption?: string;
   notes?: string;
+  /** Token of the appointment created on the Appointments board for this follow-up. Prevents duplicate bookings on re-save. */
+  appointmentToken?: string;
 }
 
 export interface FollowUpBloodTestItem {

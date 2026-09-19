@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Printer, Download, Stethoscope, Pill, Syringe, Utensils, AlertCircle, Sparkles, Calendar, CheckSquare } from "lucide-react";
 import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 
 interface Props {
   visit: any;
@@ -12,6 +13,16 @@ interface Props {
 }
 
 export function PrescriptionPrintView({ visit, open, onClose }: Props) {
+  // Doctor specialty/title lookup — keeps the letterhead accurate for whichever doctor treated this visit
+  const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
+  useEffect(() => {
+    listApprovedDoctorsFn()
+      .then((docs) => setDoctorsList(docs || []))
+      .catch((e) => console.warn("Could not load doctors list:", e));
+  }, []);
+  const getDoctorTitle = (doctorName: string | undefined) =>
+    doctorsList.find((d) => d.name === doctorName)?.specialty || "Chief Veterinary Physician & Surgeon";
+
   const handlePrint = () => {
     printOrSaveDocumentAsPdf("prescription-printable-area", `Prescription_${visit?.prescriptionNo || "Rx"}`);
   };
@@ -74,22 +85,25 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
           
           {/* Clinic Letterhead */}
           <div className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between">
-            <div>
-              <h1 className="text-xl font-black tracking-tight text-blue-900 uppercase">
-                VETCARE SPECIALTY PET HOSPITAL
-              </h1>
-              <p className="text-[11px] text-slate-600 mt-0.5">
-                Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009
-              </p>
-              <p className="text-[11px] text-slate-600">
-                Phone: +91 712 2548899 · Email: care@vetcarehospital.com · Reg No: MH/VET/2019/8821
-              </p>
+            <div className="flex items-start gap-2.5">
+              <img src="/clinic-logo.png" alt="Clinic Logo" style={{ height: 36, width: "auto" }} />
+              <div>
+                <h1 className="text-xl font-black tracking-tight text-blue-900 uppercase">
+                  Real Care Small Animal Clinic
+                </h1>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009
+                </p>
+                <p className="text-[11px] text-slate-600">
+                  Phone: +91 712 2548899 · Email: care@vetcarehospital.com · Reg No: MH/VET/2019/8821
+                </p>
+              </div>
             </div>
             <div className="text-right text-[11px] space-y-0.5">
               <p className="font-bold text-sm text-blue-900">
                 {visit?.doctorName || "Dr. Rohit Sharma, B.V.Sc & A.H."}
               </p>
-              <p className="text-slate-500 text-[10px]">Chief Veterinary Physician &amp; Surgeon</p>
+              <p className="text-slate-500 text-[10px]">{getDoctorTitle(visit?.doctorName)}</p>
               <p className="text-slate-500 font-mono text-[10px]">
                 Date: {formatDisplayDate(visit?.date) || visit?.date || new Date().toISOString().slice(0, 10)}
               </p>

@@ -5,6 +5,7 @@ import { ClinicalVisit, type IClinicalVisit } from "@/lib/mongodb/models/Clinica
 import { Owner } from "@/lib/mongodb/models/Owner";
 import { Pet } from "@/lib/mongodb/models/Pet";
 import { StockBatch } from "@/lib/mongodb/models/StockBatch";
+import { InventoryItem } from "@/lib/mongodb/models/InventoryItem";
 import { FinanceTransaction } from "@/lib/mongodb/models/FinanceTransaction";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { FoodPurchase } from "@/lib/mongodb/models/FoodPurchase";
@@ -75,6 +76,7 @@ const PrescriptionLineZ = z.object({
   discountAmount: z.number().min(0).optional(),
   taxableAmount: z.number().min(0).optional(),
   gstRate: z.number().min(0).max(100).default(0),
+  gstApplicable: z.boolean().optional(),
   lineTotal: z.number().min(0),
 });
 
@@ -445,6 +447,35 @@ export const savePrescriptionFn = createServerFn({ method: "POST" })
 
 // ─── Section Save & Sync Machinery (§5.1, §5.2, §5.3) ─────────────────────────
 
+// Auto-sync InventoryItem.currentStock when a doctor's prescription changes a stock-backed
+// section (Immediate Meds, Injectables, Animal Food, Prescribed Diet, Accessories — NOT
+// Prescribed (take-home) Medicine, which is never dispensed from clinic stock). Diffs old vs
+// new quantity per itemCode so re-saving unchanged items is a no-op, and removing/reducing an
+// item restores stock instead of only ever depleting it.
+async function applyInventoryStockDelta(
+  oldItems: Array<{ itemCode?: string | undefined; quantity?: number | undefined }>,
+  newItems: Array<{ itemCode?: string | undefined; quantity?: number | undefined }>
+) {
+  const oldMap = new Map<string, number>();
+  for (const it of oldItems || []) {
+    if (it.itemCode) oldMap.set(it.itemCode, (oldMap.get(it.itemCode) || 0) + (Number(it.quantity) || 0));
+  }
+  const newMap = new Map<string, number>();
+  for (const it of newItems || []) {
+    if (it.itemCode) newMap.set(it.itemCode, (newMap.get(it.itemCode) || 0) + (Number(it.quantity) || 0));
+  }
+  const allCodes = new Set([...oldMap.keys(), ...newMap.keys()]);
+  for (const code of allCodes) {
+    const delta = (newMap.get(code) || 0) - (oldMap.get(code) || 0);
+    if (delta !== 0) {
+      await InventoryItem.findOneAndUpdate(
+        { itemCode: code },
+        { $inc: { currentStock: -delta } }
+      ).catch((err) => console.warn(`[Inventory] Could not auto-adjust stock for ${code}:`, err));
+    }
+  }
+}
+
 const SectionSaveInputZ = z.object({
   visitId: z.string().min(1),
   section: z.enum([
@@ -463,6 +494,16 @@ const SectionSaveInputZ = z.object({
   ]),
   payload: z.any(),
   version: z.number().optional(),
+  // Identity fields, forwarded by the caller so a visit created here (because the
+  // visitId hadn't been persisted yet) carries the real patient/owner, not a placeholder.
+  petId: z.string().optional(),
+  petName: z.string().optional(),
+  species: z.string().optional(),
+  breed: z.string().optional(),
+  ownerId: z.string().optional(),
+  ownerName: z.string().optional(),
+  ownerPhone: z.string().optional(),
+  doctorName: z.string().optional(),
 });
 
 export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
@@ -481,14 +522,14 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
         date: new Date().toISOString().slice(0, 10),
         branch: "Main Clinic",
         billType: "GST",
-        petId: "PET-0001",
-        petName: "Patient",
-        species: "Canine",
-        breed: "Standard",
-        ownerId: "OWN-0001",
-        ownerName: "Client",
-        ownerPhone: "N/A",
-        doctorName: "Dr. Rohit Sharma",
+        petId: data.petId || "PET-0001",
+        petName: data.petName || "Patient",
+        species: data.species || "Canine",
+        breed: data.breed || "Standard",
+        ownerId: data.ownerId || "OWN-0001",
+        ownerName: data.ownerName || "Client",
+        ownerPhone: data.ownerPhone || "N/A",
+        doctorName: data.doctorName || "Dr. Rohit Sharma",
         receptionistName: "Front Desk",
         status: "In Consultation",
         items: [],
@@ -612,6 +653,19 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
           ? data.payload.items
           : [];
 
+        // Snapshot pre-existing quantities for stock-backed sections, before they're overwritten
+        // below — used to auto-sync InventoryItem.currentStock by the delta. PRESCRIBED_MED is
+        // deliberately excluded: it's take-home advice, never dispensed from clinic stock.
+        const STOCK_AFFECTING_SECTIONS: Record<string, any[] | undefined> = {
+          IMMEDIATE_MED: visit.prescriptionData.immediateMedicines,
+          INJECTABLE: visit.prescriptionData.injectables,
+          ANIMAL_FOOD: visit.prescriptionData.animalFood,
+          PRESCRIBED_FOOD: visit.prescriptionData.prescribedFood,
+          ACCESSORY: visit.prescriptionData.accessories,
+        };
+        const oldItemsForStock =
+          data.section in STOCK_AFFECTING_SECTIONS ? STOCK_AFFECTING_SECTIONS[data.section] || [] : null;
+
         // Save into prescriptionData structured slot
         if (data.section === "IMMEDIATE_MED") {
           visit.prescriptionData.immediateMedicines = items.map((it: any) => ({
@@ -636,7 +690,7 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
             duration: it.duration || "5",
             route: it.route || "Oral",
             instructions: it.instructions || it.dosageInstructions || "",
-            unitPrice: Number(it.unitPrice) || 0,
+            unitPrice: 0, // prescribed (take-home) — clinic never charges for this
           }));
         } else if (data.section === "INJECTABLE") {
           visit.prescriptionData.injectables = items.map((it: any) => ({
@@ -667,6 +721,7 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
           visit.prescriptionData.prescribedFood = items.map((it: any) => ({
             id: it.id,
             name: it.name,
+            itemCode: it.itemCode,
             quantity: Number(it.quantity) || 1,
             unit: it.unit || "Kg",
             frequency: "Daily",
@@ -683,6 +738,11 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
           }));
         }
 
+        // 3b. Auto-sync inventory stock for real, stock-backed dispensing sections
+        if (oldItemsForStock !== null) {
+          await applyInventoryStockDelta(oldItemsForStock, items);
+        }
+
         // 4. Billing Sync: Replace-set for this section's lines (§1.3, §5.3) - only if bill is not settled
         if (!isSettled) {
           visit.items = (visit.items || []).filter(
@@ -692,7 +752,8 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
 
           for (const it of items) {
             const qty = Number(it.quantity) || 1;
-            const price = Number(it.unitPrice) || 0;
+            // Prescribed (take-home) medicine is never billed by the clinic, even if legacy data carries a price
+            const price = data.section === "PRESCRIBED_MED" ? 0 : Number(it.unitPrice) || 0;
             const disc = Number(it.discountPercent) || 0;
             const defaultGst =
               data.section === "ANIMAL_FOOD" ||
@@ -972,6 +1033,7 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
           discountType: l.discountType || "percentage",
           discountValue: l.discountValue ?? l.discountPercent ?? 0,
           gstRate: l.gstRate || 0,
+          applyGst: l.gstApplicable,
         })),
         visit.billType === "GST"
       );

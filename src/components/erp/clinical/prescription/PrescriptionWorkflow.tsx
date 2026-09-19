@@ -42,6 +42,7 @@ import { LaboratoryOrderSection, type LaboratoryState } from "./LaboratoryOrderS
 import { LivePrescriptionSummaryPanel } from "./LivePrescriptionSummaryPanel";
 
 import { savePrescriptionSectionFn } from "@/lib/mongodb/serverFns/clinical";
+import { createAppointmentFn, updateAppointmentFn } from "@/lib/mongodb/serverFns/appointments";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
 import type { IPrescriptionData } from "@/lib/mongodb/models/ClinicalVisit";
 
@@ -51,7 +52,7 @@ export interface PrescriptionWorkflowProps {
   petDetails?: any;
   catalogItems?: any[];
   onSavePrescription?: (prescriptionData: IPrescriptionData, billableLines: any[]) => Promise<void>;
-  onProceedToBilling: (prescriptionData: IPrescriptionData, billableLines: any[]) => void;
+  onProceedToBilling: (prescriptionData: IPrescriptionData, billableLines: any[]) => void | Promise<void>;
   onOpenPrint?: () => void;
   doctorName?: string;
   onSyncLines?: (lines: any[]) => void;
@@ -202,9 +203,9 @@ export function PrescriptionWorkflow({
   );
   const [showEarlierHistory, setShowEarlierHistory] = useState<boolean>(false);
 
-  // Section 3: Symptoms (blank default)
+  // Section 3: Symptoms (blank default — never pre-fill from OPD complaint)
   const [symptomsText, setSymptomsText] = useState<string>(
-    initialRx.symptomsText ?? visit?.vitals?.complaint ?? ""
+    initialRx.symptomsText ?? ""
   );
 
   // Section 4: Clinical Findings
@@ -228,9 +229,9 @@ export function PrescriptionWorkflow({
       const hist = rx.previousHistory ?? visit?.clinicalNotes ?? "";
       if (hist) setPreviousHistory(hist);
     }
-    if (rx.symptomsText !== undefined || visit?.vitals?.complaint !== undefined) {
-      const symp = rx.symptomsText ?? visit?.vitals?.complaint ?? "";
-      if (symp) setSymptomsText(symp);
+    if (rx.symptomsText !== undefined) {
+      // Only set if explicitly saved for this prescription — never fall back to OPD complaint
+      if (rx.symptomsText) setSymptomsText(rx.symptomsText);
     }
     if (rx.clinicalFindings && rx.clinicalFindings.length > 0) {
       setClinicalFindings(rx.clinicalFindings);
@@ -470,7 +471,7 @@ export function PrescriptionWorkflow({
   // ── Snapshots for Dirty Detection ─────────────────────────────────────────
   const [lastSaved, setLastSaved] = useState<Record<string, string>>(() => ({
     HISTORY: serializeSectionState("HISTORY", { text: initialRx.previousHistory ?? visit?.clinicalNotes ?? "" }),
-    SYMPTOMS: serializeSectionState("SYMPTOMS", { text: initialRx.symptomsText ?? visit?.vitals?.complaint ?? "" }),
+    SYMPTOMS: serializeSectionState("SYMPTOMS", { text: initialRx.symptomsText ?? "" }),
     FINDINGS: serializeSectionState("FINDINGS", {
       findings: initialRx.clinicalFindings || [],
       other: initialRx.clinicalFindingsOther || "",
@@ -494,6 +495,7 @@ export function PrescriptionWorkflow({
     initialRx.sectionSavedAt || {}
   );
   const [isSavingAll, setIsSavingAll] = useState(false);
+  const [isProceeding, setIsProceeding] = useState(false);
 
   // Dirty calculations
   const isHistoryDirty = useMemo(
@@ -605,6 +607,16 @@ export function PrescriptionWorkflow({
           section: sectionKey as any,
           payload,
           version: versionRef.current,
+          // Real identity, in case this visitId hasn't been persisted yet —
+          // prevents the section-save fallback from creating a placeholder-named visit
+          petId: patientId,
+          petName: patientName,
+          species: petDetails?.species || visit?.species,
+          breed: petDetails?.breed || visit?.breed,
+          ownerId: petDetails?.ownerId || visit?.ownerId,
+          ownerName: petDetails?.ownerName || visit?.ownerName,
+          ownerPhone: petDetails?.ownerPhone || visit?.ownerPhone,
+          doctorName,
         },
       });
 
@@ -673,15 +685,65 @@ export function PrescriptionWorkflow({
       amount: consultationFee,
       preset: consultationFeePreset,
     });
-  const handleSaveFollowUp = () =>
-    executeSaveSection("FOLLOWUP", {
+  const handleSaveFollowUp = async () => {
+    await executeSaveSection("FOLLOWUP", {
       required: followUp.required,
       entries: followUp.entries,
     });
+
+    // Fix 6/7: Auto-book a real appointment for Treatment follow-up
+    const treatEntry = followUp.entries.TREATMENT;
+    if (treatEntry?.enabled && treatEntry?.dueDate) {
+      try {
+        const token = treatEntry.appointmentToken;
+        const appointmentPayload = {
+          pet: patientName,
+          petId: patientId,
+          species: petDetails?.species || visit?.species || "",
+          breed: petDetails?.breed || visit?.breed || "",
+          owner: petDetails?.ownerName || visit?.ownerName || "",
+          phone: petDetails?.ownerPhone || visit?.ownerPhone || "",
+          doctor: doctorName,
+          reason: treatEntry.notes || "Treatment Follow-up",
+          type: "Follow-up",
+          status: "Waiting",
+          appointment_date: treatEntry.dueDate,
+          date: treatEntry.dueDate,
+          slot: "To be assigned",
+          priority: "Routine",
+          sourceVisitId: visit?.visitId,
+        };
+
+        if (!token) {
+          // Create new appointment
+          const generatedToken = `A-${100 + Math.floor(Math.random() * 900)}`;
+          const created = await createAppointmentFn({ data: { ...appointmentPayload, token: generatedToken } });
+          // Store token back on the entry to prevent duplicate on re-save
+          const returnedToken = created?.token ?? generatedToken;
+          setFollowUp((prev) => ({
+            ...prev,
+            entries: {
+              ...prev.entries,
+              TREATMENT: { ...prev.entries.TREATMENT, appointmentToken: String(returnedToken) },
+            },
+          }));
+          toast.success(`Treatment follow-up appointment booked for ${formatDisplayDate(treatEntry.dueDate)}`);
+        } else {
+          // Update existing appointment if date or notes changed
+          await updateAppointmentFn({ data: { ...appointmentPayload, token } });
+          toast.success(`Treatment follow-up appointment updated for ${formatDisplayDate(treatEntry.dueDate)}`);
+        }
+      } catch (err: any) {
+        console.warn("Could not book treatment follow-up appointment:", err);
+        // Non-blocking — prescription save already succeeded above
+      }
+    }
+  };
   const handleSaveLaboratory = () =>
     executeSaveSection("LABORATORY", {
       enabled: laboratory.enabled,
       dueDate: laboratory.dueDate,
+      quickOption: laboratory.quickOption, // Fix 8a: must be included so dirty-check snapshot matches live state
       bloodTests: laboratory.bloodTests,
     });
   const handleSaveAnimalFood = () =>
@@ -719,40 +781,48 @@ export function PrescriptionWorkflow({
 
   // Proceed to Billing & Settlement (§13.3)
   const handleProceed = async () => {
-    if (hasAnyDirtySection && !isSettled) {
-      await handleSaveAllDraft();
+    setIsProceeding(true);
+    try {
+      if (hasAnyDirtySection && !isSettled) {
+        await handleSaveAllDraft();
+      }
+      // Build snapshot and navigate
+      const rxSnapshot: IPrescriptionData = {
+        prescriptionId: visit.prescriptionNo,
+        dateOfVisit: rawDate,
+        weight: displayWeight,
+        bodyTemperature: displayTemp,
+        previousHistory,
+        symptomsText,
+        clinicalFindings,
+        clinicalFindingsOther,
+        immediateMedicines: immediateMedicines as any,
+        prescribedMedicines: prescribedMedicines as any,
+        injectables: injectables as any,
+        consultationFee: consultationFee ?? undefined,
+        consultationFeePreset: consultationFeePreset || undefined,
+        followupRequired: followUp.required ?? undefined,
+        followUpEntries: followUp.entries,
+        followUp: {
+          required: Boolean(followUp.required),
+          nextTreatmentDate: followUp.entries.TREATMENT?.dueDate || undefined,
+          nextVaccineDate: followUp.entries.VACCINE?.dueDate || undefined,
+          nextDewormingDate: followUp.entries.DEWORMING?.dueDate || undefined,
+        },
+        laboratoryRequired: laboratory.enabled,
+        bloodTests: laboratory.bloodTests as any,
+        animalFood: animalFood as any,
+        prescribedFood: prescribedFood as any,
+        accessories: accessories as any,
+        version,
+      };
+      await onProceedToBilling(rxSnapshot, []);
+    } catch (err: any) {
+      console.error("Failed to proceed to billing:", err);
+      toast.error(err?.message || "Could not proceed to billing. Please try again.");
+    } finally {
+      setIsProceeding(false);
     }
-    // Build snapshot and navigate
-    const rxSnapshot: IPrescriptionData = {
-      prescriptionId: visit.prescriptionNo,
-      dateOfVisit: rawDate,
-      weight: displayWeight,
-      bodyTemperature: displayTemp,
-      previousHistory,
-      symptomsText,
-      clinicalFindings,
-      clinicalFindingsOther,
-      immediateMedicines: immediateMedicines as any,
-      prescribedMedicines: prescribedMedicines as any,
-      injectables: injectables as any,
-      consultationFee: consultationFee ?? undefined,
-      consultationFeePreset: consultationFeePreset || undefined,
-      followupRequired: followUp.required ?? undefined,
-      followUpEntries: followUp.entries,
-      followUp: {
-        required: Boolean(followUp.required),
-        nextTreatmentDate: followUp.entries.TREATMENT?.dueDate || undefined,
-        nextVaccineDate: followUp.entries.VACCINE?.dueDate || undefined,
-        nextDewormingDate: followUp.entries.DEWORMING?.dueDate || undefined,
-      },
-      laboratoryRequired: laboratory.enabled,
-      bloodTests: laboratory.bloodTests as any,
-      animalFood: animalFood as any,
-      prescribedFood: prescribedFood as any,
-      accessories: accessories as any,
-      version,
-    };
-    onProceedToBilling(rxSnapshot, []);
   };
 
   // Findings handler
@@ -1084,6 +1154,7 @@ export function PrescriptionWorkflow({
               saveLabel="Save Immediate Meds ✓"
               catalogItems={catalogItems}
               showDosage={true}
+              allowCustomAdd={false}
               isLocked={isSettled}
             />
 
@@ -1104,7 +1175,7 @@ export function PrescriptionWorkflow({
               saveLabel="Save Prescribed Meds ✓"
               catalogItems={catalogItems}
               showDosage={true}
-              showFrequencyDuration={true}
+              showPrice={false}
               isLocked={isSettled}
             />
 
@@ -1126,6 +1197,7 @@ export function PrescriptionWorkflow({
               catalogItems={catalogItems}
               showDosage={true}
               showRoute={true}
+              allowCustomAdd={false}
               isLocked={isSettled}
             />
           </div>
@@ -1246,6 +1318,7 @@ export function PrescriptionWorkflow({
             accessories={accessories}
             hasUnsavedChanges={hasAnyDirtySection}
             isSavingAll={isSavingAll}
+            isProceeding={isProceeding}
             onSaveAllDraft={handleSaveAllDraft}
             onProceedToBilling={handleProceed}
             onClonePrevious={onClonePrevious}

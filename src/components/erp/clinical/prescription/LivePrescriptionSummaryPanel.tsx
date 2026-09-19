@@ -12,6 +12,7 @@ import {
   IndianRupee,
   Clock,
   FileText,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,7 @@ export interface LiveSummaryPanelProps {
   accessories: InventoryItemLine[];
   hasUnsavedChanges: boolean;
   isSavingAll?: boolean | undefined;
+  isProceeding?: boolean | undefined;
   onSaveAllDraft: () => Promise<void>;
   onProceedToBilling: () => void;
   onClonePrevious?: (() => void) | undefined;
@@ -48,6 +50,7 @@ export function LivePrescriptionSummaryPanel({
   accessories,
   hasUnsavedChanges,
   isSavingAll = false,
+  isProceeding = false,
   onSaveAllDraft,
   onProceedToBilling,
   onClonePrevious,
@@ -101,7 +104,7 @@ export function LivePrescriptionSummaryPanel({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-card shadow-sm p-4 space-y-4 sticky top-14",
+        "rounded-xl border border-border bg-card shadow-sm p-4 space-y-4 sticky top-16",
         hasUnsavedChanges && "border-amber-300/80 dark:border-amber-700/60 shadow-xs",
         className
       )}
@@ -156,7 +159,7 @@ export function LivePrescriptionSummaryPanel({
       </div>
 
       {/* Item Group List */}
-      <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1 text-xs">
+      <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1 text-xs">
         {/* 1. Consultation Fee */}
         {consultTotal > 0 && (
           <div className="rounded-lg border border-border/60 bg-muted/20 p-2 space-y-1">
@@ -359,11 +362,21 @@ export function LivePrescriptionSummaryPanel({
 
         <Button
           type="button"
+          disabled={isProceeding}
           onClick={() => onProceedToBilling()}
           className="w-full h-9 text-xs font-bold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs"
         >
-          <span>Proceed to Billing &amp; Settlement</span>
-          <ArrowRight className="size-3.5" />
+          {isProceeding ? (
+            <>
+              <Loader2 className="size-3.5 animate-spin" />
+              <span>Saving & Proceeding...</span>
+            </>
+          ) : (
+            <>
+              <span>Proceed to Billing &amp; Settlement</span>
+              <ArrowRight className="size-3.5" />
+            </>
+          )}
         </Button>
       </div>
     </div>
