@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -10,6 +10,7 @@ import {
   Sparkles,
   CheckCircle2,
   XCircle,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,12 +25,30 @@ interface Props {
   onUpdated: () => void;
 }
 
+const ROLE_OPTIONS: { value: RoleId; label: string }[] = [
+  { value: "doctor", label: "🩺 Doctor / Senior Vet (Clinical OPD & Surgery)" },
+  { value: "admin", label: "🛡️ Clinic Administrator (Full Control)" },
+  { value: "reception", label: "📋 Reception & Front Desk (Admittance & Triage)" },
+  { value: "accounts", label: "💳 Accounts & Billing Manager (Finance & Invoices)" },
+  { value: "platform", label: "⚡ Platform Systems Administrator" },
+];
+
 export function ApproveStaffModal({ open, staff, onClose, onUpdated }: Props) {
   const [loading, setLoading] = useState(false);
-  const [roleId, setRoleId] = useState<RoleId>(staff?.roleId || "doctor");
-  const [department, setDepartment] = useState(staff?.department || "Clinical OPD & Surgery");
+  const [roleId, setRoleId] = useState<RoleId>("doctor");
+  const [department, setDepartment] = useState("Clinical OPD & Surgery");
   const [rejectReason, setRejectReason] = useState("");
   const [showRejectForm, setShowRejectForm] = useState(false);
+
+  // Reset state whenever a new staff record is opened
+  useEffect(() => {
+    if (open && staff) {
+      setRoleId((staff.roleId as RoleId) || "doctor");
+      setDepartment(staff.department || "Clinical OPD & Surgery");
+      setRejectReason("");
+      setShowRejectForm(false);
+    }
+  }, [open, staff?.id]);
 
   if (!open || !staff) return null;
 
@@ -141,20 +160,42 @@ export function ApproveStaffModal({ open, staff, onClose, onUpdated }: Props) {
               <>
                 <div className="space-y-3">
                   <div>
-                    <label className="text-xs font-semibold text-foreground block mb-1">
+                    <label className="text-xs font-semibold text-foreground block mb-2">
                       Assigned ERP Role & Access Scope *
                     </label>
-                    <select
-                      value={roleId}
-                      onChange={(e) => setRoleId(e.target.value as RoleId)}
-                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-xs outline-none focus:border-primary font-medium"
-                    >
-                      <option value="doctor">🩺 Doctor / Senior Vet (Clinical OPD & Surgery)</option>
-                      <option value="admin">🛡️ Clinic Administrator (Full Control)</option>
-                      <option value="reception">📋 Reception & Front Desk (Admittance & Triage)</option>
-                      <option value="accounts">💳 Accounts & Billing Manager (Finance & Invoices)</option>
-                      <option value="platform">⚡ Platform Systems Administrator</option>
-                    </select>
+                    {/* Role options as visual cards — applicant's requested role is highlighted */}
+                    <div className="grid grid-cols-1 gap-2">
+                      {ROLE_OPTIONS.map((opt) => {
+                        const isRequested = opt.value === staff?.roleId;
+                        const isSelected = opt.value === roleId;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setRoleId(opt.value)}
+                            className={[
+                              "flex items-center gap-3 w-full rounded-xl border px-3 py-2.5 text-left text-xs transition-all",
+                              isSelected
+                                ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-500"
+                                : "border-border bg-background hover:bg-muted/50",
+                            ].join(" ")}
+                          >
+                            <span className="flex-1 font-medium text-foreground">{opt.label}</span>
+                            {isRequested && (
+                              <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 text-[10px] font-bold">
+                                <Zap className="size-2.5" /> Requested
+                              </span>
+                            )}
+                            {isSelected && !isRequested && (
+                              <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+                            )}
+                            {isSelected && isRequested && (
+                              <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <div>

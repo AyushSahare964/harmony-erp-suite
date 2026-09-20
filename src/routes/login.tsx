@@ -172,7 +172,14 @@ function AuthPage() {
             JSON.stringify(res.user || {
               fullName: regData.fullName,
               email: regData.email,
-              roleName: regData.roleId === "doctor" ? "Doctor / Senior Vet" : regData.roleId,
+              roleId: regData.roleId,
+              roleName: ({
+                doctor: "Doctor / Senior Vet",
+                admin: "Clinic Administrator",
+                reception: "Reception & Front Desk",
+                accounts: "Accounts & Billing Manager",
+                platform: "Platform Systems Administrator",
+              } as Record<string, string>)[regData.roleId] || regData.roleId,
               department: regData.department,
               licenseNumber: regData.licenseNumber,
               qualification: regData.qualification,

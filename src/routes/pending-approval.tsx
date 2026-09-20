@@ -147,7 +147,15 @@ function PendingApprovalPage() {
             </div>
             <div>
               <span className="text-slate-500 block">Requested Role</span>
-              <span className="font-semibold text-primary mt-0.5 block capitalize">{userInfo?.roleName || "Doctor / Senior Vet"}</span>
+              <span className="font-semibold text-primary mt-0.5 block capitalize">
+                {userInfo?.roleName || {
+                  doctor: "Doctor / Senior Vet",
+                  admin: "Clinic Administrator",
+                  reception: "Reception & Front Desk",
+                  accounts: "Accounts & Billing Manager",
+                  platform: "Platform Systems Administrator",
+                }[(userInfo as any)?.roleId as string] || "Staff Member"}
+              </span>
             </div>
             <div>
               <span className="text-slate-500 block">Department</span>
