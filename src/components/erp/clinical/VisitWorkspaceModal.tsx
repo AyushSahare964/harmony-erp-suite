@@ -470,7 +470,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       });
 
       if (updated) {
-        onVisitFinalized?.(updated);
+        setActiveVisit(updated);
       }
     } catch (e: any) {
       console.error("Save prescription error:", e);
@@ -1344,7 +1344,6 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                 }
                 if (updated.clinicalNotes) setClinicalNotes(updated.clinicalNotes);
                 if (updated.diagnosis) setDiagnosis(updated.diagnosis);
-                onVisitFinalized?.(updated);
               }}
               onSyncLines={(newLines) => {
                 setLines(newLines.map((l: any, idx: number) => ({

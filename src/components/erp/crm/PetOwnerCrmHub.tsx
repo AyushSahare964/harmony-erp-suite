@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bar,
@@ -93,6 +93,7 @@ export function PetOwnerCrmHub() {
 
   // Patient profile drawer / modal
   const [selectedPetDetail, setSelectedPetDetail] = useState<any | null>(null);
+  const initialDeepLinkHandled = useRef(false);
 
   // OPD consultation workspace modal
   const [showVisitModal, setShowVisitModal] = useState(false);
@@ -116,17 +117,25 @@ export function PetOwnerCrmHub() {
       setPets(petsData || []);
       setOwners(ownersData || []);
 
-      // Auto-open patient record if petId was passed via URL search param
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const deepPetId = params.get("petId");
-        if (deepPetId) {
-          const match = (petsData || []).find((p: any) => p.petId === deepPetId);
-          if (match) {
-            setSelectedPetDetail(match);
+      // Auto-open patient record ONLY ONCE on initial mount if petId was passed via URL search param
+      if (!initialDeepLinkHandled.current) {
+        initialDeepLinkHandled.current = true;
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const deepPetId = params.get("petId");
+          if (deepPetId) {
+            const match = (petsData || []).find((p: any) => p.petId === deepPetId);
+            if (match) {
+              setSelectedPetDetail(match);
+            }
+            // Clear search params so subsequent reloads/saves never re-trigger popup
+            const url = new URL(window.location.href);
+            url.searchParams.delete("petId");
+            url.searchParams.delete("petName");
+            window.history.replaceState({}, "", url.toString());
           }
-        }
-      } catch (_) { /* ignore URL parse errors */ }
+        } catch (_) { /* ignore URL parse errors */ }
+      }
     } catch (err) {
       console.error(err);
       toast.error("Could not load CRM records");
@@ -213,6 +222,14 @@ export function PetOwnerCrmHub() {
   };
 
   const handleStartConsultation = (pet: any, owner?: any) => {
+    setSelectedPetDetail(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("petId");
+      url.searchParams.delete("petName");
+      window.history.replaceState({}, "", url.toString());
+    } catch (_) {}
+
     const ownerInfo = owner || pet.owner || { name: "Client", phone: "N/A", ownerId: pet.ownerId };
     const newVisitDraft = {
       visitId: `V-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -740,7 +757,7 @@ export function PetOwnerCrmHub() {
         )}
 
         {/* ── Patient Medical Profile Modal / Drawer ─────────────────────────── */}
-        <Dialog open={Boolean(selectedPetDetail)} onOpenChange={(v) => !v && setSelectedPetDetail(null)}>
+        <Dialog open={Boolean(selectedPetDetail) && !showVisitModal} onOpenChange={(v) => !v && setSelectedPetDetail(null)}>
           {selectedPetDetail && (
             <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl border-border bg-card shadow-2xl p-0">
               <div className="border-b border-border bg-primary-soft/40 p-5">
