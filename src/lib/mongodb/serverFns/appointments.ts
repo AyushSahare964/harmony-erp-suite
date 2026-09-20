@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { connectDB } from "@/lib/mongodb/client";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
+import { ClinicalVisit } from "@/lib/mongodb/models/ClinicalVisit";
 
 function toPlain<T>(v: any): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -15,6 +16,70 @@ export const listAppointmentsFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
     const docs = await ErpRow.find({ moduleId: "appointments" }).sort({ createdAt: -1 }).lean();
+
+    // Auto-sync appointment status with clinical visits (e.g. when patient treatment is completed)
+    try {
+      const activeAppts = docs.filter((d: any) => {
+        const st = String(d.data?.status || "").toLowerCase().trim();
+        return st !== "completed" && st !== "cancelled" && st !== "no-show";
+      });
+
+      if (activeAppts.length > 0) {
+        const visits = await ClinicalVisit.find({}).sort({ createdAt: -1 }).limit(100).lean();
+
+        for (const doc of activeAppts) {
+          const appData = (doc.data || {}) as Record<string, any>;
+          const appTokenStr = String(appData["token"] || "").trim().toLowerCase();
+          const appPetId = String(appData["petId"] || "").trim().toLowerCase();
+          const appPetName = String(appData["pet"] || "").trim().toLowerCase();
+          const appDate = String(appData["appointment_date"] || appData["date"] || "").slice(0, 10);
+
+          const matchingVisit = visits.find((v: any) => {
+            // Match 1: Explicit appointmentToken
+            if (appTokenStr && v.appointmentToken && String(v.appointmentToken).trim().toLowerCase() === appTokenStr) {
+              return true;
+            }
+            // Match 2: vitals.complaint contains Token <token>
+            if (appTokenStr && v.vitals?.complaint && String(v.vitals.complaint).toLowerCase().includes(appTokenStr)) {
+              return true;
+            }
+            // Match 3: Matching petId or petName and same appointment date
+            const vPetId = String(v.petId || "").trim().toLowerCase();
+            const vPetName = String(v.petName || "").trim().toLowerCase();
+            const vDate = String(v.date || v.createdAt || "").slice(0, 10);
+
+            const petMatches = (appPetId && vPetId && appPetId === vPetId) || (appPetName && vPetName && appPetName === vPetName);
+            const dateMatches = !appDate || !vDate || appDate === vDate;
+
+            return petMatches && dateMatches;
+          });
+
+          if (matchingVisit) {
+            const vStatus = String(matchingVisit.status || "").toLowerCase();
+            const isCompleted =
+              vStatus === "paid" ||
+              vStatus === "settled" ||
+              vStatus === "completed" ||
+              vStatus === "billed" ||
+              (Number(matchingVisit.totalAmount || 0) > 0 && Number(matchingVisit.amountPaid || 0) >= Number(matchingVisit.totalAmount || 0)) ||
+              Boolean(matchingVisit.diagnosis && matchingVisit.diagnosis !== "OPD Visit" && matchingVisit.diagnosis !== "Routine Consultation");
+
+            if (isCompleted) {
+              appData["status"] = "Completed";
+              await ErpRow.updateOne({ _id: doc._id }, { $set: { "data.status": "Completed" } });
+            } else if (vStatus === "in consultation" || vStatus === "admitted") {
+              if (String(appData["status"] || "").toLowerCase() === "waiting") {
+                appData["status"] = "In consultation";
+                await ErpRow.updateOne({ _id: doc._id }, { $set: { "data.status": "In consultation" } });
+              }
+            }
+          }
+        }
+      }
+    } catch (syncErr) {
+      console.warn("[listAppointmentsFn] Auto-sync with visits warning:", syncErr);
+    }
+
     return toPlain(
       docs.map((d: any) => ({
         ...d.data,

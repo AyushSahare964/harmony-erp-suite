@@ -52,6 +52,7 @@ const AdmitPatientInputZ = z.object({
   billType: z.enum(["GST", "Non-GST"]).default("GST"),
   doctorName: z.string().default("Dr. Rohit Sharma"),
   receptionistName: z.string().default("Front Desk"),
+  appointmentToken: z.string().optional(),
   allergies: z.array(z.string()).optional(),
   vitals: z.object({
     weightKg: z.number().optional(),
@@ -122,6 +123,7 @@ const FinalizeVisitInputZ = z.object({
   branch: z.string().optional(),
   billType: z.enum(["GST", "Non-GST"]).optional().default("GST"),
   doctorName: z.string().optional(),
+  appointmentToken: z.string().optional(),
   diagnosis: z.string().optional(),
   clinicalNotes: z.string().optional(),
   nextVisitDate: z.string().optional(),
@@ -240,7 +242,26 @@ export const admitPatientFn = createServerFn({ method: "POST" })
       payments: [],
       inventoryDeducted: false,
       accountingPosted: false,
+      appointmentToken: data.appointmentToken || undefined,
     };
+
+    if (data.appointmentToken) {
+      try {
+        const numTok = Number(data.appointmentToken);
+        const orClauses: any[] = [
+          { "data.token": data.appointmentToken },
+          { "data.token": String(data.appointmentToken) },
+        ];
+        if (!isNaN(numTok)) orClauses.push({ "data.token": numTok });
+
+        await ErpRow.updateMany(
+          { moduleId: "appointments", $or: orClauses },
+          { $set: { "data.status": "In consultation" } }
+        );
+      } catch (appErr) {
+        console.warn("[admitPatientFn] Could not update appointment status:", appErr);
+      }
+    }
 
     const newVisit = await ClinicalVisit.create(docPayload);
     return toPlain<any>(newVisit.toObject ? newVisit.toObject() : newVisit);
@@ -1286,10 +1307,42 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
 
     visit.status = status;
     visit.inventoryDeducted = true;
+    if (data.appointmentToken && !visit.appointmentToken) {
+      visit.appointmentToken = data.appointmentToken;
+    }
     visit.markModified("prescriptionData");
     visit.markModified("items");
     if (visit.vitals) visit.markModified("vitals");
     await visit.save();
+
+    // Auto-update linked appointment to "Completed"
+    try {
+      const appToken = data.appointmentToken || visit.appointmentToken;
+      const complaintText = visit.vitals?.complaint || "";
+      const tokenMatch = complaintText.match(/Token\s+([A-Za-z0-9-]+)/i);
+      const extractedToken = appToken || (tokenMatch ? tokenMatch[1] : null);
+
+      const orConditions: any[] = [];
+      if (extractedToken) {
+        orConditions.push({ "data.token": extractedToken }, { "data.token": String(extractedToken) });
+        if (!isNaN(Number(extractedToken))) orConditions.push({ "data.token": Number(extractedToken) });
+      }
+      if (visit.petId) {
+        orConditions.push({ "data.petId": visit.petId, "data.date": visit.date });
+      }
+      if (visit.petName) {
+        orConditions.push({ "data.pet": new RegExp(`^${visit.petName}$`, "i"), "data.date": visit.date });
+      }
+
+      if (orConditions.length > 0) {
+        await ErpRow.updateMany(
+          { moduleId: "appointments", $or: orConditions },
+          { $set: { "data.status": "Completed" } }
+        );
+      }
+    } catch (appErr) {
+      console.warn("[finalizeVisitAndBillFn] Could not update appointment status:", appErr);
+    }
 
     // 4. Save into Clinical Reports & Medical Records Master (ErpRow with moduleId: "clinical_reports")
     try {

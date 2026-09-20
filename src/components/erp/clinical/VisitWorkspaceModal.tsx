@@ -1128,6 +1128,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         branch: activeVisit?.branch || visit.branch || "Main Clinic",
         billType: (activeVisit?.billType as "GST" | "Non-GST") || (visit.billType as "GST" | "Non-GST") || billType,
         doctorName: activeVisit?.doctorName || visit.doctorName || activeDoctorName,
+        appointmentToken: activeVisit?.appointmentToken || visit?.appointmentToken || undefined,
         diagnosis: diagnosis.trim() || (effectiveRx?.clinicalFindings && effectiveRx.clinicalFindings.length > 0 ? `Findings: ${effectiveRx.clinicalFindings.join(", ")}` : "Clinical Examination Completed"),
         clinicalNotes: clinicalNotes.trim() || (effectiveRx?.previousHistory ? `History: ${effectiveRx.previousHistory}` : ""),
         nextVisitDate: nextVisitDate || effectiveRx?.followUp?.nextTreatmentDate || undefined,

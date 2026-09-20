@@ -130,6 +130,7 @@ export function AdmitPatientPickerModal({
 
     const visitDraft = {
       visitId: `V-${Math.floor(1000 + Math.random() * 9000)}`,
+      appointmentToken: apt.token ? String(apt.token) : undefined,
       invoiceNo: `INV/2026-27/${Math.floor(1000 + Math.random() * 9000)}`,
       prescriptionNo: `RX-${Math.floor(1000 + Math.random() * 9000)}`,
       date: new Date().toISOString().slice(0, 10),

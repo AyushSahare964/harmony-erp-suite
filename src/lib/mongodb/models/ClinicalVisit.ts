@@ -244,6 +244,7 @@ export interface IClinicalVisit extends Document {
 
   inventoryDeducted: boolean;
   accountingPosted: boolean;
+  appointmentToken?: string | undefined;
 
   createdAt: Date;
   updatedAt: Date;
@@ -317,6 +318,7 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
     ownerPhone: { type: String, required: true },
     doctorName: { type: String, default: "Dr. Rohit Sharma" },
     receptionistName: { type: String, default: "Front Desk" },
+    appointmentToken: { type: String, index: true },
 
     status: {
       type: String,

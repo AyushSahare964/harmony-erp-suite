@@ -31,6 +31,7 @@ import {
   MessageSquare,
   Share2,
   Edit,
+  Activity,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { KpiCard } from "@/components/erp/KpiCard";
@@ -264,6 +265,7 @@ export function AppointmentsQueueHub() {
       toast.loading(`Admitting ${app.pet || "patient"} to OPD...`, { id: "admit-opd" });
       const created = await admitPatientFn({
         data: {
+          appointmentToken: app.token ? String(app.token) : undefined,
           petName: app.pet || "Patient",
           petId: app.petId,
           species: app.species || "Canine",
@@ -755,7 +757,15 @@ export function AppointmentsQueueHub() {
                           <Trash2 className="size-3.5" />
                         </Button>
 
-                        {row.status !== "Completed" && (
+                        {String(row.status || "").toLowerCase() === "completed" ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-md whitespace-nowrap">
+                            <CheckCircle2 className="size-3" /> Completed
+                          </span>
+                        ) : String(row.status || "").toLowerCase() === "in consultation" ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-md whitespace-nowrap">
+                            <Activity className="size-3" /> In OPD
+                          </span>
+                        ) : (
                           <Button
                             size="sm"
                             variant="outline"
@@ -779,7 +789,13 @@ export function AppointmentsQueueHub() {
                         )}
 
                         <Select
-                          value={row.status}
+                          value={
+                            String(row.status || "").toLowerCase() === "in consultation"
+                              ? "In consultation"
+                              : String(row.status || "").toLowerCase() === "completed"
+                              ? "Completed"
+                              : row.status || "Waiting"
+                          }
                           onValueChange={(newSt) => handleUpdateStatus(row.token, newSt)}
                         >
                           <SelectTrigger className="h-7 w-24 text-[10px] bg-card">

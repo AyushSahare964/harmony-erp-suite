@@ -174,7 +174,7 @@ export function AdminDashboardView({
   const appointmentsTrend = useMemo(() => {
     if (waitingVisits.length > 0) return `${waitingVisits.length} in OPD queue`;
     if (appointmentsCount > 0) {
-      const completed = todayAppointments.filter((a: any) => a.status === "Completed").length;
+      const completed = todayAppointments.filter((a: any) => String(a.status || "").toLowerCase() === "completed").length;
       return completed > 0 ? `${completed} completed` : `${appointmentsCount} scheduled`;
     }
     return "0 in OPD queue";
@@ -358,20 +358,38 @@ export function AdminDashboardView({
             <div className="flex items-center gap-3"><h3 className="section-label">Attention Required Today</h3><span className="h-px flex-1 bg-border" /></div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="rounded-xl border border-border bg-card p-4 shadow-xs space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex size-7 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600"><Calendar className="size-4" /></span>
-                  <p className="text-xs font-bold text-foreground">Appointments</p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex size-7 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600"><Calendar className="size-4" /></span>
+                    <p className="text-xs font-bold text-foreground">Appointments</p>
+                  </div>
+                  <span className="text-[11px] font-semibold text-muted-foreground">{todayAppointments.length} today</span>
                 </div>
-                <div className="space-y-1.5 text-xs text-muted-foreground">
-                  {todayVisits.slice(0, 3).map(v => (
-                    <div key={v.visitId} className="flex items-center justify-between gap-1">
-                      <span className="font-medium text-foreground truncate">{v.petName}</span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">{v.date ? formatDisplayDate(v.date) : "Today"}</span>
-                    </div>
-                  ))}
-                  {todayVisits.length === 0 && <p className="text-[11px] italic">No appointments today</p>}
+                <div className="space-y-2 text-xs">
+                  {todayAppointments.slice(0, 3).map((a: any) => {
+                    const st = String(a.status || "").toLowerCase();
+                    const isDone = st === "completed";
+                    const isConsult = st === "in consultation";
+                    return (
+                      <div key={a.token || a.id || a.pet} className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-foreground truncate">{a.pet || "Patient"} <span className="text-[10px] text-muted-foreground font-mono">({a.token})</span></p>
+                          <p className="text-[10px] text-muted-foreground truncate">{a.doctor || "General OPD"}</p>
+                        </div>
+                        <span className={cn(
+                          "text-[9px] font-bold px-1.5 py-0.5 rounded-full border whitespace-nowrap",
+                          isDone ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" :
+                          isConsult ? "bg-blue-500/10 text-blue-700 border-blue-500/20" :
+                          "bg-amber-500/10 text-amber-700 border-amber-500/20"
+                        )}>
+                          {isDone ? "Completed" : isConsult ? "In OPD" : (a.status || "Waiting")}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {todayAppointments.length === 0 && <p className="text-[11px] italic text-muted-foreground">No appointments today</p>}
                 </div>
-                <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={onOpenAdmitPicker}>View All</Button>
+                <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => void navigate({ to: "/m/$moduleId", params: { moduleId: "appointments" } })}>View Queue</Button>
               </div>
 
               <div className="rounded-xl border border-border bg-card p-4 shadow-xs space-y-3">
