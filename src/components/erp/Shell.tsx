@@ -257,12 +257,17 @@ function GlobalSearch() {
                 {results.map(p => (
                   <div
                     key={p.petId}
-                    className="px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => {
                       setFocused(false);
                       setQuery("");
                       void navigate({ to: "/m/$moduleId", params: { moduleId: "crm-pets" }, search: { petId: p.petId, petName: p.name } as any });
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.currentTarget as HTMLDivElement).click();
+                    }}
+                    className="px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
