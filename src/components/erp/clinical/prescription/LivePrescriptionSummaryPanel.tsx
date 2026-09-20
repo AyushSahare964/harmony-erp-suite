@@ -106,14 +106,14 @@ export function LivePrescriptionSummaryPanel({
       className={cn(
         // Flex column: pinned header + scrollable middle + pinned footer
         "flex flex-col rounded-xl border border-border bg-card shadow-sm",
-        // Exact height = modal height (94vh) minus modal header + jump bar + padding (~9rem)
-        "h-[calc(94vh-9rem)]",
+        // Max height capped to modal viewport so footer action buttons are always pinned and never pushed off-screen
+        "max-h-[calc(94vh-13rem)]",
         hasUnsavedChanges && "border-amber-300/80 dark:border-amber-700/60",
         className
       )}
     >
-      {/* ── Pinned Header ──────────────────────────────────────────── */}
-      <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border space-y-2">
+      {/* ── Pinned Header: Compact Title & Running Total ── */}
+      <div className="shrink-0 px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Receipt className="size-4 text-primary" />
@@ -125,44 +125,46 @@ export function LivePrescriptionSummaryPanel({
             ₹{grandTotal.toFixed(2)}
           </span>
         </div>
+      </div>
 
+      {/* ── Scrollable Body (Action Pills, Flash Card & Item Cards) ── */}
+      <div className="flex-1 overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden no-scrollbar px-4 py-3 space-y-2 text-xs min-h-0">
         {/* Action Pills */}
-        <div className="flex items-center justify-between gap-2">
-          {onClonePrevious && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-6.5 text-[10px] px-2 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10 flex-1 justify-center"
-              onClick={onClonePrevious}
-            >
-              <CheckCircle2 className="size-3 mr-1" /> Clone Previous
-            </Button>
-          )}
-          {onViewHistory && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6.5 text-[10px] px-2 text-muted-foreground hover:text-foreground border border-border/60 flex-1 justify-center"
-              onClick={onViewHistory}
-            >
-              <Clock className="size-3 mr-1" /> History
-            </Button>
-          )}
-        </div>
+        {(onClonePrevious || onViewHistory) && (
+          <div className="flex items-center justify-between gap-2 pb-0.5">
+            {onClonePrevious && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6.5 text-[10px] px-2 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10 flex-1 justify-center"
+                onClick={onClonePrevious}
+              >
+                <CheckCircle2 className="size-3 mr-1" /> Clone Previous
+              </Button>
+            )}
+            {onViewHistory && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6.5 text-[10px] px-2 text-muted-foreground hover:text-foreground border border-border/60 flex-1 justify-center"
+                onClick={onViewHistory}
+              >
+                <Clock className="size-3 mr-1" /> History
+              </Button>
+            )}
+          </div>
+        )}
 
-        {/* Unsaved Changes Indicator */}
+        {/* Unsaved Changes Flash Card Indicator */}
         {hasUnsavedChanges && (
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] font-bold text-amber-700 dark:text-amber-300 animate-pulse">
-            <span className="size-1.5 rounded-full bg-amber-500 animate-ping" />
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-[10px] font-bold text-amber-700 dark:text-amber-300 animate-pulse">
+            <span className="size-1.5 rounded-full bg-amber-500 animate-ping shrink-0" />
             <span>Includes unsaved changes (Calculated live from prescription)</span>
           </div>
         )}
-      </div>
 
-      {/* ── Scrollable Item List (hidden scrollbar, mouse-scroll works) ── */}
-      <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-3 space-y-2 text-xs min-h-0">
         {/* 1. Consultation Fee */}
         {consultTotal > 0 && (
           <div className="rounded-lg border border-border/60 bg-muted/20 p-2 space-y-1">
