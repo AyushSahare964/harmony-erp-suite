@@ -104,12 +104,10 @@ export function LivePrescriptionSummaryPanel({
   return (
     <div
       className={cn(
-        // Sticky positioning flush to modal scroll top
-        "sticky top-0",
-        // Flex column layout: header pinned, items scroll, footer pinned
+        // Flex column: pinned header + scrollable middle + pinned footer
         "flex flex-col rounded-xl border border-border bg-card shadow-sm",
-        // Cap height to viewport minus a small margin so it never overflows modal
-        "max-h-[calc(100vh-8rem)]",
+        // Exact height = modal height (94vh) minus modal header + jump bar + padding (~9rem)
+        "h-[calc(94vh-9rem)]",
         hasUnsavedChanges && "border-amber-300/80 dark:border-amber-700/60",
         className
       )}

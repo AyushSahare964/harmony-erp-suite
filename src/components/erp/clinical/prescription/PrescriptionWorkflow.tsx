@@ -941,28 +941,41 @@ export function PrescriptionWorkflow({
       // ── Switch tab immediately for responsive UX — do NOT await saves first ──
       await onProceedToBilling(rxSnapshot, billableLines);
 
-      // ── Then save any dirty sections concurrently in the background ──────────
+      // ── Then save any dirty sections in the background ────────────────────────
+      // Each section save reads the shared `versionRef.current` for the optimistic-
+      // concurrency check, then bumps it on success. Firing them concurrently meant
+      // every save after the first read the same now-stale version and got rejected
+      // by the server ("No matching document found for id ... version N"), silently
+      // dropping sections and leaving the visit half-saved. Run them one at a time so
+      // each save sees the version the previous one just wrote.
       if (hasAnyDirtySection && !isSettled) {
-        const saveTasks: Promise<void>[] = [];
-        if (isHistoryDirty) saveTasks.push(handleSaveHistory());
-        if (isSymptomsDirty) saveTasks.push(handleSaveSymptoms());
-        if (isFindingsDirty) saveTasks.push(handleSaveFindings());
-        if (isImmediateDirty) saveTasks.push(handleSaveImmediateMed());
-        if (isPrescribedDirty) saveTasks.push(handleSavePrescribedMed());
-        if (isInjectableDirty) saveTasks.push(handleSaveInjectable());
-        if (isFeeDirty) saveTasks.push(handleSaveFee());
-        if (isFollowUpDirty) saveTasks.push(handleSaveFollowUp());
-        if (isLaboratoryDirty) saveTasks.push(handleSaveLaboratory());
-        if (isAnimalFoodDirty) saveTasks.push(handleSaveAnimalFood());
-        if (isPrescribedFoodDirty) saveTasks.push(handleSavePrescribedFood());
-        if (isAccessoryDirty) saveTasks.push(handleSaveAccessories());
-        // Fire all saves concurrently — errors are non-blocking
-        Promise.allSettled(saveTasks).then((results) => {
-          const failed = results.filter((r) => r.status === "rejected");
+        const saveHandlers: Array<() => Promise<void>> = [];
+        if (isHistoryDirty) saveHandlers.push(handleSaveHistory);
+        if (isSymptomsDirty) saveHandlers.push(handleSaveSymptoms);
+        if (isFindingsDirty) saveHandlers.push(handleSaveFindings);
+        if (isImmediateDirty) saveHandlers.push(handleSaveImmediateMed);
+        if (isPrescribedDirty) saveHandlers.push(handleSavePrescribedMed);
+        if (isInjectableDirty) saveHandlers.push(handleSaveInjectable);
+        if (isFeeDirty) saveHandlers.push(handleSaveFee);
+        if (isFollowUpDirty) saveHandlers.push(handleSaveFollowUp);
+        if (isLaboratoryDirty) saveHandlers.push(handleSaveLaboratory);
+        if (isAnimalFoodDirty) saveHandlers.push(handleSaveAnimalFood);
+        if (isPrescribedFoodDirty) saveHandlers.push(handleSavePrescribedFood);
+        if (isAccessoryDirty) saveHandlers.push(handleSaveAccessories);
+
+        (async () => {
+          const failed: unknown[] = [];
+          for (const save of saveHandlers) {
+            try {
+              await save();
+            } catch (err) {
+              failed.push(err);
+            }
+          }
           if (failed.length > 0) {
             console.warn("Background auto-save on proceed to billing had issues:", failed);
           }
-        });
+        })();
       }
     } catch (err: any) {
       console.error("Failed to proceed to billing:", err);
@@ -1453,8 +1466,8 @@ export function PrescriptionWorkflow({
           />
         </div>
 
-        {/* Right Column: Live Prescribed Items Summary (§1.7, §13.1) */}
-        <div className="space-y-4">
+        {/* Right Column: Live Prescribed Items Summary — sticky, self-contained scroll */}
+        <div className="self-start sticky top-0">
           <LivePrescriptionSummaryPanel
             consultationFee={consultationFee}
             immediateMedicines={immediateMedicines}
