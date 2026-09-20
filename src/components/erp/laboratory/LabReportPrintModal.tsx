@@ -84,7 +84,7 @@ export function LabReportPrintModal({ open, onClose, order }: Props) {
             <div className="space-y-1">
               <p><span className="text-slate-500 font-semibold">Test / Investigation:</span> <strong>{order.test}</strong></p>
               <p><span className="text-slate-500 font-semibold">Sample Specimen:</span> {order.sample || "Whole Blood (EDTA)"}</p>
-              <p><span className="text-slate-500 font-semibold">Referring Clinician:</span> {order.doctor || "Dr. Rohit Sharma"}</p>
+              <p><span className="text-slate-500 font-semibold">Referring Clinician:</span> {order.doctor || order.doctorName || order.orderingDoctor || order.referringDoctor || "Attending Clinician"}</p>
             </div>
           </div>
 
@@ -137,9 +137,9 @@ export function LabReportPrintModal({ open, onClose, order }: Props) {
             </div>
             <div className="text-right">
               <div className="h-10 flex items-center justify-end">
-                <span className="font-serif italic text-sm text-slate-700 font-bold underline">Dr. Aisha Nair</span>
+                <span className="font-serif italic text-sm text-slate-700 font-bold underline">{order.pathologist || order.doctor || "Clinical Pathologist"}</span>
               </div>
-              <p className="font-bold text-slate-900">{order.pathologist || "Dr. Aisha Nair (MVSc Clin Path)"}</p>
+              <p className="font-bold text-slate-900">{order.pathologist || order.doctor || "Clinical Pathologist"}</p>
               <p className="text-[10px] text-slate-500">Senior Veterinary Pathologist · Reg. No: KVC-8492</p>
             </div>
           </div>
