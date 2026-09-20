@@ -906,7 +906,7 @@ export function PrescriptionWorkflow({
     setIsProceeding(true);
     const billableLines = buildCurrentBillableLines();
 
-    // Build snapshot and navigate
+    // Build snapshot
     const rxSnapshot: IPrescriptionData = {
       prescriptionId: visit.prescriptionNo,
       dateOfVisit: rawDate,
@@ -938,12 +938,32 @@ export function PrescriptionWorkflow({
     };
 
     try {
+      // ── Switch tab immediately for responsive UX — do NOT await saves first ──
+      await onProceedToBilling(rxSnapshot, billableLines);
+
+      // ── Then save any dirty sections concurrently in the background ──────────
       if (hasAnyDirtySection && !isSettled) {
-        await handleSaveAllDraft().catch((err) => {
-          console.warn("Draft save warning on proceed to billing:", err);
+        const saveTasks: Promise<void>[] = [];
+        if (isHistoryDirty) saveTasks.push(handleSaveHistory());
+        if (isSymptomsDirty) saveTasks.push(handleSaveSymptoms());
+        if (isFindingsDirty) saveTasks.push(handleSaveFindings());
+        if (isImmediateDirty) saveTasks.push(handleSaveImmediateMed());
+        if (isPrescribedDirty) saveTasks.push(handleSavePrescribedMed());
+        if (isInjectableDirty) saveTasks.push(handleSaveInjectable());
+        if (isFeeDirty) saveTasks.push(handleSaveFee());
+        if (isFollowUpDirty) saveTasks.push(handleSaveFollowUp());
+        if (isLaboratoryDirty) saveTasks.push(handleSaveLaboratory());
+        if (isAnimalFoodDirty) saveTasks.push(handleSaveAnimalFood());
+        if (isPrescribedFoodDirty) saveTasks.push(handleSavePrescribedFood());
+        if (isAccessoryDirty) saveTasks.push(handleSaveAccessories());
+        // Fire all saves concurrently — errors are non-blocking
+        Promise.allSettled(saveTasks).then((results) => {
+          const failed = results.filter((r) => r.status === "rejected");
+          if (failed.length > 0) {
+            console.warn("Background auto-save on proceed to billing had issues:", failed);
+          }
         });
       }
-      await onProceedToBilling(rxSnapshot, billableLines);
     } catch (err: any) {
       console.error("Failed to proceed to billing:", err);
       toast.error(err?.message || "Could not proceed to billing. Please try again.");
