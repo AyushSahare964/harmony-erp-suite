@@ -139,18 +139,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const [historyVisits, setHistoryVisits] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Line items state
-  const [lines, setLines] = useState<BillLine[]>([
-    {
-      id: "1",
-      lineType: "Consultation",
-      name: "Veterinary Consultation & Physical Examination",
-      quantity: 1,
-      unitPrice: 500,
-      discountPercent: 0,
-      gstRate: 18,
-    },
-  ]);
+  // Line items state — starts empty; populated from DB on load or from Rx on proceed
+  const [lines, setLines] = useState<BillLine[]>([]);
 
   // Quick Medicine Search & Filter
   const [selectedMedicine, setSelectedMedicine] = useState<any | null>(null);
@@ -360,9 +350,6 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       let updatedLines = lines;
 
       if (billableLines && billableLines.length > 0) {
-        const feeLines = lines.filter(
-          (l) => l.lineType === "Consultation" || l.lineType === "Procedure" || l.lineType === "Diagnostic" || l.lineType === "Service"
-        );
         const mappedBillable = billableLines.map((bl, i) => {
           const qty = Number(bl.quantity) || 1;
           const price = Number(bl.unitPrice) || 0;
@@ -397,7 +384,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             rxSection: bl.rxSection,
           };
         });
-        updatedLines = [...feeLines, ...mappedBillable];
+        // Full replacement — billableLines from Rx are the source of truth; never merge with stale lines
+        updatedLines = mappedBillable;
         setLines(updatedLines);
       }
 
