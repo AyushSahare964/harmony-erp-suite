@@ -45,6 +45,9 @@ pnl_ytd_report.csv
 implementation_plan_billing
 tsc_output.txt
 *.png
+!public/*.png
+*.xlsx
+.claude/
 
 # Playwright
 test-results/

@@ -18,6 +18,7 @@ import {
   Sparkles,
   Award,
   Key,
+  Trash2,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { KpiCard } from "@/components/erp/KpiCard";
@@ -29,11 +30,13 @@ import { toast } from "sonner";
 import { AuthService } from "@/lib/erp/auth";
 import { AddEmployeeModal } from "./AddEmployeeModal";
 import { ApproveStaffModal } from "./ApproveStaffModal";
+import { StaffProfileModal } from "./StaffProfileModal";
 import { cn } from "@/lib/utils";
 
 export function IdentityAccessHub() {
   const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [clearReseedLoading, setClearReseedLoading] = useState(false);
 
   // Filters
   const [query, setQuery] = useState("");
@@ -44,6 +47,8 @@ export function IdentityAccessHub() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<any | null>(null);
   const [showApproveModal, setShowApproveModal] = useState(false);
+  const [selectedProfileStaff, setSelectedProfileStaff] = useState<any | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   useEffect(() => {
     void loadStaff();
@@ -98,6 +103,28 @@ export function IdentityAccessHub() {
     setShowApproveModal(true);
   };
 
+  const handleOpenProfile = (staff: any) => {
+    setSelectedProfileStaff(staff);
+    setShowProfileModal(true);
+  };
+
+  const handleClearAndReseed = async () => {
+    if (!window.confirm(
+      "⚠️ This will PERMANENTLY DELETE all staff records from MongoDB and re-insert only the 2 default system credentials (Makarand Dixit + Ayush Sahare).\n\nContinue?"
+    )) return;
+    setClearReseedLoading(true);
+    try {
+      const res = await AuthService.clearAndReseed();
+      toast.success(res.message);
+      void loadStaff();
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to reset staff directory.");
+    } finally {
+      setClearReseedLoading(false);
+    }
+  };
+
   const exportCsv = () => {
     const header = "Name,Email,Phone,Role,Department,License No,Qualification,Approval Status,Created At";
     const rows = filteredStaff
@@ -137,6 +164,20 @@ export function IdentityAccessHub() {
           </div>
 
           <div className="flex items-center gap-2 mt-3 md:mt-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearAndReseed}
+              disabled={clearReseedLoading}
+              className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:border-destructive font-bold text-xs shadow-xs"
+              title="Wipe all staff data and re-seed only the 2 default system credentials"
+            >
+              {clearReseedLoading ? (
+                <><Clock className="size-3.5 mr-1.5 animate-spin" /> Resetting...</>
+              ) : (
+                <><Trash2 className="size-3.5 mr-1.5" /> Reset to Defaults</>
+              )}
+            </Button>
             <Button
               onClick={() => setShowAddModal(true)}
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-xs shadow-xs"
@@ -317,19 +358,24 @@ export function IdentityAccessHub() {
                   <tr key={staff.id} className="hover:bg-muted/30 transition-colors">
                     {/* Member */}
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-3">
-                        <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground shadow-xs shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProfile(staff)}
+                        className="flex items-center gap-3 text-left group cursor-pointer focus:outline-none"
+                        title="Click to view & edit staff profile"
+                      >
+                        <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground shadow-xs shrink-0 group-hover:scale-105 group-hover:ring-2 group-hover:ring-primary/40 transition-all">
                           {staff.initials || "ST"}
                         </span>
                         <div>
-                          <p className="font-bold text-navy text-xs leading-tight dark:text-white">
+                          <p className="font-bold text-navy text-xs leading-tight dark:text-white group-hover:text-primary transition-colors underline-offset-2 group-hover:underline">
                             {staff.fullName}
                           </p>
                           <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
                             ID: {staff.id?.slice(-6).toUpperCase()}
                           </p>
                         </div>
-                      </div>
+                      </button>
                     </td>
 
                     {/* Contact */}
@@ -395,24 +441,26 @@ export function IdentityAccessHub() {
 
                     {/* Actions */}
                     <td className="py-3.5 px-4 text-right">
-                      {staff.approvalStatus === "pending" ? (
-                        <Button
-                          size="sm"
-                          onClick={() => handleOpenApprove(staff)}
-                          className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 shadow-xs"
-                        >
-                          <ShieldCheck className="size-3 mr-1" /> Review & Approve
-                        </Button>
-                      ) : (
+                      <div className="flex items-center justify-end gap-1.5">
+                        {staff.approvalStatus === "pending" && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleOpenApprove(staff)}
+                            className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 shadow-xs"
+                          >
+                            <ShieldCheck className="size-3 mr-1" /> Review
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleOpenApprove(staff)}
-                          className="h-7 text-[11px] text-muted-foreground hover:text-foreground"
+                          onClick={() => handleOpenProfile(staff)}
+                          className="h-7 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-primary hover:text-white hover:border-primary transition-all px-2.5"
+                          title="View and edit staff profile"
                         >
-                          <Key className="size-3 mr-1" /> Edit Access
+                          <Key className="size-3 mr-1" /> Edit Profile
                         </Button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -441,6 +489,17 @@ export function IdentityAccessHub() {
           staff={selectedStaff}
           onClose={() => setShowApproveModal(false)}
           onUpdated={() => void loadStaff()}
+        />
+
+        <StaffProfileModal
+          open={showProfileModal}
+          staff={selectedProfileStaff}
+          onClose={() => {
+            setShowProfileModal(false);
+            setSelectedProfileStaff(null);
+          }}
+          onUpdated={() => void loadStaff()}
+          onDeleted={() => void loadStaff()}
         />
       </div>
     </Shell>

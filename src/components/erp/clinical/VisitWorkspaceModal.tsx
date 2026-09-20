@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Stethoscope,
@@ -104,6 +104,14 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
   const [tab, setTab] = useState<"consultation" | "billing" | "completed">("consultation");
   const [rxJumpSections, setRxJumpSections] = useState<SectionJumpItem[]>(DEFAULT_RX_JUMP_SECTIONS);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to top whenever switching tabs (e.g. proceeding to billing)
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [tab]);
   
   // Vitals & Clinical Form
   const [weightKg, setWeightKg] = useState(visit?.vitals?.weightKg ? String(visit.vitals.weightKg) : "24.5");
@@ -339,7 +347,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     setShowHistoryPanel(false);
   };
 
-  const handleSavePrescription = async (rxData: IPrescriptionData, billableLines: any[]) => {
+  const handleSavePrescription = async (rxData: IPrescriptionData, billableLines?: any[]) => {
     try {
       setPrescriptionData(rxData);
       if (rxData.weight !== undefined) setWeightKg(String(rxData.weight));
@@ -348,36 +356,86 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       if (rxData.followUp?.nextTreatmentDate) setNextVisitDate(rxData.followUp.nextTreatmentDate);
       if (rxData.followUp?.nextDewormingDate) setNextDewormingDate(rxData.followUp.nextDewormingDate);
 
-      // Each prescription section (Immediate Meds, Injectables, Fee, Food, Accessories, ...) already
-      // syncs its own lines into `lines` via onSyncLines as it's saved — that's the authoritative,
-      // complete bill. `billableLines` here is an optional caller-supplied override; when it's empty
-      // (the normal "Proceed to Billing" case) we must NOT collapse `lines` down to fee-only, or we'd
-      // wipe out every already-saved medicine/food/accessory line from the bill.
-      const mergedLines: BillLine[] =
-        billableLines.length > 0
-          ? [
-              ...lines.filter(
-                (l) => l.lineType === "Consultation" || l.lineType === "Procedure" || l.lineType === "Diagnostic" || l.lineType === "Service"
-              ),
-              ...billableLines.map((bl, i) => ({
-                id: bl.id || `bl-${Date.now()}-${i}`,
-                lineType: bl.lineType || "Pharmacy",
-                itemCode: bl.itemCode,
-                batchNo: bl.batchNo,
-                name: bl.name,
-                dosageInstructions: bl.dosageInstructions,
-                quantity: bl.quantity || 1,
-                unitPrice: bl.unitPrice || 0,
-                discountPercent: bl.discountPercent || 0,
-                discountType: bl.discountType || "percentage",
-                discountValue: bl.discountValue ?? bl.discountPercent ?? 0,
-                discountAmount: bl.discountAmount,
-                gstRate: bl.gstRate || 0,
-              })),
-            ]
-          : lines;
+      const isGst = billType === "GST";
+      let updatedLines = lines;
 
-      setLines(mergedLines);
+      if (billableLines && billableLines.length > 0) {
+        const feeLines = lines.filter(
+          (l) => l.lineType === "Consultation" || l.lineType === "Procedure" || l.lineType === "Diagnostic" || l.lineType === "Service"
+        );
+        const mappedBillable = billableLines.map((bl, i) => {
+          const qty = Number(bl.quantity) || 1;
+          const price = Number(bl.unitPrice) || 0;
+          const disc = Number(bl.discountPercent) || 0;
+          const gst = Number(bl.gstRate) || (isGst ? (bl.lineType === "Accessory" || bl.lineType === "Food" ? 18 : 12) : 0);
+          const lineCalc = calcLineItem({
+            quantity: qty,
+            unitPrice: price,
+            discountType: bl.discountType || "percentage",
+            discountValue: bl.discountValue ?? disc,
+            gstRate: gst,
+            applyGst: isGst,
+          });
+          return {
+            id: bl.id || `bl-${Date.now()}-${i}`,
+            lineType: bl.lineType || "Pharmacy",
+            itemCode: bl.itemCode,
+            batchNo: bl.batchNo,
+            name: bl.name,
+            dosageInstructions: bl.dosageInstructions,
+            quantity: qty,
+            unitPrice: price,
+            discountPercent: disc,
+            discountType: bl.discountType || "percentage",
+            discountValue: bl.discountValue ?? disc,
+            discountAmount: lineCalc.discountAmount,
+            taxableAmount: lineCalc.taxableAmount,
+            gstRate: gst,
+            lineTotal: lineCalc.lineTotal,
+            sourceType: bl.sourceType || "RX_ITEM",
+            sourceId: bl.id,
+            rxSection: bl.rxSection,
+          };
+        });
+        updatedLines = [...feeLines, ...mappedBillable];
+        setLines(updatedLines);
+      }
+
+      // Ensure every item sent to savePrescriptionFn has valid lineTotal & calc fields for PrescriptionLineZ
+      const validBillableItems = updatedLines.map((l) => {
+        const qty = Number(l.quantity) || 1;
+        const price = Number(l.unitPrice) || 0;
+        const disc = Number(l.discountPercent) || 0;
+        const gst = Number(l.gstRate) || (isGst ? 18 : 0);
+        const lineCalc = calcLineItem({
+          quantity: qty,
+          unitPrice: price,
+          discountType: l.discountType || "percentage",
+          discountValue: l.discountValue ?? disc,
+          gstRate: gst,
+          applyGst: isGst,
+        });
+        return {
+          id: l.id,
+          lineType: l.lineType,
+          itemCode: l.itemCode,
+          batchNo: l.batchNo,
+          name: l.name,
+          dosageInstructions: l.dosageInstructions,
+          quantity: qty,
+          unitPrice: price,
+          discountPercent: disc,
+          discountType: l.discountType || "percentage",
+          discountValue: l.discountValue ?? disc,
+          discountAmount: lineCalc.discountAmount,
+          taxableAmount: lineCalc.taxableAmount,
+          gstRate: gst,
+          lineTotal: lineCalc.lineTotal,
+          sourceType: l.sourceType || null,
+          sourceId: l.sourceId || null,
+          rxSection: l.rxSection || null,
+        };
+      });
 
       const updated = await savePrescriptionFn({
         data: {
@@ -407,7 +465,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
           nextVaccineDate: rxData.followUp?.nextVaccineDate,
           nextDewormingDate: rxData.followUp?.nextDewormingDate,
           prescriptionData: rxData,
-          billableItems: mergedLines,
+          billableItems: validBillableItems,
         },
       });
 
@@ -420,14 +478,61 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
     }
   };
 
-  const handleProceedToBilling = async (rxData: IPrescriptionData, billableLines: any[]) => {
+  const handleProceedToBilling = async (rxData: IPrescriptionData, billableLines?: any[]) => {
+    // 1. Immediately switch tab so navigation is instantaneous and responsive
+    setTab("billing");
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: "instant" });
+    }
+
+    // 2. Sync billable lines immediately
+    if (billableLines && billableLines.length > 0) {
+      const isGst = billType === "GST";
+      const mappedNewLines: BillLine[] = billableLines.map((bl, i) => {
+        const qty = Number(bl.quantity) || 1;
+        const price = Number(bl.unitPrice) || 0;
+        const disc = Number(bl.discountPercent) || 0;
+        const gst = Number(bl.gstRate) || (isGst ? (bl.lineType === "Accessory" || bl.lineType === "Food" ? 18 : 12) : 0);
+        const lineCalc = calcLineItem({
+          quantity: qty,
+          unitPrice: price,
+          discountType: bl.discountType || "percentage",
+          discountValue: bl.discountValue ?? disc,
+          gstRate: gst,
+          applyGst: isGst,
+        });
+        return {
+          id: bl.id || `bl-${Date.now()}-${i}`,
+          lineType: bl.lineType || "Pharmacy",
+          itemCode: bl.itemCode,
+          batchNo: bl.batchNo,
+          name: bl.name,
+          dosageInstructions: bl.dosageInstructions,
+          quantity: qty,
+          unitPrice: price,
+          discountPercent: disc,
+          discountType: bl.discountType || "percentage",
+          discountValue: bl.discountValue ?? disc,
+          discountAmount: lineCalc.discountAmount,
+          taxableAmount: lineCalc.taxableAmount,
+          gstRate: gst,
+          lineTotal: lineCalc.lineTotal,
+          sourceType: bl.sourceType || "RX_ITEM",
+          sourceId: bl.id,
+          rxSection: bl.rxSection,
+        };
+      });
+
+      setLines(mappedNewLines);
+    }
+
+    // 3. Save in background
     try {
       await handleSavePrescription(rxData, billableLines);
     } catch (e: any) {
       console.warn("Auto-save on proceed to billing encountered an issue:", e);
       toast.error(e?.message || "Some changes could not be saved, but you can still review the bill.");
     }
-    setTab("billing");
   };
 
   // REQ-RX-01: set of already-prescribed itemCodes — excludes from catalog dropdown
@@ -1187,7 +1292,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         )}
 
         {/* ── Main Scrollable Body ──────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 space-y-6">
           <div className={cn("space-y-5", tab !== "consultation" && "hidden")}>
             {/* Prominent Bold Highlighted Allergies Warning Banner */}
             {Boolean(

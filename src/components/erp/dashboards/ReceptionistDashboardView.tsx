@@ -253,20 +253,54 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
     );
   });
 
+  const waitingVisits = visits.filter(
+    (v) => v.status !== "Paid" && v.status !== "Settled" && v.status !== "Completed"
+  );
+  const completedVisits = visits.filter(
+    (v) => v.status === "Paid" || v.status === "Settled" || v.status === "Completed"
+  );
+
+  const receptionistKpis = [
+    {
+      label: "Waiting in Lobby",
+      value: String(waitingVisits.length),
+      trend: waitingVisits.length > 0 ? "Ready for triage" : "Lobby clear",
+      trendTone: waitingVisits.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+    {
+      label: "Today's Appointments",
+      value: String(visits.length),
+      trend: completedVisits.length > 0 ? `${completedVisits.length} completed` : "0 checked in",
+      trendTone: visits.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+    {
+      label: "Registered Patients",
+      value: String(existingPatients.length),
+      trend: `${existingPatients.length} records in CRM`,
+      trendTone: existingPatients.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+    {
+      label: "Doctors on Duty",
+      value: String(doctorsList.length),
+      trend: `${doctorsList.length} consultants available`,
+      trendTone: doctorsList.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+  ];
+
   return (
-    <div className="space-y-7">
-      {/* ── Receptionist Command Header ────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-border/80 bg-gradient-to-r from-card via-card to-blue-500/10 p-4 sm:p-5 shadow-xs flex flex-wrap items-center justify-between gap-4">
+    <div className="space-y-6">
+      {/* ── Reception Quick Action Command Bar ──────────────────────────────── */}
+      <div className="rounded-2xl border border-border/80 bg-gradient-to-r from-card via-card to-blue-500/8 p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className="flex size-11 items-center justify-center rounded-xl bg-blue-600 text-white font-bold shadow-xs">
             <CalendarClock className="size-6" />
           </span>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm sm:text-base font-bold text-foreground">Front-Desk Triage &amp; Intake Console</h2>
-              <span className="bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-500/20">
-                Live Queue Sync
-              </span>
+              <h2 className="text-sm sm:text-base font-bold text-foreground">Receptionist &amp; Patient Admittance Hub</h2>
+              <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-600 bg-blue-500/10 font-bold">
+                Front Desk Live
+              </Badge>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               Check in walk-in pet parents, record complaint &amp; vitals, and route directly to Doctor OPD.
@@ -294,7 +328,7 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
 
       {/* ── Receptionist KPI Stats ────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {role.kpis.map((k: any, idx: number) => (
+        {receptionistKpis.map((k, idx) => (
           <KpiCard key={k.label} kpi={k} index={idx} />
         ))}
       </div>

@@ -16,12 +16,13 @@ import { useErp } from "@/lib/erp/store";
 import { AuthService, type RegisterPayload, type UserProfile } from "@/lib/erp/auth";
 import { ROLES, type RoleId } from "@/lib/erp/config";
 import { PetShowcase } from "@/components/erp/PetShowcase";
+import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
-      { title: "VetOS ERP — Staff Sign In & Registration" },
+      { title: `${CLINIC_CONFIG.shortName} — Staff Sign In` },
       {
         name: "description",
         content: "Professional veterinary clinic operator sign in and profile creation portal.",
@@ -41,8 +42,8 @@ function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   // Login state
-  const [loginEmail, setLoginEmail] = useState("aisha.nair@vetos.cloud");
-  const [loginPassword, setLoginPassword] = useState("demo123");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
 
   // Register state
@@ -82,12 +83,13 @@ function AuthPage() {
     }
   };
 
-  const handleQuickLogin = async (staff: UserProfile) => {
+  const handleQuickLogin = async (staff: UserProfile & { _password?: string }) => {
+    const pwd = staff._password || "12345678";
     setLoginEmail(staff.email);
-    setLoginPassword("demo123");
+    setLoginPassword(pwd);
     setLoading(true);
     try {
-      const res = await login({ email: staff.email, password: "demo123", rememberMe: true });
+      const res = await login({ email: staff.email, password: pwd, rememberMe: true });
       if (res.success) {
         toast.success(`Logged in as ${staff.fullName}`);
         navigate({ to: "/" });
@@ -98,7 +100,7 @@ function AuthPage() {
         } catch { /* ignore */ }
         navigate({ to: "/pending-approval" });
       } else {
-        toast.error(res.message || "Failed to sign in");
+        toast.error(res.message || "Failed to sign in — ensure credentials are seeded in MongoDB");
       }
     } catch {
       toast.error("An error occurred during authentication");
@@ -195,12 +197,14 @@ function AuthPage() {
       {/* Brand Header above card */}
       <div className="mb-6 flex items-center justify-between w-full max-w-4xl px-2">
         <Link to="/" className="flex items-center gap-2.5 group">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition-transform group-hover:scale-105">
-            <Stethoscope className="size-5" />
-          </span>
+          <img
+            src={CLINIC_CONFIG.logoPath}
+            alt={CLINIC_CONFIG.shortName}
+            className="h-10 w-auto object-contain"
+          />
           <div>
-            <span className="text-base font-bold tracking-tight text-navy">VetOS ERP</span>
-            <span className="block text-[0.65rem] text-muted-foreground leading-none">Clinic Console</span>
+            <span className="text-base font-bold tracking-tight text-navy">{CLINIC_CONFIG.shortName}</span>
+            <span className="block text-[0.65rem] text-muted-foreground leading-none">{CLINIC_CONFIG.doctorName}</span>
           </div>
         </Link>
 
@@ -290,7 +294,7 @@ function AuthPage() {
                       <label className="block text-xs font-semibold text-foreground">Password</label>
                       <button
                         type="button"
-                        onClick={() => toast.info("Demo password: 'demo123'")}
+                        onClick={() => toast.info("Admin password: '12345678'  ·  Dev password: 'ayush@123'")}
                         className="text-[0.7rem] text-primary hover:underline"
                       >
                         Forgot password?
@@ -344,30 +348,6 @@ function AuthPage() {
                   </button>
                 </form>
 
-                {/* Minimal Quick Demo Switcher */}
-                <div className="pt-2">
-                  <span className="block text-[0.65rem] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-                    Demo Credentials
-                  </span>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {demoStaff.map((staff) => (
-                      <button
-                        key={staff.id}
-                        type="button"
-                        onClick={() => handleQuickLogin(staff)}
-                        className="flex items-center gap-2 rounded-lg border border-slate-200/80 bg-slate-50/60 p-1.5 text-left transition-all hover:border-primary hover:bg-primary-soft/30"
-                      >
-                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-[0.6rem] font-bold text-primary-foreground">
-                          {staff.initials}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-[0.72rem] font-semibold text-navy truncate leading-tight">{staff.fullName}</p>
-                          <p className="text-[0.62rem] text-muted-foreground truncate capitalize">{staff.roleId}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
             ) : (
               /* TAB: CREATE OPERATOR PROFILE */

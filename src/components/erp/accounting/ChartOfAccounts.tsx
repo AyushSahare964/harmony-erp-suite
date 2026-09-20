@@ -46,37 +46,29 @@ export interface LedgerEntry {
 
 // Fallback initial accounts
 const DEFAULT_ACCOUNTS: Account[] = [
-  { code: "1000", name: "Assets", type: "Assets", isGroup: true, balance: 3270000 },
-  { code: "1100", name: "Cash", type: "Assets", isGroup: false, parent: "1000", balance: 142000 },
-  { code: "1200", name: "Bank — HDFC Current", type: "Assets", isGroup: false, parent: "1000", balance: 1288000 },
-  { code: "1300", name: "Accounts Receivable", type: "Assets", isGroup: false, parent: "1000", balance: 680000 },
-  { code: "1400", name: "Inventory", type: "Assets", isGroup: false, parent: "1000", balance: 1160000 },
-  { code: "2000", name: "Liabilities", type: "Liabilities", isGroup: true, balance: 420000 },
-  { code: "2100", name: "Accounts Payable", type: "Liabilities", isGroup: false, parent: "2000", balance: 240000 },
-  { code: "2200", name: "GST Payable", type: "Liabilities", isGroup: false, parent: "2000", balance: 180000 },
-  { code: "3000", name: "Equity", type: "Equity", isGroup: true, balance: 1610000 },
-  { code: "3100", name: "Owner's Capital", type: "Equity", isGroup: false, parent: "3000", balance: 1610000 },
-  { code: "4000", name: "Income", type: "Income", isGroup: true, balance: 2160000 },
-  { code: "4100", name: "Consultation Income", type: "Income", isGroup: false, parent: "4000", balance: 845000 },
-  { code: "4200", name: "Pharmacy Income", type: "Income", isGroup: false, parent: "4000", balance: 462000 },
-  { code: "4300", name: "Laboratory Income", type: "Income", isGroup: false, parent: "4000", balance: 411000 },
-  { code: "4400", name: "Boarding Income", type: "Income", isGroup: false, parent: "4000", balance: 340000 },
-  { code: "4500", name: "Swimming Income", type: "Income", isGroup: false, parent: "4000", balance: 102000 },
-  { code: "5000", name: "Expense", type: "Expense", isGroup: true, balance: 920000 },
-  { code: "5100", name: "Salaries", type: "Expense", isGroup: false, parent: "5000", balance: 740000 },
-  { code: "5200", name: "Supplier Payments", type: "Expense", isGroup: false, parent: "5000", balance: 112000 },
-  { code: "5300", name: "Utilities & Rent", type: "Expense", isGroup: false, parent: "5000", balance: 68000 },
+  { code: "1000", name: "Assets", type: "Assets", isGroup: true, balance: 0 },
+  { code: "1100", name: "Cash", type: "Assets", isGroup: false, parent: "1000", balance: 0 },
+  { code: "1200", name: "Bank — HDFC Current", type: "Assets", isGroup: false, parent: "1000", balance: 0 },
+  { code: "1300", name: "Accounts Receivable", type: "Assets", isGroup: false, parent: "1000", balance: 0 },
+  { code: "1400", name: "Inventory", type: "Assets", isGroup: false, parent: "1000", balance: 0 },
+  { code: "2000", name: "Liabilities", type: "Liabilities", isGroup: true, balance: 0 },
+  { code: "2100", name: "Accounts Payable", type: "Liabilities", isGroup: false, parent: "2000", balance: 0 },
+  { code: "2200", name: "GST Payable", type: "Liabilities", isGroup: false, parent: "2000", balance: 0 },
+  { code: "3000", name: "Equity", type: "Equity", isGroup: true, balance: 0 },
+  { code: "3100", name: "Owner's Capital", type: "Equity", isGroup: false, parent: "3000", balance: 0 },
+  { code: "4000", name: "Income", type: "Income", isGroup: true, balance: 0 },
+  { code: "4100", name: "Consultation Income", type: "Income", isGroup: false, parent: "4000", balance: 0 },
+  { code: "4200", name: "Pharmacy Income", type: "Income", isGroup: false, parent: "4000", balance: 0 },
+  { code: "4300", name: "Laboratory Income", type: "Income", isGroup: false, parent: "4000", balance: 0 },
+  { code: "4400", name: "Boarding Income", type: "Income", isGroup: false, parent: "4000", balance: 0 },
+  { code: "4500", name: "Swimming Income", type: "Income", isGroup: false, parent: "4000", balance: 0 },
+  { code: "5000", name: "Expense", type: "Expense", isGroup: true, balance: 0 },
+  { code: "5100", name: "Salaries", type: "Expense", isGroup: false, parent: "5000", balance: 0 },
+  { code: "5200", name: "Supplier Payments", type: "Expense", isGroup: false, parent: "5000", balance: 0 },
+  { code: "5300", name: "Utilities & Rent", type: "Expense", isGroup: false, parent: "5000", balance: 0 },
 ];
 
-const INITIAL_LEDGER: LedgerEntry[] = [
-  { date: "2026-08-15", account: "Consultation Income", voucherType: "Sales Invoice", voucherNo: "INV-20481", debit: 0, credit: 84500, runningBalance: 845000 },
-  { date: "2026-08-15", account: "Pharmacy Income", voucherType: "Sales Invoice", voucherNo: "INV-20482", debit: 0, credit: 46200, runningBalance: 462000 },
-  { date: "2026-08-14", account: "Salaries", voucherType: "Journal Entry", voucherNo: "JV-3303", debit: 38000, credit: 0, runningBalance: 740000 },
-  { date: "2026-08-14", account: "Accounts Payable", voucherType: "Purchase Invoice", voucherNo: "JV-3304", debit: 112000, credit: 0, runningBalance: 240000 },
-  { date: "2026-08-13", account: "GST Payable", voucherType: "Journal Entry", voucherNo: "JV-3305", debit: 0, credit: 180000, runningBalance: 180000 },
-  { date: "2026-08-12", account: "Bank — HDFC Current", voucherType: "Payment Entry", voucherNo: "PE-1101", debit: 124850, credit: 0, runningBalance: 1288000 },
-  { date: "2026-08-11", account: "Laboratory Income", voucherType: "Sales Invoice", voucherNo: "INV-20478", debit: 0, credit: 41000, runningBalance: 411000 },
-];
+const INITIAL_LEDGER: LedgerEntry[] = [];
 
 function money(v: number) {
   if (Math.abs(v) >= 100000) return `₹${(v / 100000).toFixed(1)}L`;

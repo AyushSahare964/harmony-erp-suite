@@ -40,6 +40,59 @@ export function DoctorDashboardView({
   onOpenRegisterModal,
   onAdmitPet,
 }: Props) {
+  const waitingVisits = (visits || []).filter(
+    (v) => v.status !== "Paid" && v.status !== "Settled" && v.status !== "Completed"
+  );
+  const consultationsDone = (visits || []).filter(
+    (v) => v.status === "In Consultation" || v.status === "Completed" || v.status === "Paid" || v.status === "Settled"
+  );
+  const vaccinationsDone = (visits || []).filter(
+    (v) =>
+      String(v.vitals?.complaint || "").toLowerCase().includes("vacc") ||
+      v.items?.some((i: any) => String(i.lineType || "").toLowerCase() === "vaccine")
+  );
+  const prescriptionsIssued = (visits || []).filter(
+    (v) => v.prescriptionNo || v.prescriptionData || (v.items && v.items.length > 0)
+  );
+  const followupsDue = (visits || []).filter(
+    (v) =>
+      v.prescriptionData?.followUp?.nextVisitDate &&
+      v.prescriptionData.followUp.nextVisitDate !== "Not scheduled"
+  );
+
+  const doctorKpis = [
+    {
+      label: "Patients Waiting",
+      value: String(waitingVisits.length),
+      trend: waitingVisits.length > 0 ? "In OPD queue" : "Queue clear",
+      trendTone: waitingVisits.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+    {
+      label: "Today's Consultations",
+      value: String(consultationsDone.length),
+      trend: `${visits.length} total visits today`,
+      trendTone: consultationsDone.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+    {
+      label: "Vaccinations Done",
+      value: String(vaccinationsDone.length),
+      trend: vaccinationsDone.length > 0 ? "Administered" : "0 scheduled",
+      trendTone: vaccinationsDone.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+    {
+      label: "Prescriptions Issued",
+      value: String(prescriptionsIssued.length),
+      trend: prescriptionsIssued.length > 0 ? "Live FEFO sync" : "0 issued",
+      trendTone: prescriptionsIssued.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+    {
+      label: "Follow-ups Due",
+      value: String(followupsDue.length),
+      trend: followupsDue.length > 0 ? "Scheduled" : "None pending",
+      trendTone: followupsDue.length > 0 ? ("up" as const) : ("flat" as const),
+    },
+  ];
+
   return (
     <div className="space-y-7">
       {/* ── 2-Column Responsive Workspace: Main Dashboard + Patient Activity Right Panel ── */}
@@ -214,7 +267,7 @@ export function DoctorDashboardView({
 
       {/* ── Doctor KPI Cards Grid ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        {role.kpis.map((k: any, idx: number) => (
+        {doctorKpis.map((k, idx) => (
           <KpiCard key={k.label} kpi={k} index={idx} />
         ))}
       </div>

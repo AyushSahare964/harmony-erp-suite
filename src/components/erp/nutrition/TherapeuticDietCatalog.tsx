@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Bone,
   Search,
@@ -14,31 +14,42 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
 import { cn } from "@/lib/utils";
 
-const DIET_STOCK_ITEMS = [
-  { sku: "DIET-101", name: "Royal Canin Renal Support 4kg", category: "Renal Care", currentStock: "8 Bags", reorderLevel: "10 Bags", price: "₹2,450", status: "Low Stock" },
-  { sku: "DIET-102", name: "Farmina Vet Life Gastrointestinal 2kg", category: "Digestive Care", currentStock: "18 Bags", reorderLevel: "8 Bags", price: "₹1,850", status: "In Stock" },
-  { sku: "DIET-103", name: "Hill's Prescription Diet Hypoallergenic z/d 3.5kg", category: "Dermatology", currentStock: "4 Bags", reorderLevel: "6 Bags", price: "₹3,100", status: "Reorder Due" },
-  { sku: "DIET-104", name: "Royal Canin Satiety Weight Management 6kg", category: "Weight Loss", currentStock: "12 Bags", reorderLevel: "5 Bags", price: "₹3,400", status: "In Stock" },
-  { sku: "DIET-105", name: "Royal Canin Puppy Maxi Growth 15kg", category: "Puppy Care", currentStock: "15 Bags", reorderLevel: "8 Bags", price: "₹6,200", status: "In Stock" },
-  { sku: "DIET-106", name: "Royal Canin Hairball Care Feline 2kg", category: "Feline Care", currentStock: "2 Bags", reorderLevel: "5 Bags", price: "₹1,650", status: "Critical Low" },
-  { sku: "DIET-107", name: "Farmina Vet Life Diabetic Management 2kg", category: "Endocrine", currentStock: "6 Bags", reorderLevel: "4 Bags", price: "₹1,950", status: "In Stock" },
-];
+interface Props {
+  items?: any[];
+}
 
-export function TherapeuticDietCatalog() {
+export function TherapeuticDietCatalog({ items }: Props) {
+  const [internalItems, setInternalItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (!items) {
+      setLoading(true);
+      getItemsFn({ data: { type: "FOOD" } })
+        .then((res) => setInternalItems(res || []))
+        .catch((err) => console.error(err))
+        .finally(() => setLoading(false));
+    }
+  }, [items]);
+
+  const sourceItems = items ?? internalItems;
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    return DIET_STOCK_ITEMS.filter(
+    return sourceItems.filter(
       (d) =>
         !q ||
-        d.name.toLowerCase().includes(q) ||
-        d.sku.toLowerCase().includes(q) ||
-        d.category.toLowerCase().includes(q)
+        d.name?.toLowerCase().includes(q) ||
+        d.itemCode?.toLowerCase().includes(q) ||
+        d.sku?.toLowerCase().includes(q) ||
+        d.category?.toLowerCase().includes(q) ||
+        d.brand?.toLowerCase().includes(q)
     );
-  }, [query]);
+  }, [sourceItems, query]);
 
   return (
     <div className="space-y-4">
@@ -72,43 +83,69 @@ export function TherapeuticDietCatalog() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {filtered.map((d) => (
-              <tr key={d.sku} className="hover:bg-muted/20">
-                <td className="px-4 py-3 font-mono font-bold text-foreground">
-                  <span className="bg-muted px-2 py-0.5 rounded text-xs border border-border">
-                    {d.sku}
-                  </span>
-                </td>
-                <td className="px-4 py-3 font-bold text-foreground">{d.name}</td>
-                <td className="px-4 py-3">
-                  <Badge variant="outline" className="text-[10px] font-semibold bg-primary/10 text-primary border-primary/30">
-                    {d.category}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3 font-mono font-bold text-foreground">{d.currentStock}</td>
-                <td className="px-4 py-3 font-mono text-muted-foreground">{d.reorderLevel}</td>
-                <td className="px-4 py-3 text-right font-mono font-bold text-foreground">{d.price}</td>
-                <td className="px-4 py-3">
-                  <span className={cn(
-                    "text-[10px] font-bold px-2 py-0.5 rounded",
-                    d.status === "In Stock" ? "bg-emerald-500/10 text-emerald-600" :
-                    d.status === "Critical Low" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"
-                  )}>
-                    {d.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => toast.info(`Purchase Order draft created for ${d.name}`)}
-                    className="h-7 text-[11px] font-semibold text-primary"
-                  >
-                    Reorder Stock
-                  </Button>
+            {filtered.map((d) => {
+              const currentStock = d.currentStock ?? 0;
+              const reorderLevel = d.reorderLevel ?? 0;
+              const uom = d.salesUom || d.unit || "Units";
+              const isOos = currentStock <= 0;
+              const isLow = currentStock <= reorderLevel;
+              const statusText = isOos ? "Critical Low" : isLow ? "Low Stock" : "In Stock";
+
+              return (
+                <tr key={d.itemCode || d.sku} className="hover:bg-muted/20">
+                  <td className="px-4 py-3 font-mono font-bold text-foreground">
+                    <span className="bg-muted px-2 py-0.5 rounded text-xs border border-border">
+                      {d.itemCode || d.sku}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-bold text-foreground">{d.name}</p>
+                    {d.brand && <p className="text-[10px] text-muted-foreground">{d.brand}</p>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge variant="outline" className="text-[10px] font-semibold bg-primary/10 text-primary border-primary/30">
+                      {d.category || d.foodDetails?.species || "Clinical Nutrition"}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 font-mono font-bold text-foreground">
+                    {currentStock} {uom}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-muted-foreground">
+                    {reorderLevel} {uom}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono font-bold text-foreground">
+                    ₹{Number(d.sellingPrice || 0).toLocaleString("en-IN")}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      "text-[10px] font-bold px-2 py-0.5 rounded",
+                      !isLow ? "bg-emerald-500/10 text-emerald-600" :
+                      isOos ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"
+                    )}>
+                      {statusText}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => toast.info(`Purchase Order draft created for ${d.name}`)}
+                      className="h-7 text-[11px] font-semibold text-primary"
+                    >
+                      Reorder Stock
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="py-12 text-center text-xs text-muted-foreground">
+                  {loading ? "Loading prescription diet stock..." : "No prescription diet products found."}
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>

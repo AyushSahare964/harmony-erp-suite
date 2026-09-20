@@ -11,7 +11,12 @@
  * removable), ledgers last (the thing that must never be half-written).
  */
 
-import mongoose, { type ClientSession } from "mongoose";
+import * as mongooseModule from "mongoose";
+import type { ClientSession } from "mongoose";
+
+const mongoose =
+  (mongooseModule as unknown as { default?: typeof mongooseModule }).default ||
+  mongooseModule;
 
 export interface TxnContext {
   /** Undefined when the cluster has no transaction support. */

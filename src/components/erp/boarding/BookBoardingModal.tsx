@@ -17,9 +17,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "sonner";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { createBoardingBookingFn } from "@/lib/mongodb/serverFns/facilities";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface Props {
   open: boolean;
@@ -76,7 +77,7 @@ export function BookBoardingModal({ open, onClose, onBooked }: Props) {
     );
   }).slice(0, 6);
 
-  const handleBook = () => {
+  const handleBook = async () => {
     if (!selectedPet) {
       toast.error("Please select a pet");
       return;
@@ -84,6 +85,7 @@ export function BookBoardingModal({ open, onClose, onBooked }: Props) {
 
     setSubmitting(true);
     const newBooking = {
+      id: bookingId,
       booking: bookingId,
       pet: selectedPet.name,
       petId: selectedPet.petId,
@@ -98,14 +100,20 @@ export function BookBoardingModal({ open, onClose, onBooked }: Props) {
       status: "Booked",
       dietPlan,
       notes,
+      createdAt: new Date().toISOString(),
     };
 
-    setTimeout(() => {
-      setSubmitting(false);
+    try {
+      await createBoardingBookingFn({ data: newBooking });
       toast.success(`Boarding booked for ${selectedPet.name} in ${kennel}!`);
       onBooked?.(newBooking);
       onClose();
-    }, 200);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save boarding booking");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

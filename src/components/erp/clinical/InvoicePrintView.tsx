@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Printer, Receipt, CheckCircle2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
+import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 
 import { cn } from "@/lib/utils";
 
@@ -83,16 +84,26 @@ export function InvoicePrintView({ visit, open, onClose }: Props) {
         {/* Printable Invoice Page */}
         <div id="invoice-printable-area" className="flex-1 overflow-y-auto p-8 bg-white text-black space-y-6 print:p-0">
           {/* Header */}
-          <div className="border-b-2 border-black pb-4 flex items-start justify-between">
-            <div>
-              <h1 className="text-xl font-black tracking-tight text-gray-900">Real Care Small Animal Clinic</h1>
-              <p className="text-xs text-gray-600">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
-              <p className="text-xs text-gray-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
-              {isGst && <p className="text-xs font-mono font-bold text-gray-800">GSTIN: 27AABCV1234F1Z5</p>}
-              <p className="text-xs text-gray-600">Branch: {visit?.branch || "Central Avenue, Nagpur"}</p>
+          <div className="border-b-2 border-blue-900 pb-4 flex items-start justify-between">
+            <div className="flex items-start gap-3">
+              <img
+                src={CLINIC_CONFIG.logoPath}
+                alt={CLINIC_CONFIG.fullName}
+                className="h-16 w-auto object-contain flex-shrink-0"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+              <div>
+                <h1 className="text-xl font-black tracking-tight text-blue-900">{CLINIC_CONFIG.fullName}</h1>
+                <p className="text-[11px] font-semibold text-blue-800">{CLINIC_CONFIG.subName}</p>
+                <p className="text-xs text-gray-700 font-semibold mt-0.5">{CLINIC_CONFIG.doctorName}</p>
+                <p className="text-[10px] text-gray-500">{CLINIC_CONFIG.doctorQualifications}</p>
+                <p className="text-xs text-gray-600">Phone: {CLINIC_CONFIG.phone} · {CLINIC_CONFIG.website}</p>
+                {isGst && CLINIC_CONFIG.gstin && <p className="text-xs font-mono font-bold text-gray-800">GSTIN: {CLINIC_CONFIG.gstin}</p>}
+                <p className="text-xs text-gray-600">{CLINIC_CONFIG.addressLine2}</p>
+              </div>
             </div>
             <div className="text-right text-xs space-y-1">
-              <span className="inline-block bg-black text-white font-bold px-2 py-0.5 rounded text-[10px] uppercase">
+              <span className="inline-block bg-blue-900 text-white font-bold px-2 py-0.5 rounded text-[10px] uppercase">
                 {isGst ? "TAX INVOICE" : "BILL OF SUPPLY"}
               </span>
               <p className="font-mono font-bold text-sm text-gray-900">{visit?.invoiceNo}</p>

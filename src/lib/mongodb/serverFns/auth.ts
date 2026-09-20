@@ -219,11 +219,13 @@ export const checkStaffStatusFn = createServerFn({ method: "POST" })
   });
 
 // ─── listStaffMembersFn (Used in Identity & Access Management Hub) ──────────
+// NOTE: system accounts (isSystemAccount: true) are hidden from the staff directory.
 
 export const listStaffMembersFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     await connectDB();
-    const users = await User.find({}).sort({ createdAt: -1 }).lean();
+    // Exclude built-in system / developer accounts from the public staff directory
+    const users = await User.find({ isSystemAccount: { $ne: true } }).sort({ createdAt: -1 }).lean();
     return JSON.parse(JSON.stringify(users.map((u) => ({
       id:              String(u._id),
       fullName:        u.fullName,
@@ -354,6 +356,108 @@ export const createStaffMemberByAdminFn = createServerFn({ method: "POST" })
 
   });
 
+// ─── updateStaffMemberFn ───────────────────────────────────────────────────
+
+const updateStaffSchema = z.object({
+  userId:         z.string(),
+  fullName:       z.string().min(2).optional(),
+  email:          z.string().email().optional(),
+  phone:          z.string().optional(),
+  clinicName:     z.string().optional(),
+  branch:         z.string().optional(),
+  roleId:         z.enum(["doctor", "admin", "reception", "accounts", "platform"]).optional(),
+  licenseNumber:  z.string().optional(),
+  qualification:  z.string().optional(),
+  department:     z.string().optional(),
+  specialty:      z.enum(["Canine", "Feline", "Avian", "Exotic", "Surgery", "General Practice", "Administration"]).optional(),
+  approvalStatus: z.enum(["approved", "pending", "rejected"]).optional(),
+  isActive:       z.boolean().optional(),
+});
+
+export const updateStaffMemberFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => updateStaffSchema.parse(raw))
+  .handler(async ({ data }): Promise<{ success: boolean; message: string; user?: any }> => {
+    await connectDB();
+    const user = await User.findById(data.userId);
+    if (!user) {
+      return { success: false, message: "Staff member not found in database." };
+    }
+
+    if (data.email && data.email.toLowerCase().trim() !== user.email) {
+      const cleanEmail = data.email.toLowerCase().trim();
+      const existing = await User.findOne({
+        email: cleanEmail,
+        _id: { $ne: data.userId },
+      }).lean();
+      if (existing) {
+        return { success: false, message: "Another staff account already uses this email address." };
+      }
+      user.email = cleanEmail;
+    }
+
+    if (data.fullName && data.fullName.trim() !== user.fullName) {
+      user.fullName = data.fullName.trim();
+      user.initials = getInitials(data.fullName.trim());
+    }
+
+    if (data.roleId && data.roleId !== user.roleId) {
+      user.roleId = data.roleId;
+      user.roleName = ROLES[data.roleId]?.name || "Clinic Staff";
+    }
+
+    if (data.phone !== undefined) user.phone = data.phone?.trim() || "";
+    if (data.clinicName !== undefined) user.clinicName = data.clinicName?.trim() || user.clinicName;
+    if (data.branch !== undefined) user.branch = data.branch?.trim() || user.branch;
+    if (data.licenseNumber !== undefined) user.licenseNumber = data.licenseNumber?.trim() || "";
+    if (data.qualification !== undefined) user.qualification = data.qualification?.trim() || "";
+    if (data.department !== undefined) user.department = data.department?.trim() || "";
+    if (data.specialty !== undefined) user.specialty = data.specialty;
+
+    if (data.approvalStatus !== undefined) {
+      user.approvalStatus = data.approvalStatus;
+      if (data.approvalStatus === "approved") {
+        user.approvedBy = user.approvedBy || "Clinic Administrator";
+        user.approvedAt = user.approvedAt || new Date();
+        user.isActive = true;
+      } else if (data.approvalStatus === "rejected") {
+        user.isActive = false;
+      }
+    }
+
+    if (data.isActive !== undefined) {
+      user.isActive = data.isActive;
+    }
+
+    await user.save();
+
+    return {
+      success: true,
+      message: `Staff member ${user.fullName}'s profile updated successfully!`,
+      user: toProfile(user.toObject ? user.toObject() : user),
+    };
+  });
+
+// ─── deleteStaffMemberFn ───────────────────────────────────────────────────
+
+export const deleteStaffMemberFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => z.object({ userId: z.string() }).parse(raw))
+  .handler(async ({ data }): Promise<{ success: boolean; message: string }> => {
+    await connectDB();
+    const user = await User.findById(data.userId);
+    if (!user) {
+      return { success: false, message: "Staff member not found in database." };
+    }
+
+    const userName = user.fullName;
+    await User.findByIdAndDelete(data.userId);
+    await RefreshToken.deleteMany({ userId: data.userId });
+
+    return {
+      success: true,
+      message: `Staff member ${userName} has been removed from the database.`,
+    };
+  });
+
 // ─── logoutFn ───────────────────────────────────────────────────────────────
 
 export const logoutFn = createServerFn({ method: "POST" })
@@ -393,35 +497,101 @@ export const getMeFn = createServerFn({ method: "GET" })
   });
 
 // ─── seedDemoUsersFn ─────────────────────────────────────────────────────────
+// Seeds ONLY the two built-in system credentials if they don't already exist.
+
+/** The two permanent built-in credential definitions. */
+const SYSTEM_CREDENTIALS = [
+  {
+    // ── Developer / hidden system account ────────────────────────────────────
+    // Not shown in the Identity Hub staff list (isSystemAccount: true).
+    // Logs in with full admin dashboard access.
+    fullName:        "Ayush Sahare",
+    email:           "ayush.sahare@vit.edu",
+    password:        "ayush@123",
+    phone:           "",
+    clinicName:      "VetCare Specialty Pet Hospital",
+    branch:          "Central Avenue, Nagpur",
+    roleId:          "admin" as RoleId,
+    roleName:        "Clinic Administrator / Medical Director",
+    initials:        "AS",
+    licenseNumber:   "SYS-DEV-0001",
+    qualification:   "B.Tech Computer Science",
+    department:      "System Administration",
+    specialty:       "Administration" as const,
+    approvalStatus:  "approved" as ApprovalStatus,
+    isSystemAccount: true,   // ← hidden from staff directory
+    isActive:        true,
+  },
+  {
+    // ── Visible admin — approves registrations ────────────────────────────────
+    // Shown in the Identity Hub staff list. Can review & approve new registrations.
+    fullName:        "Dr. Makarand Dixit",
+    email:           "makarand.dixit@gmail.com",
+    password:        "12345678",
+    phone:           "",
+    clinicName:      "VetCare Specialty Pet Hospital",
+    branch:          "Central Avenue, Nagpur",
+    roleId:          "admin" as RoleId,
+    roleName:        "Clinic Administrator / Medical Director",
+    initials:        "MD",
+    licenseNumber:   "",
+    qualification:   "",
+    department:      "Veterinary Administration",
+    specialty:       "Administration" as const,
+    approvalStatus:  "approved" as ApprovalStatus,
+    isSystemAccount: false,  // ← visible in staff directory
+    isActive:        true,
+  },
+];
 
 export const seedDemoUsersFn = createServerFn({ method: "POST" })
   .handler(async (): Promise<{ seeded: number; message: string }> => {
     await connectDB();
 
-    const demoUsers = [
-      { fullName: "Dr. Rohit Sharma", email: "rohit.sharma@vetos.cloud", password: "demo123", phone: "+91 98222 33445", clinicName: "Harmony Pet Super-Specialty Hospital", branch: "Central Hospital · Koramangala", roleId: "doctor", roleName: "Doctor / Senior Vet", initials: "RS", licenseNumber: "VCI-KAR-2016-5120", qualification: "BVSc & AH, MVSc (Surgery)", department: "Clinical OPD & Surgery", specialty: "Canine", approvalStatus: "approved" },
-      { fullName: "Dr. Aisha Nair",   email: "aisha.nair@vetos.cloud",   password: "demo123", phone: "+91 98111 44556", clinicName: "Harmony Pet Super-Specialty Hospital", branch: "Central Hospital · Koramangala", roleId: "admin",  roleName: "Clinic Administrator / Medical Director", initials: "AN", licenseNumber: "VCI-KAR-2018-8842", qualification: "BVSc & AH, MBA (Healthcare)", department: "Veterinary Administration", specialty: "Surgery", approvalStatus: "approved" },
-      { fullName: "Rohan Sen",        email: "rohan.sen@vetos.cloud",    password: "demo123", phone: "+91 98333 77889", clinicName: "Harmony Pet Super-Specialty Hospital", branch: "Central Hospital · Front Desk",   roleId: "reception", roleName: "Receptionist & Triage Lead", initials: "RS", licenseNumber: "STF-REC-204", qualification: "B.Sc (Hospitality)", department: "Patient Admittance & Triage", specialty: "General Practice", approvalStatus: "approved" },
-      { fullName: "Maya Iyer",        email: "maya.iyer@vetos.cloud",    password: "demo123", phone: "+91 98444 66778", clinicName: "Harmony Pet Super-Specialty Hospital", branch: "Central Hospital · Accounts Office", roleId: "accounts", roleName: "Accounts & Billing Manager", initials: "MI", licenseNumber: "FIN-ACC-552", qualification: "B.Com, M.Com (Finance)", department: "Finance & Taxation", specialty: "Administration", approvalStatus: "approved" },
-      { fullName: "Ishaan Verma",     email: "ishaan.verma@vetos.cloud", password: "demo123", phone: "+91 98200 11223", clinicName: "VetOS Cloud Infrastructure", branch: "Production · ap-south-1", roleId: "platform", roleName: "Platform Administrator", initials: "IV", licenseNumber: "VET-SYS-9901", qualification: "B.Tech (Cloud Systems)", department: "Cloud Operations", specialty: "Administration", approvalStatus: "approved" },
-    ];
-
     let seeded = 0;
-    for (const u of demoUsers) {
-      const exists = await User.findOne({ email: u.email }).lean();
+    for (const cred of SYSTEM_CREDENTIALS) {
+      const exists = await User.findOne({ email: cred.email.toLowerCase() }).lean();
       if (exists) continue;
-      const { password, ...rest } = u;
+      const { password, ...rest } = cred;
       const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await User.create({ ...rest, passwordHash, isActive: true } as any);
+      await User.create({ ...rest, passwordHash } as any);
       seeded++;
     }
 
     return {
       seeded,
       message: seeded > 0
-        ? `✅ Seeded ${seeded} hospital staff profiles into MongoDB.`
-        : "ℹ️ All staff users already exist.",
+        ? `✅ Seeded ${seeded} system credential(s) into MongoDB.`
+        : "ℹ️ System credentials already exist.",
+    };
+  });
+
+// ─── clearAndReseedFn — wipe all users, re-insert only system credentials ────
+
+export const clearAndReseedFn = createServerFn({ method: "POST" })
+  .handler(async (): Promise<{ deleted: number; seeded: number; message: string }> => {
+    await connectDB();
+
+    // 1. Wipe every user and every refresh token
+    const deleteResult = await User.deleteMany({});
+    await RefreshToken.deleteMany({});
+    const deleted = deleteResult.deletedCount ?? 0;
+
+    // 2. Re-insert only the two built-in credentials
+    let seeded = 0;
+    for (const cred of SYSTEM_CREDENTIALS) {
+      const { password, ...rest } = cred;
+      const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await User.create({ ...rest, passwordHash } as any);
+      seeded++;
+    }
+
+    return {
+      deleted,
+      seeded,
+      message: `✅ Cleared ${deleted} user records. Re-seeded ${seeded} system credentials.`,
     };
   });
 

@@ -351,12 +351,21 @@ export function LivePrescriptionSummaryPanel({
           <Button
             type="button"
             variant="outline"
-            disabled={!hasUnsavedChanges || isSavingAll}
+            disabled={!hasUnsavedChanges || isSavingAll || isProceeding}
             onClick={() => onSaveAllDraft()}
             className="w-full h-8 text-xs font-bold gap-1.5"
           >
-            <Save className="size-3.5" />
-            <span>Save All Draft</span>
+            {isSavingAll ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                <span>Saving All Draft...</span>
+              </>
+            ) : (
+              <>
+                <Save className="size-3.5" />
+                <span>Save All Draft</span>
+              </>
+            )}
           </Button>
         )}
 
@@ -369,7 +378,7 @@ export function LivePrescriptionSummaryPanel({
           {isProceeding ? (
             <>
               <Loader2 className="size-3.5 animate-spin" />
-              <span>Saving & Proceeding...</span>
+              <span>Proceeding to Billing...</span>
             </>
           ) : (
             <>
