@@ -104,13 +104,18 @@ export function LivePrescriptionSummaryPanel({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-card shadow-sm p-4 space-y-4 sticky top-0",
-        hasUnsavedChanges && "border-amber-300/80 dark:border-amber-700/60 shadow-xs",
+        // Sticky positioning flush to modal scroll top
+        "sticky top-0",
+        // Flex column layout: header pinned, items scroll, footer pinned
+        "flex flex-col rounded-xl border border-border bg-card shadow-sm",
+        // Cap height to viewport minus a small margin so it never overflows modal
+        "max-h-[calc(100vh-8rem)]",
+        hasUnsavedChanges && "border-amber-300/80 dark:border-amber-700/60",
         className
       )}
     >
-      {/* Header */}
-      <div className="border-b border-border pb-3 space-y-2">
+      {/* ── Pinned Header ──────────────────────────────────────────── */}
+      <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Receipt className="size-4 text-primary" />
@@ -124,7 +129,7 @@ export function LivePrescriptionSummaryPanel({
         </div>
 
         {/* Action Pills */}
-        <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="flex items-center justify-between gap-2">
           {onClonePrevious && (
             <Button
               type="button"
@@ -158,8 +163,8 @@ export function LivePrescriptionSummaryPanel({
         )}
       </div>
 
-      {/* Item Group List */}
-      <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1 text-xs">
+      {/* ── Scrollable Item List (hidden scrollbar, mouse-scroll works) ── */}
+      <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-3 space-y-2 text-xs min-h-0">
         {/* 1. Consultation Fee */}
         {consultTotal > 0 && (
           <div className="rounded-lg border border-border/60 bg-muted/20 p-2 space-y-1">
@@ -326,10 +331,11 @@ export function LivePrescriptionSummaryPanel({
           </div>
         )}
       </div>
+      {/* ── Pinned Footer ──────────────────────────────────────────── */}
 
       {/* Settled Lock Notice */}
       {isSettled && (
-        <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-200 font-semibold space-y-1">
+        <div className="shrink-0 mx-4 mb-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-200 font-semibold space-y-1">
           <div className="flex items-center gap-1.5">
             <AlertCircle className="size-3.5 shrink-0" />
             <span>Bill Settled &amp; Paid</span>
@@ -341,7 +347,7 @@ export function LivePrescriptionSummaryPanel({
       )}
 
       {/* Action Buttons */}
-      <div className="border-t border-border pt-3 space-y-2">
+      <div className="shrink-0 border-t border-border px-4 pt-3 pb-4 space-y-2">
         <div className="flex items-center justify-between font-extrabold text-sm text-foreground">
           <span>Estimated Total</span>
           <span className="font-mono text-primary text-base">₹{grandTotal.toFixed(2)}</span>
