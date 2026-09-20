@@ -104,7 +104,7 @@ export function LivePrescriptionSummaryPanel({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-card shadow-sm p-4 space-y-4 sticky top-16",
+        "rounded-xl border border-border bg-card shadow-sm p-4 space-y-4 sticky top-0",
         hasUnsavedChanges && "border-amber-300/80 dark:border-amber-700/60 shadow-xs",
         className
       )}
