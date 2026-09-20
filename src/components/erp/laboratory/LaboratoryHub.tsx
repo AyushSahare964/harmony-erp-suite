@@ -480,6 +480,11 @@ export function LaboratoryHub() {
             setSelectedOrder(null);
           }}
           order={selectedOrder}
+          onEditResults={(orderToEdit) => {
+            setShowPrintModal(false);
+            setSelectedOrder(orderToEdit);
+            setShowResultsModal(true);
+          }}
         />
       </div>
     </Shell>
