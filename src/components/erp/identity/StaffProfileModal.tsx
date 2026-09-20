@@ -48,8 +48,8 @@ export function StaffProfileModal({ open, staff, onClose, onUpdated, onDeleted }
   const [specialty, setSpecialty] = useState<any>("General Practice");
   const [licenseNumber, setLicenseNumber] = useState("");
   const [qualification, setQualification] = useState("");
-  const [clinicName, setClinicName] = useState("VetCare Specialty Pet Hospital");
-  const [branch, setBranch] = useState("Central Avenue, Nagpur");
+  const [clinicName, setClinicName] = useState("Real Care Small Animal Clinic");
+  const [branch, setBranch] = useState("Nagpur");
   const [approvalStatus, setApprovalStatus] = useState<"approved" | "pending" | "rejected">("approved");
   const [isActive, setIsActive] = useState(true);
 
@@ -63,8 +63,8 @@ export function StaffProfileModal({ open, staff, onClose, onUpdated, onDeleted }
       setSpecialty(staff.specialty || "General Practice");
       setLicenseNumber(staff.licenseNumber || "");
       setQualification(staff.qualification || "");
-      setClinicName(staff.clinicName || "VetCare Specialty Pet Hospital");
-      setBranch(staff.branch || "Central Avenue, Nagpur");
+      setClinicName(staff.clinicName || "Real Care Small Animal Clinic");
+      setBranch(staff.branch || "Nagpur");
       setApprovalStatus(staff.approvalStatus || "approved");
       setIsActive(staff.isActive !== undefined ? staff.isActive : true);
       setShowDeleteConfirm(false);

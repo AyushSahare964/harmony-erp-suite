@@ -108,6 +108,22 @@ export function IdentityAccessHub() {
     setShowProfileModal(true);
   };
 
+  const handleDeleteStaff = async (staff: any) => {
+    if (!window.confirm(`Remove ${staff.fullName} from the staff directory? This permanently deletes their login credentials and access.`)) return;
+    try {
+      const res = await AuthService.deleteStaff({ userId: staff.id });
+      if (res.success) {
+        toast.success(res.message || "Staff member removed from database.");
+        void loadStaff();
+      } else {
+        toast.error(res.message || "Failed to delete staff member.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Error deleting staff member from database.");
+    }
+  };
+
   const handleClearAndReseed = async () => {
     if (!window.confirm(
       "⚠️ This will PERMANENTLY DELETE all staff records from MongoDB and re-insert only the 2 default system credentials (Makarand Dixit + Ayush Sahare).\n\nContinue?"
@@ -459,6 +475,15 @@ export function IdentityAccessHub() {
                           title="View and edit staff profile"
                         >
                           <Key className="size-3 mr-1" /> Edit Profile
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteStaff(staff)}
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Delete Staff Member"
+                        >
+                          <Trash2 className="size-3.5" />
                         </Button>
                       </div>
                     </td>

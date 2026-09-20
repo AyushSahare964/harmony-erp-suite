@@ -47,44 +47,9 @@ interface Subscription {
 }
 
 /* ─── Seed data ───────────────────────────────────────────────────── */
-const SEED_PLANS: SubscriptionPlan[] = [
-  { id: "pl1", name: "Boarding Monthly Pass",   price: 8500,  billingType: "recurring",     frequency: "monthly",   sessionCount: null, validityDays: 30,  category: "Boarding" },
-  { id: "pl2", name: "Swimming 10-Session Pack", price: 3200, billingType: "session_pack",  frequency: null,        sessionCount: 10,   validityDays: 60,  category: "Swimming" },
-  { id: "pl3", name: "Wellness Annual Plan",    price: 5999,  billingType: "recurring",     frequency: "annual",    sessionCount: null, validityDays: 365, category: "Clinic" },
-  { id: "pl4", name: "Grooming Quarterly Pack", price: 2800,  billingType: "recurring",     frequency: "quarterly", sessionCount: null, validityDays: 90,  category: "Grooming" },
-  { id: "pl5", name: "Swimming Monthly Pass",   price: 1800,  billingType: "recurring",     frequency: "monthly",   sessionCount: null, validityDays: 30,  category: "Swimming" },
-];
-
-const SEED_SUBSCRIPTIONS: Subscription[] = [
-  {
-    id: "s1", planId: "pl2", planName: "Swimming 10-Session Pack", petName: "Bruno", ownerName: "Tariq Hussain",
-    status: "Active", startDate: "01/08/2026", endDate: "30/09/2026", sessionsRemaining: 7,
-    nextBillingDate: null, totalPaid: 3200,
-  },
-  {
-    id: "s2", planId: "pl1", planName: "Boarding Monthly Pass", petName: "Luna", ownerName: "Vikram Shetty",
-    status: "Expiring", startDate: "16/07/2026", endDate: "15/08/2026", sessionsRemaining: null,
-    nextBillingDate: "15/08/2026", totalPaid: 8500,
-  },
-  {
-    id: "s3", planId: "pl3", planName: "Wellness Annual Plan", petName: "Simba", ownerName: "Nalini Prasad",
-    status: "Active", startDate: "01/01/2026", endDate: "31/12/2026", sessionsRemaining: null,
-    nextBillingDate: "01/09/2026", totalPaid: 5999,
-  },
-  {
-    id: "s4", planId: "pl5", planName: "Swimming Monthly Pass", petName: "Coco", ownerName: "Deepika Iyer",
-    status: "Cancelled", startDate: "01/06/2026", endDate: "30/06/2026", sessionsRemaining: null,
-    nextBillingDate: null, totalPaid: 1800,
-  },
-];
-
-const PETS = [
-  { id: "PET-001", name: "Bruno",  owner: "Tariq Hussain"  },
-  { id: "PET-002", name: "Luna",   owner: "Vikram Shetty"  },
-  { id: "PET-003", name: "Simba",  owner: "Nalini Prasad"  },
-  { id: "PET-004", name: "Coco",   owner: "Deepika Iyer"   },
-  { id: "PET-005", name: "Milo",   owner: "Ananya Sharma"  },
-];
+const SEED_PLANS: SubscriptionPlan[] = [];
+const SEED_SUBSCRIPTIONS: Subscription[] = [];
+const PETS: Array<{ id: string; name: string; owner: string }> = [];
 
 function money(v: number) {
   return `₹${v.toLocaleString("en-IN")}`;

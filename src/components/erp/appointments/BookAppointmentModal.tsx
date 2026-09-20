@@ -53,8 +53,12 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
   // Quick-add: when the typed patient name matches no existing record
   const [newPetSpecies, setNewPetSpecies] = useState<"Canine" | "Feline" | "Avian" | "Rabbit" | "Exotic" | "Other">("Canine");
   const [newPetBreed, setNewPetBreed] = useState("");
+  const [newPetGender, setNewPetGender] = useState<"Male" | "Female" | "Neutered Male" | "Spayed Female">("Male");
+  const [newPetDob, setNewPetDob] = useState("");
+  const [newPetAgeYears, setNewPetAgeYears] = useState("");
   const [newOwnerName, setNewOwnerName] = useState("");
   const [newOwnerPhone, setNewOwnerPhone] = useState("");
+  const [newPetHasAllergies, setNewPetHasAllergies] = useState<"no" | "yes">("no");
   const [newPetAllergies, setNewPetAllergies] = useState("");
   const [creatingPatient, setCreatingPatient] = useState(false);
 
@@ -174,14 +178,22 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
 
     setCreatingPatient(true);
     try {
-      const allergies = newPetAllergies
-        .split(",")
-        .map((a) => a.trim())
-        .filter(Boolean);
+      const allergies =
+        newPetHasAllergies === "yes"
+          ? newPetAllergies.split(",").map((a) => a.trim()).filter(Boolean)
+          : [];
       const result = await createOwnerWithMultiplePetsFn({
         data: {
           owner: { name: newOwnerName.trim(), phone: newOwnerPhone.trim() },
-          pets: [{ name: petName, species: newPetSpecies, breed: newPetBreed.trim(), allergies }],
+          pets: [{
+            name: petName,
+            species: newPetSpecies,
+            breed: newPetBreed.trim(),
+            gender: newPetGender,
+            dob: newPetDob || undefined,
+            ageYears: newPetAgeYears ? Number(newPetAgeYears) : undefined,
+            allergies,
+          }],
         },
       });
       const newPet = { ...result.pets[0], owner: result.owner };
@@ -189,8 +201,12 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
       setSelectedPet(newPet);
       setSearchPetQuery("");
       setNewPetBreed("");
+      setNewPetGender("Male");
+      setNewPetDob("");
+      setNewPetAgeYears("");
       setNewOwnerName("");
       setNewOwnerPhone("");
+      setNewPetHasAllergies("no");
       setNewPetAllergies("");
       toast.success(`New patient ${newPet.name} (${newPet.petId}) added and selected`);
     } catch (e) {
@@ -411,14 +427,79 @@ export function BookAppointmentModal({ open, onClose, onBooked, appointmentToEdi
                       className="h-8 text-xs bg-card"
                     />
                   </div>
-                  <div className="space-y-1 sm:col-span-2">
-                    <Label className="text-[11px] font-semibold text-muted-foreground">Known Allergies (optional, comma separated)</Label>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Gender</Label>
+                    <Select value={newPetGender} onValueChange={(v) => setNewPetGender(v as any)}>
+                      <SelectTrigger className="h-8 text-xs bg-card">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Male">Male</SelectItem>
+                        <SelectItem value="Female">Female</SelectItem>
+                        <SelectItem value="Neutered Male">Neutered Male</SelectItem>
+                        <SelectItem value="Spayed Female">Spayed Female</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Age (Years, optional)</Label>
                     <Input
-                      value={newPetAllergies}
-                      onChange={(e) => setNewPetAllergies(e.target.value)}
-                      placeholder="e.g. Penicillin, Chicken protein"
+                      type="number"
+                      min="0"
+                      value={newPetAgeYears}
+                      onChange={(e) => setNewPetAgeYears(e.target.value)}
+                      placeholder="e.g. 2"
                       className="h-8 text-xs bg-card"
                     />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Date of Birth (optional)</Label>
+                    <Input
+                      type="date"
+                      value={newPetDob}
+                      onChange={(e) => {
+                        const dobVal = e.target.value;
+                        setNewPetDob(dobVal);
+                        if (dobVal) {
+                          const birth = new Date(dobVal);
+                          const now = new Date();
+                          const diffYears = now.getFullYear() - birth.getFullYear();
+                          if (diffYears >= 0) setNewPetAgeYears(String(diffYears));
+                        }
+                      }}
+                      className="h-8 text-xs bg-card"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Any Known Allergies?</Label>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={newPetHasAllergies === "no" ? "default" : "outline"}
+                        onClick={() => setNewPetHasAllergies("no")}
+                        className="h-7 text-[11px] font-semibold px-3"
+                      >
+                        No
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={newPetHasAllergies === "yes" ? "default" : "outline"}
+                        onClick={() => setNewPetHasAllergies("yes")}
+                        className="h-7 text-[11px] font-semibold px-3"
+                      >
+                        Yes
+                      </Button>
+                    </div>
+                    {newPetHasAllergies === "yes" && (
+                      <Input
+                        value={newPetAllergies}
+                        onChange={(e) => setNewPetAllergies(e.target.value)}
+                        placeholder="e.g. Penicillin, Chicken protein"
+                        className="h-8 text-xs bg-card mt-1.5"
+                      />
+                    )}
                   </div>
                 </div>
                 <Button

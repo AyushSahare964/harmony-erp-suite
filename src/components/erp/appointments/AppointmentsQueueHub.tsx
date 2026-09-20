@@ -41,7 +41,6 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { BookAppointmentModal } from "./BookAppointmentModal";
-import { VisitWorkspaceModal } from "@/components/erp/clinical/VisitWorkspaceModal";
 import { listAppointmentsFn, createAppointmentFn, updateAppointmentStatusFn, deleteAppointmentFn } from "@/lib/mongodb/serverFns/appointments";
 import { getUpcomingFollowUpsFn, admitPatientFn } from "@/lib/mongodb/serverFns/clinical";
 import { cn } from "@/lib/utils";
@@ -117,8 +116,6 @@ export function AppointmentsQueueHub() {
   const [showBookModal, setShowBookModal] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<any | null>(null);
   const [selectedFollowUp, setSelectedFollowUp] = useState<any | null>(null);
-  const [showVisitWorkspace, setShowVisitWorkspace] = useState(false);
-  const [selectedVisit, setSelectedVisit] = useState<any | null>(null);
 
   // Follow-ups
   const [followUps, setFollowUps] = useState<any[]>([]);
@@ -288,45 +285,16 @@ export function AppointmentsQueueHub() {
       );
       void updateAppointmentStatusFn({ data: { token: app.token, status: "In consultation" } });
 
-      toast.success(`Patient admitted: ${created.visitId}`, { id: "admit-opd" });
-      setSelectedVisit(created);
-      setShowVisitWorkspace(true);
+      toast.success(`Patient admitted to OPD queue: ${created.visitId}. The attending doctor can begin consultation from the Home Dashboard.`, { id: "admit-opd" });
     } catch (err: any) {
       console.warn("Could not admit patient on server, using session fallback:", err);
       toast.dismiss("admit-opd");
-      const visitDraft = {
-        visitId: `V-${Math.floor(1000 + Math.random() * 9000)}`,
-        invoiceNo: `INV-${Math.floor(900 + Math.random() * 90)}`,
-        prescriptionNo: `RX-${Math.floor(900 + Math.random() * 90)}`,
-        date: new Date().toISOString().slice(0, 10),
-        branch: "Main Clinic",
-        billType: "GST",
-        petId: app.petId || "PET-0001",
-        petName: app.pet,
-        species: app.species || "Canine",
-        breed: app.breed || "Mix",
-        ownerId: app.ownerId || "OWN-0001",
-        ownerName: app.owner,
-        ownerPhone: app.ownerPhone || "N/A",
-        doctorName: app.doctor,
-        status: "Admitted",
-        vitals: {
-          weightKg: 25.0,
-          tempC: 38.5,
-          complaint: `${app.type} — Token ${app.token}`,
-        },
-        items: [],
-        subtotal: 0,
-        totalAmount: 0,
-        amountPaid: 0,
-      };
 
       setAppointments((prev) =>
         prev.map((a) => (a.token === app.token ? { ...a, status: "In consultation" } : a))
       );
 
-      setSelectedVisit(visitDraft);
-      setShowVisitWorkspace(true);
+      toast.success(`Patient admitted to OPD queue. The attending doctor can begin consultation from the Home Dashboard.`);
     }
   };
 
@@ -855,23 +823,6 @@ export function AppointmentsQueueHub() {
           onBooked={handleBookedNew}
           onUpdated={handleUpdatedAppointment}
         />
-
-        {/* Clinical Workspace Modal for Consultation & Billing */}
-        {selectedVisit && (
-          <VisitWorkspaceModal
-            open={showVisitWorkspace}
-            onClose={() => {
-              setShowVisitWorkspace(false);
-              setSelectedVisit(null);
-            }}
-            visit={selectedVisit}
-            onVisitFinalized={() => {
-              if (selectedVisit?.token) {
-                handleUpdateStatus(selectedVisit.token, "Completed");
-              }
-            }}
-          />
-        )}
       </div>
     </Shell>
   );

@@ -1,17 +1,10 @@
 import { useState, useEffect } from "react";
 import {
   FlaskConical,
-  Calendar,
-  User,
   Dog,
-  Plus,
   Search,
   CheckCircle2,
-  AlertTriangle,
-  Clock,
-  Sparkles,
   TestTube2,
-  Syringe,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -21,18 +14,11 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
+import { AuthService } from "@/lib/erp/auth";
+import { createLabOrderFn } from "@/lib/mongodb/serverFns/laboratory";
+import { loadTestCatalog, type LabTestProfile } from "@/lib/erp/labTestCatalog";
 import { cn } from "@/lib/utils";
-
-export const DEFAULT_TEST_CATALOG = [
-  { code: "TST-CBC", name: "Complete Blood Count (CBC + Diff)", sample: "Blood (EDTA Purple)", dept: "Hematology", tat: "2 hrs", price: 750, urgentAvailable: true },
-  { code: "TST-LFT", name: "Liver Function Panel (ALT, AST, ALP, Bili, Alb)", sample: "Serum (SST Yellow)", dept: "Biochemistry", tat: "4 hrs", price: 1200, urgentAvailable: true },
-  { code: "TST-KFT", name: "Kidney Function Panel (BUN, Creatinine, Phos)", sample: "Serum (SST Yellow)", dept: "Biochemistry", tat: "3 hrs", price: 950, urgentAvailable: true },
-  { code: "TST-ELISA-PARVO", name: "Canine Parvovirus Antigen ELISA Snap", sample: "Fecal Swab", dept: "Serology", tat: "30 min", price: 850, urgentAvailable: true },
-  { code: "TST-URINE", name: "Urinalysis + Microscopic Sediment", sample: "Urine (Sterile Cup)", dept: "Clinical Pathology", tat: "2 hrs", price: 500, urgentAvailable: false },
-  { code: "TST-SKIN-CYTO", name: "Skin Scraping Cytology & Tape Impression", sample: "Skin / Exudate", dept: "Microbiology", tat: "3 hrs", price: 650, urgentAvailable: false },
-  { code: "TST-THYROID", name: "Total Thyroxine (T4) Immunoassay", sample: "Serum (Plain Red)", dept: "Endocrinology", tat: "6 hrs", price: 1400, urgentAvailable: false },
-  { code: "TST-ELECTRO", name: "Electrolytes Panel (Na+, K+, Cl-, iCa)", sample: "Whole Blood (Heparin Green)", dept: "Critical Care", tat: "45 min", price: 800, urgentAvailable: true },
-];
 
 interface Props {
   open: boolean;
@@ -45,18 +31,29 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
   const [searchPetQuery, setSearchPetQuery] = useState("");
   const [selectedPet, setSelectedPet] = useState<any | null>(null);
 
+  // Diagnostic test catalog (shared, MongoDB-backed — kept in sync with Test Master & Profiles tab)
+  const [testCatalog, setTestCatalog] = useState<LabTestProfile[]>([]);
+  const [testSearchQuery, setTestSearchQuery] = useState("");
+
+  // Staff sourced from Identity, Roles & Access
+  const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
+  const [techList, setTechList] = useState<Array<{ id: string; fullName: string; roleName?: string }>>([]);
+
   // Order fields
   const [orderId, setOrderId] = useState(`LAB-${Math.floor(8800 + Math.random() * 200)}`);
-  const [selectedTestCodes, setSelectedTestCodes] = useState<string[]>(["TST-CBC"]);
+  const [selectedTestCodes, setSelectedTestCodes] = useState<string[]>([]);
   const [priority, setPriority] = useState<"Routine" | "Urgent STAT" | "Pre-Op">("Routine");
-  const [doctor, setDoctor] = useState("Dr. Rohit Sharma");
-  const [sampleCollector, setSampleCollector] = useState("Jyoti Sahare (Vet Tech)");
+  const [doctor, setDoctor] = useState("");
+  const [sampleCollector, setSampleCollector] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
       void loadPets();
+      void loadDoctors();
+      void loadTechs();
+      void loadTests();
       setOrderId(`LAB-${Math.floor(8800 + Math.random() * 200)}`);
     }
   }, [open]);
@@ -73,6 +70,42 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
     }
   };
 
+  const loadDoctors = async () => {
+    try {
+      const docs = await listApprovedDoctorsFn();
+      if (docs && docs.length > 0) {
+        setDoctorsList(docs);
+        setDoctor((prev) => (prev && docs.some((d) => d.name === prev) ? prev : docs[0]?.name || ""));
+      }
+    } catch (e) {
+      console.warn("[CreateLabOrderModal] Could not load doctors:", e);
+    }
+  };
+
+  const loadTechs = async () => {
+    try {
+      const staff = await AuthService.listStaff();
+      const active = (staff || []).filter((s: any) => s.approvalStatus === "approved" && s.isActive !== false);
+      setTechList(active);
+      setSampleCollector((prev) => {
+        if (prev) return prev;
+        const first = active[0];
+        return first ? `${first.fullName} (${first.roleName?.split("/")[0] || "Staff"})` : "";
+      });
+    } catch (e) {
+      console.warn("[CreateLabOrderModal] Could not load staff for sample collection:", e);
+    }
+  };
+
+  const loadTests = async () => {
+    try {
+      const rows = await loadTestCatalog();
+      setTestCatalog(rows);
+    } catch (e) {
+      console.warn("[CreateLabOrderModal] Could not load test catalog:", e);
+    }
+  };
+
   const filteredPets = pets.filter((p) => {
     const q = searchPetQuery.toLowerCase().trim();
     if (!q) return true;
@@ -84,16 +117,27 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
     );
   }).slice(0, 6);
 
+  const filteredTests = testCatalog.filter((t) => {
+    const q = testSearchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      t.name?.toLowerCase().includes(q) ||
+      t.code?.toLowerCase().includes(q) ||
+      t.sample?.toLowerCase().includes(q) ||
+      t.dept?.toLowerCase().includes(q)
+    );
+  });
+
   const toggleTest = (code: string) => {
     setSelectedTestCodes((prev) =>
       prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
     );
   };
 
-  const selectedTests = DEFAULT_TEST_CATALOG.filter((t) => selectedTestCodes.includes(t.code));
+  const selectedTests = testCatalog.filter((t) => selectedTestCodes.includes(t.code));
   const totalCost = selectedTests.reduce((acc, t) => acc + t.price, 0);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!selectedPet) {
       toast.error("Please select a patient");
       return;
@@ -106,6 +150,7 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
     setSubmitting(true);
     const newOrder = {
       order: orderId,
+      orderId,
       pet: selectedPet.name,
       petId: selectedPet.petId,
       species: selectedPet.species || "Canine",
@@ -113,6 +158,7 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
       owner: selectedPet.owner?.name || "Client",
       ownerPhone: selectedPet.owner?.phone || "N/A",
       test: selectedTests.map((t) => t.name).join(", "),
+      testName: selectedTests.map((t) => t.name).join(", "),
       tests: selectedTests,
       sample: selectedTests.map((t) => t.sample).join("; "),
       collected: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -125,12 +171,17 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
       notes,
     };
 
-    setTimeout(() => {
-      setSubmitting(false);
+    try {
+      await createLabOrderFn({ data: newOrder });
       toast.success(`Lab Order ${orderId} created for ${selectedPet.name} (${selectedTests.length} tests)!`);
       onOrderCreated?.(newOrder);
       onClose();
-    }, 200);
+    } catch (e) {
+      console.error("[CreateLabOrderModal] Could not save lab order:", e);
+      toast.error("Could not save lab order — please try again");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -217,8 +268,18 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
               <span className="text-xs font-mono font-bold text-primary">Est. Cost: ₹{totalCost.toLocaleString("en-IN")}</span>
             </div>
 
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search tests by name, panel code, department, or sample type..."
+                value={testSearchQuery}
+                onChange={(e) => setTestSearchQuery(e.target.value)}
+                className="pl-9 text-xs h-9"
+              />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 bg-muted/20 rounded-xl border border-border">
-              {DEFAULT_TEST_CATALOG.map((t) => {
+              {filteredTests.map((t) => {
                 const isChecked = selectedTestCodes.includes(t.code);
                 return (
                   <div
@@ -245,6 +306,11 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
                   </div>
                 );
               })}
+              {filteredTests.length === 0 && (
+                <div className="col-span-full py-6 text-center text-xs text-muted-foreground italic">
+                  No diagnostic tests match your search.
+                </div>
+              )}
             </div>
           </div>
 
@@ -268,24 +334,42 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
               <Label className="text-xs font-semibold text-foreground">Ordering Doctor</Label>
               <Select value={doctor} onValueChange={setDoctor}>
                 <SelectTrigger className="text-xs h-9 bg-card">
-                  <SelectValue />
+                  <SelectValue placeholder="Select doctor" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Dr. Rohit Sharma">Dr. Rohit Sharma</SelectItem>
-                  <SelectItem value="Dr. Aisha Nair">Dr. Aisha Nair</SelectItem>
-                  <SelectItem value="Dr. Rao">Dr. Rao</SelectItem>
-                  <SelectItem value="Dr. Hussain">Dr. Hussain</SelectItem>
+                  {doctorsList.map((d) => (
+                    <SelectItem key={d.id} value={d.name}>
+                      <span className="font-semibold">{d.name}</span>
+                      {d.specialty && <span className="text-[10px] text-muted-foreground ml-1 font-normal">({d.specialty})</span>}
+                    </SelectItem>
+                  ))}
+                  {doctorsList.length === 0 && (
+                    <SelectItem value="Dr. Rohit Sharma">Dr. Rohit Sharma (Consultant Vet)</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-foreground">Phlebotomist / Tech</Label>
-              <Input
-                value={sampleCollector}
-                onChange={(e) => setSampleCollector(e.target.value)}
-                className="text-xs h-9 bg-card"
-              />
+              <Select value={sampleCollector} onValueChange={setSampleCollector}>
+                <SelectTrigger className="text-xs h-9 bg-card">
+                  <SelectValue placeholder="Select staff" />
+                </SelectTrigger>
+                <SelectContent>
+                  {techList.map((s) => {
+                    const label = `${s.fullName} (${s.roleName?.split("/")[0] || "Staff"})`;
+                    return (
+                      <SelectItem key={s.id} value={label}>
+                        {label}
+                      </SelectItem>
+                    );
+                  })}
+                  {techList.length === 0 && (
+                    <SelectItem value="Front Desk">Front Desk</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -309,7 +393,7 @@ export function CreateLabOrderModal({ open, onClose, onOrderCreated }: Props) {
               disabled={submitting || !selectedPet || selectedTestCodes.length === 0}
               className="font-bold text-xs bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs gap-1.5 px-5"
             >
-              <CheckCircle2 className="size-4" /> Place Lab Order #{orderId} ✓
+              <CheckCircle2 className="size-4" /> {submitting ? "Placing Order..." : `Place Lab Order #${orderId} ✓`}
             </Button>
           </div>
         </div>

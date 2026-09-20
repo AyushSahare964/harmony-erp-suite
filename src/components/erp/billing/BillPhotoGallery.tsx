@@ -30,36 +30,9 @@ interface BillPhoto {
 /* ─── Seed data ───────────────────────────────────────────────────── */
 const PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#3b82f6"];
 
-const SEED_PHOTOS: BillPhoto[] = [
-  {
-    id: "ph1", invoiceId: "INV-20481", invoiceNo: "INV-20481", ownerName: "Tariq Hussain",
-    fileName: "receipt-upi-payment.jpg", fileType: "image", sizeLabel: "1.2 MB",
-    uploadedBy: "Kavitha Nair (Receptionist)", uploadedAt: "16/08/2026 11:42",
-    dataUrl: PALETTE[0] ?? "#6366f1", status: "Verified",
-  },
-  {
-    id: "ph2", invoiceId: "INV-20482", invoiceNo: "INV-20482", ownerName: "Nalini Prasad",
-    fileName: "bill-front.jpg", fileType: "image", sizeLabel: "2.8 MB",
-    uploadedBy: "Kavitha Nair (Receptionist)", uploadedAt: "16/08/2026 10:15",
-    dataUrl: PALETTE[1] ?? "#10b981", status: "Pending",
-  },
-  {
-    id: "ph3", invoiceId: "INV-20482", invoiceNo: "INV-20482", ownerName: "Nalini Prasad",
-    fileName: "bill-back.jpg", fileType: "image", sizeLabel: "2.1 MB",
-    uploadedBy: "Kavitha Nair (Receptionist)", uploadedAt: "16/08/2026 10:17",
-    dataUrl: PALETTE[2] ?? "#f59e0b", status: "Pending",
-  },
-  {
-    id: "ph4", invoiceId: "INV-20485", invoiceNo: "INV-20485", ownerName: "Vikram Shetty",
-    fileName: "boarding-invoice-scan.pdf", fileType: "pdf", sizeLabel: "680 KB",
-    uploadedBy: "Rahul Menon (Accountant)", uploadedAt: "15/08/2026 17:03",
-    dataUrl: PALETTE[3] ?? "#ec4899", status: "Verified",
-  },
-];
+const SEED_PHOTOS: BillPhoto[] = [];
 
-const INVOICES = [
-  "INV-20481", "INV-20482", "INV-20483", "INV-20484", "INV-20485", "INV-20486",
-];
+const INVOICES: string[] = [];
 
 /* ─── Lightbox ───────────────────────────────────────────────────── */
 function Lightbox({ photo, onClose }: { photo: BillPhoto; onClose: () => void }) {

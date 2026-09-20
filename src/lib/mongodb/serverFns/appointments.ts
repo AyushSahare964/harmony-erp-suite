@@ -7,14 +7,7 @@ function toPlain<T>(v: any): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
-const SEED_APPOINTMENTS = [
-  { token: 1, pet: "Bruno", petId: "PET-0001", species: "Canine", breed: "Golden Retriever", owner: "Tariq Hussain", phone: "+91 90000 11111", doctor: "Dr. Rohit Sharma", reason: "Annual Health Check & Vaccine", slot: "09:30 AM", status: "In Consultation", priority: "Routine" },
-  { token: 2, pet: "Luna", petId: "PET-0002", species: "Feline", breed: "Persian", owner: "Vikram Shetty", phone: "+91 90000 66666", doctor: "Dr. Rohit Sharma", reason: "Kidney Profile Review", slot: "10:00 AM", status: "Waiting", priority: "Routine" },
-  { token: 3, pet: "Rocky", petId: "PET-0003", species: "Canine", breed: "German Shepherd", owner: "Kavitha Nair", phone: "+91 90000 77777", doctor: "Dr. Aisha Nair", reason: "Post-op Cruciate Follow-up", slot: "10:15 AM", status: "Waiting", priority: "Priority" },
-  { token: 4, pet: "Milo", petId: "PET-0005", species: "Canine", breed: "Beagle", owner: "Ananya Sharma", phone: "+91 90000 55555", doctor: "Dr. Aisha Nair", reason: "Ear Infection & Scratching", slot: "10:30 AM", status: "Waiting", priority: "Routine" },
-  { token: 5, pet: "Coco", petId: "PET-0008", species: "Canine", breed: "Shih Tzu", owner: "Deepika Iyer", phone: "+91 90000 33333", doctor: "Dr. Rohit Sharma", reason: "Skin Allergy Consultation", slot: "11:00 AM", status: "Completed", priority: "Routine" },
-  { token: 6, pet: "Simba", petId: "PET-0007", species: "Feline", breed: "Maine Coon", owner: "Nalini Prasad", phone: "+91 90000 22222", doctor: "Dr. Rohit Sharma", reason: "Vomiting & Hairball Check", slot: "11:30 AM", status: "Waiting", priority: "Emergency STAT" },
-];
+const SEED_APPOINTMENTS: any[] = [];
 
 const appointmentCategoryEnum = z.enum(["call", "whatsapp", "social_media"]).nullable().optional();
 

@@ -58,14 +58,7 @@ const BILLING_SERIES = [
 
 type Row = Record<string, string | number>;
 
-const SEED_ROWS: Row[] = [
-  { invoice: "INV-20481", owner: "Tariq Hussain",  pet: "Bruno", dept: "OPD",       amount: 850,  mode: "UPI",  status: "Paid"           },
-  { invoice: "INV-20482", owner: "Nalini Prasad",  pet: "Simba", dept: "Pharmacy",  amount: 3200, mode: "Card", status: "Paid"           },
-  { invoice: "INV-20483", owner: "Deepika Iyer",   pet: "Coco",  dept: "Laboratory",amount: 1650, mode: "—",    status: "Unpaid"         },
-  { invoice: "INV-20484", owner: "Rajan Kumar",    pet: "Kiwi",  dept: "OPD",       amount: 600,  mode: "—",    status: "Unpaid"         },
-  { invoice: "INV-20485", owner: "Vikram Shetty",  pet: "Luna",  dept: "Boarding",  amount: 4500, mode: "Cash", status: "Partially paid" },
-  { invoice: "INV-20486", owner: "Ananya Sharma",  pet: "Milo",  dept: "Swimming",  amount: 650,  mode: "UPI",  status: "Unreconciled"   },
-];
+const SEED_ROWS: Row[] = [];
 
 const COLUMNS = [
   { key: "invoice", label: "Invoice" },

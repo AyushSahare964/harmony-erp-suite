@@ -2268,7 +2268,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         <p>• Computer-generated sales invoice and receipt.</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-bold text-slate-700">For Vetcare Specialty Pet Hospital</p>
+                        <p className="font-bold text-slate-700">For Real Care Small Animal Clinic</p>
                         <p className="pt-4 text-slate-400">Authorized Signatory</p>
                       </div>
                     </div>

@@ -446,6 +446,7 @@ export function AdminDashboardView({
                   <tr className="text-left text-muted-foreground border-b border-border/50">
                     <th className="pb-2 font-semibold pr-3">Date</th>
                     <th className="pb-2 font-semibold pr-3">Patient</th>
+                    <th className="pb-2 font-semibold pr-3">Doctor</th>
                     <th className="pb-2 font-semibold pr-3">Complaint</th>
                     <th className="pb-2 font-semibold pr-3">Status</th>
                     <th className="pb-2 font-semibold text-right">Action</th>
@@ -458,6 +459,7 @@ export function AdminDashboardView({
                       <tr key={v.visitId} className="hover:bg-muted/30 transition-colors">
                         <td className="py-2.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{formatDisplayDate(v.date || v.createdAt) || "—"}</td>
                         <td className="py-2.5 pr-3"><p className="font-semibold text-foreground">{v.petName}</p><p className="text-[10px] text-muted-foreground">{v.ownerName}</p></td>
+                        <td className="py-2.5 pr-3 max-w-[130px]"><p className="truncate text-foreground">{v.doctorName || "—"}</p></td>
                         <td className="py-2.5 pr-3 max-w-[150px]"><p className="truncate text-muted-foreground">{v.vitals?.complaint || v.diagnosis || "OPD Visit"}</p></td>
                         <td className="py-2.5 pr-3"><span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border", sb.cls)}>{sb.label}</span></td>
                         <td className="py-2.5 text-right">
@@ -472,7 +474,7 @@ export function AdminDashboardView({
                     );
                   })}
                   {visits.length === 0 && (
-                    <tr><td colSpan={5} className="py-8 text-center text-muted-foreground italic text-xs">No active visits today. Click "OPD Queue" to admit patients.</td></tr>
+                    <tr><td colSpan={6} className="py-8 text-center text-muted-foreground italic text-xs">No active visits today. Click "OPD Queue" to admit patients.</td></tr>
                   )}
                 </tbody>
               </table>

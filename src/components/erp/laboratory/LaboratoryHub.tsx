@@ -19,6 +19,7 @@ import {
   Layers,
   Activity,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { KpiCard } from "@/components/erp/KpiCard";
@@ -34,6 +35,7 @@ import { LabReportPrintModal } from "./LabReportPrintModal";
 import { TestMasterCatalog } from "./TestMasterCatalog";
 import { LabAnalytics } from "./LabAnalytics";
 import { listLabOrdersFn, createLabOrderFn, updateLabResultsFn } from "@/lib/mongodb/serverFns/laboratory";
+import { deleteRowFn } from "@/lib/mongodb/serverFns/rows";
 import { cn } from "@/lib/utils";
 
 type LabTab = "orders" | "catalog" | "analytics";
@@ -126,6 +128,20 @@ export function LaboratoryHub() {
     setOrders((prev) =>
       prev.map((o) => (o.order === updated.order ? updated : o))
     );
+  };
+
+  const handleDeleteOrder = async (order: any) => {
+    if (!window.confirm(`Delete lab order ${order.order} for ${order.pet}? This cannot be undone.`)) return;
+    const idx = orders.findIndex((o) => o.order === order.order);
+    if (idx === -1) return;
+    try {
+      await deleteRowFn({ data: { moduleId: "lab_orders", index: idx } });
+      setOrders((prev) => prev.filter((o) => o.order !== order.order));
+      toast.success(`Lab order ${order.order} deleted`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Could not delete lab order");
+    }
   };
 
   const exportCsv = () => {
@@ -379,6 +395,15 @@ export function LaboratoryHub() {
                       {/* Actions */}
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteOrder(row)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            title="Delete Lab Order"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
                           {row.status !== "Reported" ? (
                             <Button
                               size="sm"

@@ -281,7 +281,7 @@ export function InvoicePrintView({ visit, open, onClose }: Props) {
               <p>• This is a computer-generated tax invoice.</p>
             </div>
             <div className="text-right">
-              <p className="font-bold text-gray-700">For Vetcare Specialty Pet Hospital</p>
+              <p className="font-bold text-gray-700">For Real Care Small Animal Clinic</p>
               <p className="pt-6 text-gray-400">Authorized Signatory</p>
             </div>
           </div>
