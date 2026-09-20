@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   FileCheck,
   CheckCircle2,
@@ -129,6 +129,10 @@ export function EnterLabResultsModal({ open, onClose, order, onResultsSaved }: P
   const [pathologist, setPathologist] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // References for keyboard navigation across parameter input boxes
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const impressionRef = useRef<HTMLTextAreaElement | null>(null);
+
   // Automatically resolve the referring doctor name from all potential order properties
   const referringDoctor =
     order?.doctor ||
@@ -138,6 +142,48 @@ export function EnterLabResultsModal({ open, onClose, order, onResultsSaved }: P
     order?.prescribedBy ||
     order?.consultant ||
     "";
+
+  // Auto-focus the first observed result input box when the modal opens
+  useEffect(() => {
+    if (open) {
+      const timer = setTimeout(() => {
+        if (inputRefs.current[0]) {
+          inputRefs.current[0]?.focus();
+          inputRefs.current[0]?.select();
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
+  // Keyboard navigation: Enter or ArrowDown jumps to next parameter box, ArrowUp to previous
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, idx: number) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const nextIndex = idx + 1;
+      if (nextIndex < params.length) {
+        inputRefs.current[nextIndex]?.focus();
+        inputRefs.current[nextIndex]?.select();
+      } else {
+        // If last row, advance to the diagnostic impression textarea
+        impressionRef.current?.focus();
+      }
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const nextIndex = idx + 1;
+      if (nextIndex < params.length) {
+        inputRefs.current[nextIndex]?.focus();
+        inputRefs.current[nextIndex]?.select();
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prevIndex = idx - 1;
+      if (prevIndex >= 0) {
+        inputRefs.current[prevIndex]?.focus();
+        inputRefs.current[prevIndex]?.select();
+      }
+    }
+  };
 
   useEffect(() => {
     if (order) {
@@ -370,9 +416,14 @@ export function EnterLabResultsModal({ open, onClose, order, onResultsSaved }: P
                       </td>
                       <td className="px-4 py-2">
                         <Input
+                          ref={(el) => {
+                            inputRefs.current[idx] = el;
+                          }}
                           value={p.value}
                           placeholder="Enter result..."
                           onChange={(e) => handleValueChange(idx, e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, idx)}
+                          onFocus={(e) => e.target.select()}
                           className={cn(
                             "h-7 text-xs font-mono font-bold transition-all",
                             p.flag === "High" && "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300",
@@ -463,6 +514,7 @@ export function EnterLabResultsModal({ open, onClose, order, onResultsSaved }: P
                 </button>
               </div>
               <Textarea
+                ref={impressionRef}
                 rows={2}
                 value={impression}
                 onChange={(e) => setImpression(e.target.value)}
