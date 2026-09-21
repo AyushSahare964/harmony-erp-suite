@@ -3,7 +3,7 @@
  * Supports all product categories: Medicines, Pet Food, and Accessories
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowDownCircle,
@@ -52,6 +52,7 @@ function AddStockPanel() {
   const [qty, setQty] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [poRef, setPoRef] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const existingBatches = useMemo(
     () => (itemCode ? getBatches(itemCode) : []),
@@ -84,6 +85,7 @@ function AddStockPanel() {
     const effectiveBatchNo = batchNo.trim() || `GRN-${Date.now().toString().slice(-6)}`;
     const effectiveExpiry = expiryDate || "2030-12-31";
 
+    setSubmitting(true);
     try {
       await addStock({
         itemCode,
@@ -103,6 +105,8 @@ function AddStockPanel() {
       reset();
     } catch (err: any) {
       toast.error(err.message || "Failed to record stock addition");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -131,7 +135,7 @@ function AddStockPanel() {
             }
           }}>
             <SelectTrigger id="add-item">
-              <SelectValue placeholder="Select medicine, food, or accessory…" />
+              <SelectValue placeholder="Select medicine, injection, food, or accessory…" />
             </SelectTrigger>
             <SelectContent className="max-h-72">
               {activeMeds.map((m) => (
@@ -152,7 +156,7 @@ function AddStockPanel() {
             id="add-batch"
             value={batchNo}
             onChange={(e) => setBatchNo(e.target.value)}
-            placeholder={selectedItem?.productType === "MEDICINE" ? "e.g. AMX-2026-01" : "Optional for non-Rx"}
+            placeholder={selectedItem?.productType === "MEDICINE" || selectedItem?.productType === "INJECTION" ? "e.g. BATCH-2026-01" : "Optional for non-Rx"}
           />
         </div>
 
@@ -223,15 +227,17 @@ function AddStockPanel() {
       </div>
 
       <div className="flex justify-end gap-2 pt-1 border-t">
-        <Button variant="outline" size="sm" onClick={reset} className="text-xs">
+        <Button variant="outline" size="sm" onClick={reset} disabled={submitting} className="text-xs">
           Clear
         </Button>
         <Button
           size="sm"
           onClick={submit}
+          disabled={submitting}
           className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
         >
-          <ArrowUpCircle className="size-4 mr-1" /> Add Stock to Inventory
+          <ArrowUpCircle className="size-4 mr-1" />
+          {submitting ? "Adding Stock..." : "Add Stock to Inventory"}
         </Button>
       </div>
     </div>
@@ -240,7 +246,7 @@ function AddStockPanel() {
 
 // ─── Remove Stock Panel ───────────────────────────────────────────────────────
 function RemoveStockPanel() {
-  const { medicines, getBatches, getTotalQty, removeStock } = useInventory();
+  const { medicines, getBatches, getTotalQty, removeStock, refetchBatches } = useInventory();
   const activeMeds = medicines.filter((m) => m.status === "Active");
 
   const [itemCode, setItemCode] = useState("");
@@ -248,6 +254,18 @@ function RemoveStockPanel() {
   const [qty, setQty] = useState("");
   const [reason, setReason] = useState("Damage");
   const [remarks, setRemarks] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+
+  // The client's `batches` list is only ever populated on demand (e.g. by opening an
+  // item's detail view) — it's empty for every item on a fresh page load. Without this,
+  // "Specific Batch" would silently show no options and Auto-FIFO deduction (below)
+  // would wrongly conclude the item has no batches at all.
+  useEffect(() => {
+    if (!itemCode) return;
+    setBatchesLoading(true);
+    void refetchBatches(itemCode).finally(() => setBatchesLoading(false));
+  }, [itemCode, refetchBatches]);
 
   const batches = useMemo(
     () => (itemCode ? getBatches(itemCode).filter((b) => b.qty > 0) : []),
@@ -266,7 +284,7 @@ function RemoveStockPanel() {
     setRemarks("");
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!itemCode || !qty || !reason) {
       toast.error("Please select a product, quantity, and reason");
       return;
@@ -281,15 +299,55 @@ function RemoveStockPanel() {
       return;
     }
 
-    removeStock({
-      medicineId: itemCode,
-      batchId: batchId || "DIRECT",
-      qty: numQty,
-      reason: `${reason}${remarks ? `: ${remarks}` : ""}`,
-      actor: "Authorized Staff",
-    });
-    toast.success(`−${numQty} ${selectedItem?.unit || "units"} removed from stock`);
-    reset();
+    setSubmitting(true);
+    try {
+      // adjustStockFn deducts from exactly one real batch server-side — there is no
+      // server-side "auto" mode. When "Specific Batch" is left on its "Auto-FIFO
+      // deduction" placeholder, pick the earliest-expiring batch that alone covers the
+      // requested quantity ourselves. Previously an empty batchId was sent through
+      // as-is, which never matches a real batch and always failed server-side with
+      // "Batch not found" — so auto-FIFO could never actually succeed. Refetch fresh
+      // from the server rather than trusting the local `batches` memo, which is empty
+      // on a fresh page load and can otherwise be stale.
+      let effectiveBatchId = batchId;
+      if (!effectiveBatchId) {
+        const freshBatches = (await refetchBatches(itemCode)).filter((b) => b.qty > 0);
+        const fifoBatch = [...freshBatches]
+          .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))
+          .find((b) => b.qty >= numQty);
+        if (!fifoBatch) {
+          toast.error(
+            freshBatches.length === 0
+              ? "This item has no batches to adjust from."
+              : `No single batch has ${numQty} ${selectedItem?.unit || "units"} available — pick a specific batch with enough stock, or reduce the quantity.`
+          );
+          return;
+        }
+        effectiveBatchId = fifoBatch.id;
+      }
+
+      const movementType =
+        reason === "Expiry Write-off"
+          ? "expiry_writeoff"
+          : reason === "Damage" || reason === "Wastage"
+          ? "damage_writeoff"
+          : "adjustment_out";
+
+      await removeStock({
+        medicineId: itemCode,
+        batchId: effectiveBatchId,
+        qty: numQty,
+        reason: `${reason}${remarks ? `: ${remarks}` : ""}`,
+        actor: "Authorized Staff",
+        movementType,
+      });
+      toast.success(`−${numQty} ${selectedItem?.unit || "units"} deducted from stock`);
+      reset();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to post stock deduction");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -316,7 +374,7 @@ function RemoveStockPanel() {
               {activeMeds.map((m) => {
                 const qtyAvail = getTotalQty(m.itemCode);
                 return (
-                  <SelectItem key={m.itemCode} value={m.itemCode} disabled={qtyAvail === 0}>
+                  <SelectItem key={m.itemCode} value={m.itemCode} disabled={qtyAvail === 0 && !m.allowNegativeStock}>
                     [{m.productType || m.category}] {m.name} — {qtyAvail} {m.unit}s available
                   </SelectItem>
                 );
@@ -326,6 +384,7 @@ function RemoveStockPanel() {
           {itemCode && (
             <p className="text-[11px] text-muted-foreground">
               Total authoritative balance: <strong>{totalQty} {selectedItem?.unit}s</strong>
+              {batchesLoading && " · loading batches…"}
             </p>
           )}
         </div>
@@ -397,15 +456,17 @@ function RemoveStockPanel() {
       </div>
 
       <div className="flex justify-end gap-2 pt-1 border-t">
-        <Button variant="outline" size="sm" onClick={reset} className="text-xs">
+        <Button variant="outline" size="sm" onClick={reset} disabled={submitting} className="text-xs">
           Clear
         </Button>
         <Button
           size="sm"
           onClick={submit}
+          disabled={submitting}
           className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold"
         >
-          <ArrowDownCircle className="size-4 mr-1" /> Post Stock Deduction
+          <ArrowDownCircle className="size-4 mr-1" />
+          {submitting ? "Posting Deduction..." : "Post Stock Deduction"}
         </Button>
       </div>
     </div>

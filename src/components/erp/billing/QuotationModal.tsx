@@ -98,6 +98,7 @@ const ITEM_CATEGORIES = [
   { id: "ALL", label: "All Categories" },
   { id: "FOOD", label: "Pet Food & Diets" },
   { id: "MEDICINE", label: "Medicines & Rx" },
+  { id: "INJECTION", label: "Injections & Vaccines" },
   { id: "ACCESSORY", label: "Accessories & Care" },
   { id: "SURGERY", label: "Surgery & Packages" },
   { id: "SERVICE", label: "Clinical Services" },
@@ -250,6 +251,7 @@ export function QuotationModal({ open, onClose, onConvertToInvoice }: QuotationM
     inventoryItems.forEach((inv) => {
       let cat = "FOOD";
       if (inv.productType === "MEDICINE" || inv.category?.toLowerCase().includes("med")) cat = "MEDICINE";
+      else if (inv.productType === "INJECTION" || inv.category?.toLowerCase().includes("injection")) cat = "INJECTION";
       else if (inv.productType === "FOOD" || inv.category?.toLowerCase().includes("food")) cat = "FOOD";
       else if (inv.productType === "ACCESSORY") cat = "ACCESSORY";
       else if (inv.category?.toLowerCase().includes("serv")) cat = "SERVICE";

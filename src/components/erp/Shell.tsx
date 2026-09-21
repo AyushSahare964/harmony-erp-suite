@@ -301,7 +301,7 @@ function GlobalSearch() {
                       {[
                         { label: "Patient Record", module: "crm-pets" },
                         { label: "Billing", module: "billing" },
-                        { label: "Lab", module: "lab_orders" },
+                        { label: "Lab", module: "laboratory" },
                         { label: "Boarding", module: "boarding" },
                       ].map(lnk => (
                         <button

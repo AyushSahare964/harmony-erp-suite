@@ -45,6 +45,20 @@ function PatientBillingHubInner() {
   // Full Patient Bill Details Modal
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
 
+  // Deep link from Global Search (?petId=...&petName=...), read once on mount
+  const [deepLinkPet, setDeepLinkPet] = useState<{ petId: string; petName: string } | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const petId = params.get("petId");
+    if (petId) {
+      setDeepLinkPet({ petId, petName: params.get("petName") || "this patient" });
+      const url = new URL(window.location.href);
+      url.searchParams.delete("petId");
+      url.searchParams.delete("petName");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
+
   const loadInvoices = useCallback(async () => {
     setLoading(true);
     try {
@@ -107,6 +121,7 @@ function PatientBillingHubInner() {
           <BillingDeskDashboard
             invoices={invoices}
             loading={loading}
+            deepLinkPet={deepLinkPet}
             onRefresh={loadInvoices}
             onNewInvoice={() => setShowNewInvoiceModal(true)}
             onNewQuotation={() => setShowQuotationModal(true)}

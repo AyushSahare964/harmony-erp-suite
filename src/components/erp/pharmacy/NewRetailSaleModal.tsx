@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Pill,
+  Syringe,
   Search,
   Trash2,
   CheckCircle2,
@@ -43,6 +44,7 @@ interface Props {
 const POS_CATEGORIES: Array<{ key: string; label: string; icon?: React.ReactNode }> = [
   { key: "All",                label: "All Items" },
   { key: "Medicine",           label: "Medicine",           icon: <Pill className="size-3" /> },
+  { key: "Injection",          label: "Injection",          icon: <Syringe className="size-3" /> },
   { key: "Animal Food",        label: "Animal Food",        icon: <Beef className="size-3" /> },
   { key: "Animal Accessories", label: "Animal Accessories", icon: <Tag className="size-3" /> },
   { key: "Food",               label: "Food",               icon: <Bone className="size-3" /> },
@@ -327,6 +329,7 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
                           item.category === "Animal Food"        ? "bg-amber-500/10 text-amber-600 border-amber-500/30" :
                           item.category === "Accessory"          ? "bg-purple-500/10 text-purple-600 border-purple-500/30" :
                           item.category === "Food"               ? "bg-amber-500/10 text-amber-600 border-amber-500/30" :
+                          item.category === "Injection"          ? "bg-rose-500/10 text-rose-600 border-rose-500/30" :
                           "bg-primary/10 text-primary border-primary/30"
                         )}>
                           {item.category}

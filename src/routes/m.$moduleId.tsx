@@ -109,9 +109,26 @@ function ModulePage() {
     });
   }, [rows, query, filter, ws]);
 
-  // ── Inventory module → dedicated InventoryHub with sub-module tabs ──
-  if (moduleId === "inventory") {
-    return <InventoryHub />;
+  // ── Inventory module & sub-modules → dedicated InventoryHub with sub-module tabs ──
+  if (
+    moduleId === "inventory" ||
+    moduleId === "medicines" ||
+    moduleId === "injections" ||
+    moduleId === "food-inventory" ||
+    moduleId === "accessories" ||
+    moduleId === "stock"
+  ) {
+    const initialTab =
+      moduleId === "injections"
+        ? "injection"
+        : moduleId === "food-inventory"
+        ? "food"
+        : moduleId === "accessories"
+        ? "accessories"
+        : moduleId === "stock"
+        ? "stock"
+        : "catalogue";
+    return <InventoryHub initialTab={initialTab} />;
   }
 
   // ── Accounting module → dedicated AccountingHub with 6-tab hub ──

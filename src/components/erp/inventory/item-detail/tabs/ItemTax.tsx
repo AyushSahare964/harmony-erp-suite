@@ -69,7 +69,7 @@ export function ItemTax({ medicine }: Props) {
 
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground">HSN/SAC Code</Label>
-            <Input placeholder="e.g. 30049099" defaultValue={medicine.category === "Medicine" ? "30049099" : ""} />
+            <Input placeholder="e.g. 30049099" defaultValue={medicine.category === "Medicine" || medicine.category === "Injection" ? "30049099" : ""} />
             <p className="text-[11px] text-muted-foreground">Harmonized System Nomenclature code for GST filing.</p>
           </div>
 

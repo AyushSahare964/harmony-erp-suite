@@ -18,8 +18,10 @@ import {
   addStockFn,
   adjustStockFn,
   getBatchesFn,
+  getLedgerFn,
   type InventoryItemRow,
   type StockBatchRow,
+  type LedgerEntryRow,
 } from "@/lib/mongodb/serverFns/inventory";
 import {
   getStockStatus as sharedGetStockStatus,
@@ -31,12 +33,13 @@ import {
   type MedicineDetails,
   type FoodDetails,
   type AccessoryDetails,
+  type InjectionDetails,
 } from "./seedData";
 
 // ─── Data Types ───────────────────────────────────────────────────────────────
 
-export type ProductType = "MEDICINE" | "FOOD" | "ACCESSORY";
-export type MedicineCategory = "Medicine" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
+export type ProductType = "MEDICINE" | "INJECTION" | "FOOD" | "ACCESSORY";
+export type MedicineCategory = "Medicine" | "Injection" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
 export type UnitOfMeasure =
   | "Tablet" | "ml" | "Vial" | "Box" | "Strip"
   | "Kg" | "Bottle" | "Unit" | "Piece" | "Gm" | "Litre";
@@ -97,6 +100,7 @@ export interface Medicine {
   medicineDetails?: MedicineDetails | any;
   foodDetails?: FoodDetails | any;
   accessoryDetails?: AccessoryDetails | any;
+  injectionDetails?: InjectionDetails | any;
 
   // Tax & Compliance
   gstRate: number;
@@ -200,16 +204,24 @@ export interface LedgerEntry {
   reason?: string;
 }
 
+// ─── Helper: resolve ProductType from a (possibly legacy) category/productType pair ──
+// Single source of truth — used by mapToMedicine below and by ItemMasterDialog.
+
+export function resolveProductType(
+  category?: string,
+  productType?: ProductType | string
+): ProductType {
+  if (productType) return productType as ProductType;
+  if (category === "Injection") return "INJECTION";
+  if (category === "Food" || category === "Animal Food") return "FOOD";
+  if (category === "Accessory" || category === "Animal Accessories") return "ACCESSORY";
+  return "MEDICINE";
+}
+
 // ─── Helper: map InventoryItemRow → Medicine ─────────────────────────────────
 
 function mapToMedicine(raw: InventoryItemRow): Medicine {
-  const resolvedProductType: ProductType =
-    (raw.productType as ProductType) ||
-    (raw.category === "Food" || raw.category === "Animal Food"
-      ? "FOOD"
-      : raw.category === "Accessory" || raw.category === "Animal Accessories"
-      ? "ACCESSORY"
-      : "MEDICINE");
+  const resolvedProductType = resolveProductType(raw.category, raw.productType);
 
   return {
     id: raw.itemCode,
@@ -250,6 +262,7 @@ function mapToMedicine(raw: InventoryItemRow): Medicine {
     medicineDetails: raw.medicineDetails,
     foodDetails: raw.foodDetails,
     accessoryDetails: raw.accessoryDetails,
+    injectionDetails: raw.injectionDetails,
     gstRate: raw.gstRate,
     hsnCode: raw.hsnCode,
     taxCategory: raw.taxCategory,
@@ -312,18 +325,39 @@ function mapToBatch(raw: StockBatchRow): Batch {
   };
 }
 
+// ─── Helper: map LedgerEntryRow → LedgerEntry ────────────────────────────────
+
+function mapToLedgerEntry(raw: LedgerEntryRow): LedgerEntry {
+  return {
+    id: raw.id,
+    medicineId: raw.medicineId,
+    medicineName: raw.medicineName,
+    batchId: raw.batchId,
+    batchNo: raw.batchNo,
+    movementType: raw.movementType as MovementType,
+    quantity: raw.quantity,
+    sourceType: raw.sourceType as SourceType,
+    sourceRef: raw.sourceRef,
+    balanceAfter: raw.balanceAfter,
+    actorName: raw.actorName,
+    createdAt: raw.createdAt,
+    ...(raw.reason !== undefined ? { reason: raw.reason } : {}),
+  };
+}
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 interface InventoryContextValue {
   medicines: Medicine[];
   medicinesList: Medicine[];
+  injectionList: Medicine[];
   foodList: Medicine[];
   accessoriesList: Medicine[];
   batches: Batch[];
   ledger: LedgerEntry[];
   loadingItems: boolean;
 
-  addMedicine: (m: Omit<Medicine, "id" | "itemCode" | "createdAt" | "status">) => Promise<void>;
+  addMedicine: (m: Omit<Medicine, "id" | "itemCode" | "createdAt" | "status">) => Promise<Medicine>;
   updateMedicine: (itemCode: string, patch: Partial<Medicine>) => Promise<void>;
   deactivateMedicine: (itemCode: string) => Promise<void>;
   toggleStatus: (itemCode: string) => Promise<void>;
@@ -365,14 +399,21 @@ interface InventoryContextValue {
     adjustedQty: number;
     targetLocation?: string;
     referenceNo?: string;
-    reasonCode: "Damage" | "Expiry" | "Pilferage" | "Count Error" | "Transfer" | "Other";
+    reasonCode: string;
     remarks: string;
     authorizedBy?: string;
     dateTime: string;
     actor: string;
   }) => Promise<{ newQty: number; referenceNo: string }>;
 
-  removeStock: (data: { medicineId: string; batchId: string; qty: number; reason: string; actor: string }) => void;
+  removeStock: (data: {
+    medicineId: string;
+    batchId: string;
+    qty: number;
+    reason: string;
+    actor: string;
+    movementType?: "adjustment_out" | "expiry_writeoff" | "damage_writeoff";
+  }) => Promise<any>;
   recordSale: (data: { medicineId: string; qty: number; sourceRef: string; actor: string }) => { ok: boolean; error?: string };
 
   getTotalQty: (itemCode: string) => number;
@@ -381,7 +422,7 @@ interface InventoryContextValue {
   getExpiryStatus: (expiryDate: string) => "safe" | "expiring-soon" | "critical" | "expired";
 
   refetchItems: () => Promise<void>;
-  refetchBatches: (itemCode: string) => Promise<void>;
+  refetchBatches: (itemCode: string) => Promise<Batch[]>;
 }
 
 const InventoryContext = createContext<InventoryContextValue | null>(null);
@@ -418,8 +459,29 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     void refetchItems();
   }, [refetchItems]);
 
+  // ── Load the movements ledger from MongoDB on mount ──────────────────────────
+  // Without this, "Stock Movements" (subtitled "Authoritative ... Ledger") only ever
+  // showed entries created during the current browser session — a fresh page load
+  // reset it to an empty list even though real transaction history exists in Mongo.
+  const refetchLedger = useCallback(async () => {
+    try {
+      const raw = await getLedgerFn({ data: { limit: 200 } });
+      setLedger(raw.map(mapToLedgerEntry));
+    } catch (err) {
+      console.warn("[InventoryProvider] Error loading ledger:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refetchLedger();
+  }, [refetchLedger]);
+
   // ── Refetch batches for a specific item from MongoDB ─────────────────────────
-  const refetchBatches = useCallback(async (itemCode: string) => {
+  // Returns the freshly-fetched batches directly (not just via the `batches` state
+  // setter) so a caller that needs the current list *right after* awaiting this isn't
+  // stuck reading a stale closure over last render's `batches` — React state updates
+  // aren't visible to code already in flight in the same tick.
+  const refetchBatches = useCallback(async (itemCode: string): Promise<Batch[]> => {
     try {
       const raw = await getBatchesFn({ data: { itemCode } });
       const mapped = raw.map(mapToBatch);
@@ -427,8 +489,10 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         const others = prev.filter((b) => b.itemCode !== itemCode);
         return [...others, ...mapped];
       });
+      return mapped;
     } catch (err) {
       console.error("[InventoryProvider] Failed to load batches:", err);
+      return [];
     }
   }, []);
 
@@ -470,6 +534,10 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   // ── Category Lists ────────────────────────────────────────────────────────
   const medicinesList = useMemo(
     () => medicines.filter((m) => m.productType === "MEDICINE" || (!m.productType && m.category === "Medicine")),
+    [medicines]
+  );
+  const injectionList = useMemo(
+    () => medicines.filter((m) => m.productType === "INJECTION" || m.category === "Injection"),
     [medicines]
   );
   const foodList = useMemo(
@@ -519,6 +587,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
           };
           setLedger((prev) => [openEntry, ...prev]);
         }
+        return newItem;
       } catch (err) {
         setMedicines((prev) => prev.filter((x) => x.id !== tempId));
         throw err;
@@ -718,19 +787,28 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   // ── Legacy shims (used by existing child components) ─────────────────────
   const removeStock = useCallback(
-    (data: { medicineId: string; batchId: string; qty: number; reason: string; actor: string }) => {
-      void adjustStock({
-        itemCode: data.medicineId,
-        itemName: medicines.find((m) => m.id === data.medicineId)?.name ?? "Unknown",
-        batchId: data.batchId,
-        batchCode: data.batchId,
-        batchNo: batches.find((b) => b.id === data.batchId)?.batchNo ?? "",
-        movementType: "adjustment_out",
+    async (data: {
+      medicineId: string;
+      batchId: string;
+      qty: number;
+      reason: string;
+      actor: string;
+      movementType?: "adjustment_out" | "expiry_writeoff" | "damage_writeoff";
+    }) => {
+      const med = medicines.find((m) => m.itemCode === data.medicineId || m.id === data.medicineId);
+      const batch = batches.find((b) => b.id === data.batchId || b.batchCode === data.batchId);
+      return await adjustStock({
+        itemCode: med?.itemCode || data.medicineId,
+        itemName: med?.name || "Unknown",
+        batchId: data.batchId || "",
+        batchCode: data.batchId || "",
+        batchNo: batch?.batchNo || "",
+        movementType: data.movementType || "adjustment_out",
         adjustedQty: data.qty,
-        reasonCode: "Other",
+        reasonCode: data.reason.split(":")[0] || "Other",
         remarks: data.reason,
         dateTime: new Date().toISOString().replace("T", " ").slice(0, 16),
-        actor: data.actor,
+        actor: data.actor || "Staff",
       });
     },
     [adjustStock, medicines, batches]
@@ -795,6 +873,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     () => ({
       medicines,
       medicinesList,
+      injectionList,
       foodList,
       accessoriesList,
       batches,
@@ -818,7 +897,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
       refetchBatches,
     }),
     [
-      medicines, medicinesList, foodList, accessoriesList, batches, ledger, loadingItems,
+      medicines, medicinesList, injectionList, foodList, accessoriesList, batches, ledger, loadingItems,
       addMedicine, updateMedicine, deactivateMedicine, toggleStatus, deleteItem, setStock,
       addStock, adjustStock, removeStock, recordSale,
       getTotalQty, getBatchesForItem, getStockStatus, getExpiryStatus,
@@ -835,12 +914,13 @@ export function useInventory(): InventoryContextValue {
     return {
       medicines: [],
       medicinesList: [],
+      injectionList: [],
       foodList: [],
       accessoriesList: [],
       batches: [],
       ledger: [],
       loadingItems: false,
-      addMedicine: async () => {},
+      addMedicine: async () => { throw new Error("Not inside InventoryProvider"); },
       updateMedicine: async () => {},
       deactivateMedicine: async () => {},
       toggleStatus: async () => {},
@@ -848,14 +928,14 @@ export function useInventory(): InventoryContextValue {
       setStock: async () => {},
       addStock: async () => {},
       adjustStock: async (data: any) => ({ newQty: 0, referenceNo: "" }),
-      removeStock: () => {},
+      removeStock: async () => {},
       recordSale: () => ({ ok: false, error: "Not inside InventoryProvider" }),
       getTotalQty: () => 0,
       getBatches: () => [],
       getStockStatus: () => "OK",
       getExpiryStatus: () => "safe",
       refetchItems: async () => {},
-      refetchBatches: async () => {},
+      refetchBatches: async () => [],
     };
   }
   return ctx;

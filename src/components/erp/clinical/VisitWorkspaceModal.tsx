@@ -1209,7 +1209,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className={cn("max-h-[94vh] flex flex-col p-0 overflow-hidden transition-all duration-300", tab === "completed" ? "max-w-6xl w-[96vw]" : "max-w-5xl")}>
+      <DialogContent className={cn("max-h-[96vh] flex flex-col p-0 overflow-hidden transition-all duration-300", tab === "completed" ? "w-[98vw] max-w-[1600px]" : "max-w-5xl")}>
         {/* ── Top Bar Header ────────────────────────────────────────────── */}
         <div className="border-b border-border bg-card px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1290,7 +1290,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
         )}
 
         {/* ── Main Scrollable Body ──────────────────────────────────────── */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div ref={scrollContainerRef} className={cn("flex-1 overflow-y-auto space-y-6", tab === "completed" ? "p-3 sm:p-5 md:p-6" : "p-6")}>
           <div className={cn("space-y-5", tab !== "consultation" && "hidden")}>
             {/* Prominent Bold Highlighted Allergies Warning Banner */}
             {Boolean(
@@ -1808,10 +1808,10 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
               </div>
 
               {/* Side-by-Side Dual Pane Document Previews */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6 items-start">
                 
                 {/* ── LEFT PANE: MEDICAL PRESCRIPTION (RX) ────────────────────────── */}
-                <div className="space-y-2.5">
+                <div className="space-y-2.5 min-w-0">
                   <div className="flex items-center justify-between px-1">
                     <div className="flex items-center gap-2">
                       <span className="flex size-6 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
@@ -1841,7 +1841,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   {/* Prescription Paper Container */}
                   <div
                     id="prescription-preview-card"
-                    className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-6 shadow-md text-xs font-sans"
+                    className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-4 sm:p-6 shadow-md text-xs font-sans"
                     style={{ backgroundColor: "#ffffff", color: "#0f172a", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
                   >
                     {/* Top Medical Document Content Body */}
@@ -1851,17 +1851,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between"
                         style={{ borderBottom: "2px solid #0f172a", paddingBottom: "14px", display: "flex", flexWrap: "wrap", rowGap: "10px", justifyContent: "space-between", alignItems: "flex-start" }}
                       >
-                        <div className="flex items-center gap-2" style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 260px", minWidth: "260px" }}>
+                        <div className="flex items-center gap-2" style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 200px", minWidth: "180px" }}>
                           <img
                             src="/clinic-logo.png"
                             alt="Clinic Logo"
                             className="h-8 w-auto object-contain shrink-0"
                             style={{ maxHeight: 32, width: "auto", flexShrink: 0 }}
                           />
-                          <div className="leading-tight" style={{ minWidth: "215px", flex: "1 1 auto" }}>
+                          <div className="leading-tight" style={{ minWidth: "160px", flex: "1 1 auto" }}>
                             <h2
                               className="text-sm font-black tracking-tight uppercase"
-                              style={{ fontSize: "15px", fontWeight: 900, color: "#1e3a8a", letterSpacing: "-0.01em", margin: 0 }}
+                              style={{ fontSize: "14px", fontWeight: 900, color: "#1e3a8a", letterSpacing: "-0.01em", margin: 0 }}
                             >
                               Real Care Small Animal Clinic
                             </h2>
@@ -1873,7 +1873,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                             </p>
                           </div>
                         </div>
-                        <div className="text-right text-[11px] space-y-0.5 shrink-0 min-w-[130px]" style={{ textAlign: "right", minWidth: "130px", marginLeft: "auto" }}>
+                        <div className="text-right text-[11px] space-y-0.5 shrink-0 min-w-[110px]" style={{ textAlign: "right", minWidth: "110px", marginLeft: "auto" }}>
                           <p className="font-bold text-sm" style={{ fontSize: "13px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>
                             {finalizedVisit.doctorName || activeDoctorName || "Dr. Makarand Dixit"}
                           </p>
@@ -1888,15 +1888,15 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
                       {/* Patient Details Snapshot Box */}
                       <div
-                        className="rounded-2xl border border-blue-200 p-4 text-xs grid grid-cols-3 gap-3 bg-[#f8faff]"
+                        className="rounded-2xl border border-blue-200 p-3 sm:p-4 text-xs bg-[#f8faff]"
                         style={{
                           backgroundColor: "#f8faff",
                           border: "1.5px solid #bfdbfe",
                           borderRadius: "16px",
-                          padding: "14px 18px",
+                          padding: "12px 16px",
                           display: "grid",
-                          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                          gap: "12px",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+                          gap: "10px",
                         }}
                       >
                         <div className="space-y-1.5" style={{ lineHeight: "1.5" }}>
@@ -1917,6 +1917,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       </div>
 
                       {/* Diagnosis, Symptoms & Findings */}
+                      <div>
                         {finalizedVisit.prescriptionData?.symptomTags && finalizedVisit.prescriptionData.symptomTags.length > 0 && (
                           <div className="flex flex-wrap gap-1.5" style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "4px" }}>
                             {finalizedVisit.prescriptionData.symptomTags.map((st: string, i: number) => (
@@ -1981,33 +1982,35 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           <p className="text-[11px] font-bold text-amber-900 uppercase tracking-wider" style={{ color: "#78350f", fontWeight: 700, fontSize: "11px" }}>
                             Immediate Medicines (Hospital Administered)
                           </p>
-                          <table className="w-full text-xs border border-amber-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #fde68a" }}>
-                            <thead>
-                              <tr className="bg-amber-50 text-amber-950 font-bold" style={{ backgroundColor: "#fffbeb", color: "#451a03", fontWeight: 700 }}>
-                                <th style={{ padding: "8px 10px", textAlign: "left" }}>Medicine</th>
-                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Dose</th>
-                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Route</th>
-                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Time</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {finalizedVisit.prescriptionData.immediateMedicines.map((im: any, idx: number) => (
-                                <tr key={idx} style={{ borderBottom: "1px solid #fef3c7" }}>
-                                  <td style={{ padding: "8px 10px", fontWeight: 600, color: "#0f172a" }}>{im.medicineName}</td>
-                                  <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{im.dose} {im.unit}</td>
-                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>{im.route}</td>
-                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>{im.time || "Immediate"}</td>
+                          <div className="overflow-x-auto -mx-1">
+                            <table className="w-full text-xs border border-amber-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #fde68a" }}>
+                              <thead>
+                                <tr className="bg-amber-50 text-amber-950 font-bold" style={{ backgroundColor: "#fffbeb", color: "#451a03", fontWeight: 700 }}>
+                                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Medicine</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Dose</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Route</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Time</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody>
+                                {finalizedVisit.prescriptionData.immediateMedicines.map((im: any, idx: number) => (
+                                  <tr key={idx} style={{ borderBottom: "1px solid #fef3c7" }}>
+                                    <td style={{ padding: "8px 10px", fontWeight: 600, color: "#0f172a" }}>{im.medicineName}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{im.dose} {im.unit}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center" }}>{im.route}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center" }}>{im.time || "Immediate"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       )}
 
                       {/* Prescribed Medications Table */}
                       <div className="space-y-2" style={{ marginTop: "16px" }}>
                         <div className="flex items-center gap-2 font-bold text-blue-900 text-sm pb-1" style={{ display: "flex", alignItems: "center", gap: "8px", color: "#1e3a8a", paddingBottom: "4px" }}>
-                          {/* Vector SVG Rx Glyph - 100% Reliable, Prevents Emoji Replacement */}
+                          {/* Vector SVG Rx Glyph */}
                           <svg
                             width="20"
                             height="20"
@@ -2027,66 +2030,68 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           <span className="text-sm font-bold tracking-wide" style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>Prescribed Medications</span>
                         </div>
 
-                        {finalizedVisit.prescriptionData?.prescribedMedicines && finalizedVisit.prescriptionData.prescribedMedicines.length > 0 ? (
-                          <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
-                            <thead>
-                              <tr className="bg-blue-50/70 border-b border-slate-200 text-left font-bold text-blue-950" style={{ backgroundColor: "#eff6ff", borderBottom: "1.5px solid #cbd5e1", color: "#1e3a8a", fontWeight: 700 }}>
-                                <th style={{ padding: "10px 12px" }}>Medicine</th>
-                                <th style={{ padding: "10px 12px", textAlign: "center" }}>Dose</th>
-                                <th style={{ padding: "10px 12px", textAlign: "center" }}>Frequency</th>
-                                <th style={{ padding: "10px 12px", textAlign: "center" }}>Duration</th>
-                                <th style={{ padding: "10px 12px", textAlign: "center" }}>Route</th>
-                                <th style={{ padding: "10px 12px" }}>Timing</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {finalizedVisit.prescriptionData.prescribedMedicines.map((m: any, idx: number) => (
-                                <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                                  <td style={{ padding: "10px 12px", fontWeight: 700, color: "#0f172a" }}>
-                                    {m.medicineName}
-                                    {m.note && <span style={{ display: "block", fontSize: "10px", color: "#64748b", fontWeight: 400, fontStyle: "italic" }}>{m.note}</span>}
-                                  </td>
-                                  <td style={{ padding: "10px 12px", textAlign: "center", fontFamily: "monospace", fontWeight: 600 }}>{m.dose} {m.unit}</td>
-                                  <td style={{ padding: "10px 12px", textAlign: "center", fontWeight: 600, color: "#1e3a8a" }}>{m.frequency}</td>
-                                  <td style={{ padding: "10px 12px", textAlign: "center", fontWeight: 500 }}>{m.duration}</td>
-                                  <td style={{ padding: "10px 12px", textAlign: "center" }}>{m.route || "Oral"}</td>
-                                  <td style={{ padding: "10px 12px", color: "#334155" }}>{m.time || "After Food"}</td>
+                        <div className="overflow-x-auto -mx-1">
+                          {finalizedVisit.prescriptionData?.prescribedMedicines && finalizedVisit.prescriptionData.prescribedMedicines.length > 0 ? (
+                            <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
+                              <thead>
+                                <tr className="bg-blue-50/70 border-b border-slate-200 text-left font-bold text-blue-950" style={{ backgroundColor: "#eff6ff", borderBottom: "1.5px solid #cbd5e1", color: "#1e3a8a", fontWeight: 700 }}>
+                                  <th style={{ padding: "8px 10px" }}>Medicine</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Dose</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Frequency</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Duration</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Route</th>
+                                  <th style={{ padding: "8px 10px" }}>Timing</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        ) : (
-                          <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
-                            <thead>
-                              <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700" style={{ backgroundColor: "#f1f5f9", borderBottom: "1.5px solid #cbd5e1", color: "#334155", fontWeight: 700 }}>
-                                <th style={{ padding: "10px 12px", width: "36px", textAlign: "center" }}>#</th>
-                                <th style={{ padding: "10px 12px" }}>Medicine / Formulation</th>
-                                <th style={{ padding: "10px 12px", textAlign: "center", width: "60px" }}>Qty</th>
-                                <th style={{ padding: "10px 12px" }}>Dosage / Instructions</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(finalizedVisit.items || []).filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine").length === 0 ? (
-                                <tr>
-                                  <td colSpan={4} style={{ padding: "24px 16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic", fontSize: "12px" }}>
-                                    No pharmacy medications required. Symptomatic monitoring advised.
-                                  </td>
+                              </thead>
+                              <tbody>
+                                {finalizedVisit.prescriptionData.prescribedMedicines.map((m: any, idx: number) => (
+                                  <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                    <td style={{ padding: "8px 10px", fontWeight: 700, color: "#0f172a" }}>
+                                      {m.medicineName}
+                                      {m.note && <span style={{ display: "block", fontSize: "10px", color: "#64748b", fontWeight: 400, fontStyle: "italic" }}>{m.note}</span>}
+                                    </td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace", fontWeight: 600 }}>{m.dose} {m.unit}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 600, color: "#1e3a8a" }}>{m.frequency}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>{m.duration}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center" }}>{m.route || "Oral"}</td>
+                                    <td style={{ padding: "8px 10px", color: "#334155" }}>{m.time || "After Food"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
+                              <thead>
+                                <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700" style={{ backgroundColor: "#f1f5f9", borderBottom: "1.5px solid #cbd5e1", color: "#334155", fontWeight: 700 }}>
+                                  <th style={{ padding: "8px 10px", width: "36px", textAlign: "center" }}>#</th>
+                                  <th style={{ padding: "8px 10px" }}>Medicine / Formulation</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center", width: "60px" }}>Qty</th>
+                                  <th style={{ padding: "8px 10px" }}>Dosage / Instructions</th>
                                 </tr>
-                              ) : (
-                                (finalizedVisit.items || [])
-                                  .filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine")
-                                  .map((m: any, idx: number) => (
-                                    <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                                      <td style={{ padding: "10px 12px", textAlign: "center", color: "#64748b", fontWeight: 600 }}>{idx + 1}</td>
-                                      <td style={{ padding: "10px 12px", fontWeight: 700, color: "#0f172a" }}>{m.name}</td>
-                                      <td style={{ padding: "10px 12px", textAlign: "center", fontWeight: 700, color: "#0f172a" }}>{m.quantity}</td>
-                                      <td style={{ padding: "10px 12px", color: "#334155" }}>{m.dosageInstructions || "As directed by physician"}</td>
-                                    </tr>
-                                  ))
-                              )}
-                            </tbody>
-                          </table>
-                        )}
+                              </thead>
+                              <tbody>
+                                {(finalizedVisit.items || []).filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine").length === 0 ? (
+                                  <tr>
+                                    <td colSpan={4} style={{ padding: "20px 16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic", fontSize: "12px" }}>
+                                      No pharmacy medications required. Symptomatic monitoring advised.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  (finalizedVisit.items || [])
+                                    .filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine")
+                                    .map((m: any, idx: number) => (
+                                      <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                        <td style={{ padding: "8px 10px", textAlign: "center", color: "#64748b", fontWeight: 600 }}>{idx + 1}</td>
+                                        <td style={{ padding: "8px 10px", fontWeight: 700, color: "#0f172a" }}>{m.name}</td>
+                                        <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700, color: "#0f172a" }}>{m.quantity}</td>
+                                        <td style={{ padding: "8px 10px", color: "#334155" }}>{m.dosageInstructions || "As directed by physician"}</td>
+                                      </tr>
+                                    ))
+                                )}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
                       </div>
 
                       {/* Injectables (Hospital) */}
@@ -2095,32 +2100,34 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           <p className="text-[11px] font-bold text-purple-900 uppercase tracking-wider" style={{ color: "#581c87", fontWeight: 700, fontSize: "11px" }}>
                             Injectables (Hospital Given)
                           </p>
-                          <table className="w-full text-xs border border-purple-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #e9d5ff" }}>
-                            <thead>
-                              <tr className="bg-purple-50 text-purple-950 font-bold" style={{ backgroundColor: "#faf5ff", color: "#3b0764", fontWeight: 700 }}>
-                                <th style={{ padding: "8px 10px", textAlign: "left" }}>Drug</th>
-                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Dose</th>
-                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Route</th>
-                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Time</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {finalizedVisit.prescriptionData.injectables.map((inj: any, idx: number) => (
-                                <tr key={idx} style={{ borderBottom: "1px solid #f3e8ff" }}>
-                                  <td style={{ padding: "8px 10px", fontWeight: 600, color: "#0f172a" }}>{inj.drugName}</td>
-                                  <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{inj.dose} {inj.unit}</td>
-                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>{inj.route}</td>
-                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>{inj.time || "—"}</td>
+                          <div className="overflow-x-auto -mx-1">
+                            <table className="w-full text-xs border border-purple-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #e9d5ff" }}>
+                              <thead>
+                                <tr className="bg-purple-50 text-purple-950 font-bold" style={{ backgroundColor: "#faf5ff", color: "#3b0764", fontWeight: 700 }}>
+                                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Drug</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Dose</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Route</th>
+                                  <th style={{ padding: "8px 10px", textAlign: "center" }}>Time</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody>
+                                {finalizedVisit.prescriptionData.injectables.map((inj: any, idx: number) => (
+                                  <tr key={idx} style={{ borderBottom: "1px solid #f3e8ff" }}>
+                                    <td style={{ padding: "8px 10px", fontWeight: 600, color: "#0f172a" }}>{inj.drugName}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{inj.dose} {inj.unit}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center" }}>{inj.route}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center" }}>{inj.time || "—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       )}
 
                       {/* Diet & Care Recommendations */}
                       {(finalizedVisit.prescriptionData?.prescribedDiet?.length > 0 || finalizedVisit.prescriptionData?.foodItems?.length > 0 || finalizedVisit.prescriptionData?.accessories?.length > 0) && (
-                        <div className="rounded-xl border border-slate-200 p-3.5 bg-amber-50/20 text-xs space-y-1.5" style={{ border: "1px solid #cbd5e1", borderRadius: "12px", padding: "14px", backgroundColor: "#fffbeb", marginTop: "14px" }}>
+                        <div className="rounded-xl border border-slate-200 p-3.5 bg-amber-50/20 text-xs space-y-1.5" style={{ border: "1px solid #cbd5e1", borderRadius: "12px", padding: "12px 14px", backgroundColor: "#fffbeb", marginTop: "14px" }}>
                           <span className="font-bold text-amber-900 block uppercase" style={{ color: "#78350f", fontWeight: 700, fontSize: "11px" }}>Dietary &amp; Care Recommendations:</span>
                           {finalizedVisit.prescriptionData?.prescribedDiet?.map((d: any, di: number) => (
                             <p key={di} style={{ color: "#334155", margin: "2px 0" }}>• Diet: <strong style={{ color: "#0f172a" }}>{d.foodName}</strong> {d.specialInstructions && `(${d.specialInstructions})`}</p>
@@ -2136,16 +2143,16 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
                       {/* Follow-up Routine Care Box */}
                       <div
-                        className="rounded-2xl border border-dashed border-blue-300 p-4 text-xs grid grid-cols-3 gap-3 bg-[#f8faff]"
+                        className="rounded-2xl border border-dashed border-blue-300 p-3 sm:p-4 text-xs bg-[#f8faff]"
                         style={{
                           backgroundColor: "#f8faff",
                           border: "1.5px dashed #93c5fd",
                           borderRadius: "16px",
-                          padding: "16px 20px",
+                          padding: "12px 16px",
                           display: "grid",
-                          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                          gap: "14px",
-                          marginTop: "16px",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+                          gap: "10px",
+                          marginTop: "14px",
                         }}
                       >
                         <div>
@@ -2176,7 +2183,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                           </p>
                         </div>
                         {finalizedVisit.prescriptionData?.followUp?.instructions && (
-                          <div className="col-span-3 pt-2 border-t border-blue-200 mt-1" style={{ gridColumn: "span 3 / span 3", borderTop: "1px solid #bfdbfe", paddingTop: "8px", marginTop: "4px" }}>
+                          <div className="col-span-full pt-2 border-t border-blue-200 mt-1" style={{ borderTop: "1px solid #bfdbfe", paddingTop: "8px", marginTop: "4px" }}>
                             <span className="text-slate-700 font-semibold text-xs" style={{ color: "#334155", fontWeight: 600, fontSize: "11px" }}>Special Instructions:</span>
                             <p className="text-slate-800 italic mt-0.5" style={{ color: "#1e293b", fontStyle: "italic", margin: "2px 0 0 0" }}>{finalizedVisit.prescriptionData.followUp.instructions}</p>
                           </div>
@@ -2185,17 +2192,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                     </div>
 
                     {/* Pinned Bottom Section: Doctor Signature & Verification Footer */}
-                    <div className="prescription-footer-pinned" style={{ marginTop: "auto", paddingTop: "24px" }}>
+                    <div className="prescription-footer-pinned" style={{ marginTop: "auto", paddingTop: "20px" }}>
                       {/* Footer Signature Block */}
                       <div
-                        className="flex items-end justify-between text-xs border-t border-slate-200 pt-6"
-                        style={{ borderTop: "1px solid #cbd5e1", paddingTop: "20px", display: "flex", flexWrap: "wrap", rowGap: "14px", justifyContent: "space-between", alignItems: "flex-end" }}
+                        className="flex items-end justify-between text-xs border-t border-slate-200 pt-5"
+                        style={{ borderTop: "1px solid #cbd5e1", paddingTop: "16px", display: "flex", flexWrap: "wrap", rowGap: "12px", justifyContent: "space-between", alignItems: "flex-end" }}
                       >
-                        <div className="space-y-1" style={{ flex: "1 1 200px", minWidth: "200px" }}>
+                        <div className="space-y-1" style={{ flex: "1 1 180px", minWidth: "160px" }}>
                           <p className="text-slate-700 italic font-semibold" style={{ color: "#334155", fontStyle: "italic", fontWeight: 600, margin: "0 0 2px 0" }}>Administer medicines strictly as prescribed.</p>
                           <p className="text-[11px] text-slate-500" style={{ color: "#64748b", fontSize: "11px", margin: 0 }}>Store temperature-sensitive medications in cool and dry place.</p>
                         </div>
-                        <div className="text-center min-w-[210px]" style={{ textAlign: "center", minWidth: "210px", marginLeft: "auto" }}>
+                        <div className="text-center min-w-[160px]" style={{ textAlign: "center", minWidth: "160px", marginLeft: "auto" }}>
                           <div className="text-slate-500 font-serif italic text-xs pb-1" style={{ fontFamily: "Georgia, serif", fontStyle: "italic", color: "#64748b", fontSize: "11px", paddingBottom: "2px" }}>
                             Digitally Signed
                           </div>
@@ -2215,7 +2222,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       {/* Bottom Verification & Timestamp Footer */}
                       <div
                         className="mt-4 border-t border-dashed border-slate-300 flex items-center justify-between text-[10px] text-slate-600 font-mono pt-3"
-                        style={{ borderTop: "1px dashed #cbd5e1", marginTop: "14px", paddingTop: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", fontFamily: "monospace", color: "#64748b" }}
+                        style={{ borderTop: "1px dashed #cbd5e1", marginTop: "12px", paddingTop: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", fontFamily: "monospace", color: "#64748b" }}
                       >
                         <div className="flex items-center gap-1.5" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                           <span className="inline-block size-2 rounded-full bg-emerald-600" style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#059669" }}></span>
@@ -2230,7 +2237,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                 </div>
 
                 {/* ── RIGHT PANE: TAX INVOICE & SETTLEMENT RECEIPT ────────────────── */}
-                <div className="space-y-2.5">
+                <div className="space-y-2.5 min-w-0">
                   <div className="flex items-center justify-between px-1">
                     <div className="flex items-center gap-2">
                       <span className="flex size-6 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 font-bold text-xs">
@@ -2260,17 +2267,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   {/* Invoice Paper Container */}
                   <div
                     id="invoice-preview-card"
-                    className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-6 shadow-md text-xs font-sans"
+                    className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-4 sm:p-6 shadow-md text-xs font-sans"
                     style={{ backgroundColor: "#ffffff", color: "#0f172a", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
                   >
                     {/* Top Document Body */}
                     <div className="invoice-content-body space-y-5" style={{ flex: "1 0 auto" }}>
                       {/* Header */}
                       <div className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between" style={{ borderBottom: "2px solid #0f172a", paddingBottom: "14px", flexWrap: "wrap", rowGap: "10px", display: "flex", alignItems: "flex-start" }}>
-                        <div className="flex items-center gap-2" style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 260px", minWidth: "260px" }}>
+                        <div className="flex items-center gap-2" style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 200px", minWidth: "180px" }}>
                           <img src="/clinic-logo.png" alt="Clinic Logo" className="h-8 w-auto object-contain shrink-0" style={{ maxHeight: 32, width: "auto" }} />
-                          <div className="leading-tight" style={{ minWidth: "215px", flex: "1 1 auto" }}>
-                            <h2 className="text-sm font-black tracking-tight uppercase" style={{ fontSize: "15px", fontWeight: 900, color: "#0f172a" }}>Real Care Small Animal Clinic</h2>
+                          <div className="leading-tight" style={{ minWidth: "160px", flex: "1 1 auto" }}>
+                            <h2 className="text-sm font-black tracking-tight uppercase" style={{ fontSize: "14px", fontWeight: 900, color: "#0f172a" }}>Real Care Small Animal Clinic</h2>
                             <p className="text-[11px] text-slate-600 mt-0.5">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
                             <p className="text-[11px] text-slate-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
                             {finalizedVisit.billType === "GST" && (
@@ -2279,7 +2286,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                             <p className="text-[11px] text-slate-600">Branch: {finalizedVisit.branch || "Central Avenue, Nagpur"}</p>
                           </div>
                         </div>
-                        <div className="text-right text-[11px] space-y-1 shrink-0 min-w-[130px]" style={{ marginLeft: "auto" }}>
+                        <div className="text-right text-[11px] space-y-1 shrink-0 min-w-[110px]" style={{ marginLeft: "auto" }}>
                           <span className="inline-block bg-slate-900 text-white font-bold px-2 py-0.5 rounded text-[9px] uppercase tracking-wider">
                             {finalizedVisit.billType === "GST" ? "TAX INVOICE" : "BILL OF SUPPLY"}
                           </span>
@@ -2289,7 +2296,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       </div>
 
                       {/* Billed To / Patient Info */}
-                      <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 p-3.5 text-xs bg-slate-50" style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "14px" }}>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-slate-200 p-3 sm:p-3.5 text-xs bg-slate-50" style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "12px 14px" }}>
                         <div>
                           <p className="text-slate-500 font-bold uppercase text-[9px] tracking-wider">Billed To (Client)</p>
                           <p className="font-bold text-sm text-slate-900 mt-0.5">{finalizedVisit.ownerName}</p>
@@ -2305,46 +2312,48 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       </div>
 
                       {/* Itemized Table */}
-                      <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
-                        <thead>
-                          <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700" style={{ backgroundColor: "#f1f5f9", borderBottom: "1.5px solid #cbd5e1", color: "#334155", fontWeight: 700 }}>
-                            <th style={{ padding: "8px 10px", width: "32px" }}>#</th>
-                            <th style={{ padding: "8px 10px" }}>Description / Category</th>
-                            <th style={{ padding: "8px 10px", textAlign: "center", width: "48px" }}>Qty</th>
-                            <th style={{ padding: "8px 10px", textAlign: "right", width: "72px" }}>Rate (₹)</th>
-                            <th style={{ padding: "8px 10px", textAlign: "center", width: "56px" }}>Disc (%)</th>
-                            {finalizedVisit.billType === "GST" && <th style={{ padding: "8px 10px", textAlign: "center", width: "52px" }}>GST</th>}
-                            <th style={{ padding: "8px 10px", textAlign: "right", width: "80px" }}>Amount (₹)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(finalizedVisit.items || []).map((item: any, idx: number) => {
-                            const gross = item.quantity * item.unitPrice;
-                            const disc = (gross * (item.discountPercent || 0)) / 100;
-                            const lineNet = gross - disc;
-                            return (
-                              <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                                <td style={{ padding: "8px 10px", color: "#94a3b8" }}>{idx + 1}</td>
-                                <td style={{ padding: "8px 10px" }}>
-                                  <p style={{ fontWeight: 600, color: "#0f172a", margin: 0 }}>{item.name}</p>
-                                  <span style={{ fontSize: "10px", color: "#64748b" }}>{item.lineType}</span>
-                                </td>
-                                <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>{item.quantity}</td>
-                                <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "monospace" }}>{item.unitPrice.toFixed(2)}</td>
-                                <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{item.discountPercent || 0}%</td>
-                                {finalizedVisit.billType === "GST" && <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{item.gstRate || 0}%</td>}
-                                <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, fontFamily: "monospace" }}>{lineNet.toFixed(2)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                      <div className="overflow-x-auto -mx-1">
+                        <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
+                          <thead>
+                            <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700" style={{ backgroundColor: "#f1f5f9", borderBottom: "1.5px solid #cbd5e1", color: "#334155", fontWeight: 700 }}>
+                              <th style={{ padding: "8px 10px", width: "32px" }}>#</th>
+                              <th style={{ padding: "8px 10px" }}>Description / Category</th>
+                              <th style={{ padding: "8px 10px", textAlign: "center", width: "48px" }}>Qty</th>
+                              <th style={{ padding: "8px 10px", textAlign: "right", width: "72px" }}>Rate (₹)</th>
+                              <th style={{ padding: "8px 10px", textAlign: "center", width: "56px" }}>Disc (%)</th>
+                              {finalizedVisit.billType === "GST" && <th style={{ padding: "8px 10px", textAlign: "center", width: "52px" }}>GST</th>}
+                              <th style={{ padding: "8px 10px", textAlign: "right", width: "80px" }}>Amount (₹)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(finalizedVisit.items || []).map((item: any, idx: number) => {
+                              const gross = item.quantity * item.unitPrice;
+                              const disc = (gross * (item.discountPercent || 0)) / 100;
+                              const lineNet = gross - disc;
+                              return (
+                                <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                  <td style={{ padding: "8px 10px", color: "#94a3b8" }}>{idx + 1}</td>
+                                  <td style={{ padding: "8px 10px" }}>
+                                    <p style={{ fontWeight: 600, color: "#0f172a", margin: 0 }}>{item.name}</p>
+                                    <span style={{ fontSize: "10px", color: "#64748b" }}>{item.lineType}</span>
+                                  </td>
+                                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>{item.quantity}</td>
+                                  <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "monospace" }}>{item.unitPrice.toFixed(2)}</td>
+                                  <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{item.discountPercent || 0}%</td>
+                                  {finalizedVisit.billType === "GST" && <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{item.gstRate || 0}%</td>}
+                                  <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, fontFamily: "monospace" }}>{lineNet.toFixed(2)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
 
                     {/* Pinned Bottom Section: Financials, Terms & Signature */}
                     <div className="invoice-footer-pinned" style={{ marginTop: "auto", paddingTop: "20px" }}>
                       {/* Financial Summary & Split Settlement */}
-                      <div className="flex justify-between items-start pt-1 gap-3">
+                      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-start pt-1 gap-3">
                         {/* Left: Payment Mode Details */}
                         <div className="rounded-xl border border-slate-200 p-3 text-xs flex-1 space-y-1.5 bg-slate-50" style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "12px 14px" }}>
                           <p className="font-bold text-slate-700 uppercase text-[10px] tracking-wider">Payment Summary</p>
@@ -2374,7 +2383,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         </div>
 
                         {/* Right: Calculations */}
-                        <div className="w-56 space-y-1 text-xs text-right">
+                        <div className="w-full sm:w-52 md:w-56 space-y-1 text-xs text-right shrink-0">
                           <div className="flex justify-between text-slate-600">
                             <span>Subtotal:</span>
                             <span className="font-mono">₹{(finalizedVisit.subtotal || 0).toFixed(2)}</span>
@@ -2403,12 +2412,12 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       </div>
 
                       {/* Footer Terms */}
-                      <div className="pt-4 border-t border-slate-200 flex justify-between items-end text-[10px] text-slate-500 mt-4" style={{ borderTop: "1px solid #cbd5e1", flexWrap: "wrap", rowGap: "12px" }}>
-                        <div style={{ flex: "1 1 200px", minWidth: "200px" }}>
+                      <div className="pt-4 border-t border-slate-200 flex justify-between items-end text-[10px] text-slate-500 mt-4" style={{ borderTop: "1px solid #cbd5e1", flexWrap: "wrap", rowGap: "10px" }}>
+                        <div style={{ flex: "1 1 180px", minWidth: "160px" }}>
                           <p style={{ margin: "0 0 2px 0" }}>• Goods once sold are not returnable after cold chain break.</p>
                           <p style={{ margin: 0 }}>• Computer-generated sales invoice and official receipt.</p>
                         </div>
-                        <div className="text-center min-w-[180px]" style={{ marginLeft: "auto" }}>
+                        <div className="text-center min-w-[160px]" style={{ marginLeft: "auto" }}>
                           <p className="font-bold text-slate-700" style={{ margin: "0 0 4px 0" }}>For Real Care Small Animal Clinic</p>
                           <div className="w-full border-b border-slate-300 pb-5 pt-1"></div>
                           <p className="text-slate-400 pt-1 text-[10px]" style={{ margin: "4px 0 0 0" }}>Authorized Signatory</p>
@@ -2429,6 +2438,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   </div>
                 </div>
               </div>
+            </div>
           )}
         </div>
 

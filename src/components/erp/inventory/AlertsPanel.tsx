@@ -12,13 +12,22 @@ import {
   ShoppingBag,
   Skull,
   Pill,
+  Syringe,
   Bone,
   Tag,
   CheckCircle2,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { useInventory, type Medicine, type Batch, type ProductType } from "./useInventoryStore";
+
+const CATEGORY_FILTERS: { type: ProductType; label: string; Icon: LucideIcon; activeClasses: string }[] = [
+  { type: "MEDICINE", label: "Medicines", Icon: Pill, activeClasses: "bg-emerald-600 text-white border-emerald-600" },
+  { type: "INJECTION", label: "Injections", Icon: Syringe, activeClasses: "bg-rose-600 text-white border-rose-600" },
+  { type: "FOOD", label: "Animal Food", Icon: Bone, activeClasses: "bg-amber-600 text-white border-amber-600" },
+  { type: "ACCESSORY", label: "Accessories", Icon: Tag, activeClasses: "bg-blue-600 text-white border-blue-600" },
+];
 
 function daysBetween(a: Date, b: Date) {
   return Math.floor((b.getTime() - a.getTime()) / 86400000);
@@ -233,36 +242,19 @@ export function AlertsPanel() {
         >
           All Items ({medicines.filter((m) => m.status === "Active").length})
         </button>
-        <button
-          onClick={() => setCategoryFilter("MEDICINE")}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-            categoryFilter === "MEDICINE"
-              ? "bg-emerald-600 text-white border-emerald-600"
-              : "bg-muted/40 text-muted-foreground hover:bg-muted"
-          }`}
-        >
-          <Pill className="size-3" /> Medicines
-        </button>
-        <button
-          onClick={() => setCategoryFilter("FOOD")}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-            categoryFilter === "FOOD"
-              ? "bg-amber-600 text-white border-amber-600"
-              : "bg-muted/40 text-muted-foreground hover:bg-muted"
-          }`}
-        >
-          <Bone className="size-3" /> Animal Food
-        </button>
-        <button
-          onClick={() => setCategoryFilter("ACCESSORY")}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-            categoryFilter === "ACCESSORY"
-              ? "bg-blue-600 text-white border-blue-600"
-              : "bg-muted/40 text-muted-foreground hover:bg-muted"
-          }`}
-        >
-          <Tag className="size-3" /> Accessories
-        </button>
+        {CATEGORY_FILTERS.map((f) => (
+          <button
+            key={f.type}
+            onClick={() => setCategoryFilter(f.type)}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+              categoryFilter === f.type
+                ? f.activeClasses
+                : "bg-muted/40 text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <f.Icon className="size-3" /> {f.label}
+          </button>
+        ))}
       </div>
 
       {/* KPIs */}

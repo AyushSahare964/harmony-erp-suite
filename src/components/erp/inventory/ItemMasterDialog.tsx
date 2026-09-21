@@ -4,7 +4,7 @@
  */
 
 import { ProductMasterWizardDialog } from "./ProductMasterWizardDialog";
-import type { Medicine, MedicineCategory, ProductType } from "./useInventoryStore";
+import { resolveProductType, type Medicine, type MedicineCategory } from "./useInventoryStore";
 
 export function ItemMasterDialog({
   open,
@@ -17,13 +17,7 @@ export function ItemMasterDialog({
   editing?: Medicine | undefined;
   defaultCategory?: MedicineCategory | undefined;
 }) {
-  const resolvedType: ProductType =
-    editing?.productType ||
-    (defaultCategory === "Food" || defaultCategory === "Animal Food"
-      ? "FOOD"
-      : defaultCategory === "Accessory" || defaultCategory === "Animal Accessories"
-      ? "ACCESSORY"
-      : "MEDICINE");
+  const resolvedType = resolveProductType(defaultCategory, editing?.productType);
 
   return (
     <ProductMasterWizardDialog

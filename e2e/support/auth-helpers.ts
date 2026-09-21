@@ -14,10 +14,29 @@ export async function loginAsAdmin(page: Page) {
   if (!isEmailVisible) {
     if (!page.url().includes('/login')) return;
   }
-  await fillStable(emailInput, ADMIN_CREDENTIALS.email);
-  await fillStable(page.locator('input[type="password"]'), ADMIN_CREDENTIALS.password);
-  await page.locator('form').getByRole('button', { name: /sign in/i }).click();
-  await expect(page).not.toHaveURL(/\/login/, { timeout: 15000 });
+  const passwordInput = page.locator('input[type="password"]');
+  const signInBtn = page.locator('form').getByRole('button', { name: /sign in/i });
+
+  // A hydration re-render can reset an already-filled controlled input at any point up to
+  // submit — the reset is async and isn't tied to any check's timing, so no single check-then-
+  // click sequence can fully close the race. That leaves the form failing silent native HTML5
+  // validation on click (no server round-trip, no error Playwright can see), so it just times
+  // out waiting for a navigation that never happens. Retry the whole fill+submit a few times
+  // instead of trying to win a single race.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await fillStable(emailInput, ADMIN_CREDENTIALS.email);
+    await fillStable(passwordInput, ADMIN_CREDENTIALS.password);
+    await signInBtn.click();
+    try {
+      await expect(page).not.toHaveURL(/\/login/, { timeout: 6000 });
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!page.url().includes('/login')) return; // navigated after all, assertion just raced it
+    }
+  }
+  throw lastErr;
 }
 
 export type RoleId = 'doctor' | 'admin' | 'reception' | 'accounts' | 'platform';

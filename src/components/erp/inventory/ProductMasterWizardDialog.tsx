@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import {
   Pill,
+  Syringe,
   Bone,
   Tag,
   CheckCircle2,
@@ -44,9 +45,11 @@ import {
   Info,
   Sparkles,
   ShieldCheck,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useInventory,
+  resolveProductType,
   type Medicine,
   type ProductType,
   type UnitOfMeasure,
@@ -79,6 +82,67 @@ const STEPS = [
   { id: 3, title: "Pricing & Tax", desc: "MRP, sales price & GST" },
   { id: 4, title: "Purchasing", desc: "Suppliers & lead times" },
   { id: 5, title: "Sales & Accounts", desc: "Revenue accounts & finish" },
+];
+
+// Data-driven category registry — add a new entry here to add a new Product Master
+// category tile; nothing else in the picker UI needs to change.
+interface CategoryDef {
+  type: ProductType;
+  label: string;
+  blurb: string;
+  Icon: LucideIcon;
+  namePlaceholder: string;
+  genericPlaceholder: string;
+  subGroupPlaceholder: string;
+  swatch: string; // icon tile bg/text
+  accent: string; // selected badge/section accent
+}
+
+const CATEGORY_DEFS: CategoryDef[] = [
+  {
+    type: "MEDICINE",
+    label: "Medicine",
+    blurb: "Batch, expiry, Rx",
+    Icon: Pill,
+    namePlaceholder: "e.g. Amoxicillin 250mg",
+    genericPlaceholder: "e.g. Amoxicillin Trihydrate",
+    subGroupPlaceholder: "e.g. Antibiotics, NSAIDs",
+    swatch: "bg-emerald-500/10 text-emerald-600",
+    accent: "emerald",
+  },
+  {
+    type: "INJECTION",
+    label: "Injection",
+    blurb: "Vials, route, cold chain",
+    Icon: Syringe,
+    namePlaceholder: "e.g. Meloxicam 20mg/ml Injection",
+    genericPlaceholder: "e.g. Meloxicam Injectable Solution",
+    subGroupPlaceholder: "e.g. Analgesics, Vaccines, Antibiotics",
+    swatch: "bg-rose-500/10 text-rose-600",
+    accent: "rose",
+  },
+  {
+    type: "FOOD",
+    label: "Animal Food",
+    blurb: "Species, kibble, diet",
+    Icon: Bone,
+    namePlaceholder: "e.g. Royal Canin Maxi Adult 4kg",
+    genericPlaceholder: "e.g. Canine adult large breed diet",
+    subGroupPlaceholder: "e.g. Dog Food, Feline Diet",
+    swatch: "bg-amber-500/10 text-amber-600",
+    accent: "amber",
+  },
+  {
+    type: "ACCESSORY",
+    label: "Pet Accessory",
+    blurb: "Gear, bowl, comfort",
+    Icon: Tag,
+    namePlaceholder: "e.g. Ergonomic Padded Dog Harness (L)",
+    genericPlaceholder: "e.g. Nylon Chest Harness",
+    subGroupPlaceholder: "e.g. Gear, Feeding, Comfort",
+    swatch: "bg-blue-500/10 text-blue-600",
+    accent: "blue",
+  },
 ];
 
 export interface WizardFormState {
@@ -116,6 +180,17 @@ export interface WizardFormState {
   petSize: string;
   material: string;
   color: string;
+
+  // Injection Specific
+  injComposition: string;
+  injStrength: string;
+  injRoute: string;
+  injectionSite: string;
+  vialSize: string;
+  withdrawalPeriod: string;
+  coldChainRequired: boolean;
+  injSchedule: string;
+  injControlledSubstance: boolean;
 
   // Stock
   unit: UnitOfMeasure;
@@ -166,13 +241,7 @@ function getDefaultFormState(
   defaultProductType: ProductType = "MEDICINE"
 ): WizardFormState {
   if (editing) {
-    const pType: ProductType =
-      editing.productType ||
-      (editing.category === "Food" || editing.category === "Animal Food"
-        ? "FOOD"
-        : editing.category === "Accessory" || editing.category === "Animal Accessories"
-        ? "ACCESSORY"
-        : "MEDICINE");
+    const pType = resolveProductType(editing.category, editing.productType);
 
     return {
       productType: pType,
@@ -191,7 +260,8 @@ function getDefaultFormState(
       strength: editing.medicineDetails?.strength || "",
       dosageForm: editing.medicineDetails?.dosageForm || "",
       route: editing.medicineDetails?.route || "",
-      storageCondition: editing.medicineDetails?.storageCondition || "",
+      storageCondition:
+        editing.medicineDetails?.storageCondition || editing.injectionDetails?.storageCondition || "",
       schedule: editing.medicineDetails?.schedule || "",
       controlledSubstance: editing.medicineDetails?.controlledSubstance || false,
 
@@ -208,6 +278,17 @@ function getDefaultFormState(
       petSize: editing.accessoryDetails?.petSize || "",
       material: editing.accessoryDetails?.material || "",
       color: editing.accessoryDetails?.color || "",
+
+      // Injection details
+      injComposition: editing.injectionDetails?.composition || "",
+      injStrength: editing.injectionDetails?.strength || "",
+      injRoute: editing.injectionDetails?.route || "",
+      injectionSite: editing.injectionDetails?.injectionSite || "",
+      vialSize: editing.injectionDetails?.vialSize || "",
+      withdrawalPeriod: editing.injectionDetails?.withdrawalPeriod || "",
+      coldChainRequired: editing.injectionDetails?.coldChainRequired || false,
+      injSchedule: editing.injectionDetails?.schedule || "",
+      injControlledSubstance: editing.injectionDetails?.controlledSubstance || false,
 
       // Stock
       unit: editing.unit,
@@ -247,7 +328,7 @@ function getDefaultFormState(
 
       // Sales & Meta
       incomeAccount: editing.incomeAccount || "4010 - Sales Revenue",
-      costCenter: editing.costCenter || (pType === "MEDICINE" ? "Pharmacy" : "Retail Store"),
+      costCenter: editing.costCenter || (pType === "MEDICINE" || pType === "INJECTION" ? "Pharmacy" : "Retail Store"),
       isSalesItem: editing.isSalesItem,
       allowAlternativeItem: editing.allowAlternativeItem,
       status: editing.status,
@@ -271,7 +352,8 @@ function getDefaultFormState(
     strength: "",
     dosageForm: defaultProductType === "MEDICINE" ? "Tablet" : "",
     route: defaultProductType === "MEDICINE" ? "Oral" : "",
-    storageCondition: "Room Temperature (15-25°C)",
+    storageCondition:
+      defaultProductType === "INJECTION" ? "Cold Chain (2-8°C)" : "Room Temperature (15-25°C)",
     schedule: "Schedule H",
     controlledSubstance: false,
 
@@ -287,18 +369,36 @@ function getDefaultFormState(
     material: "Nylon",
     color: "Black",
 
-    unit: defaultProductType === "MEDICINE" ? "Tablet" : defaultProductType === "FOOD" ? "Box" : "Piece",
+    injComposition: "",
+    injStrength: "",
+    injRoute: defaultProductType === "INJECTION" ? "IM" : "",
+    injectionSite: "",
+    vialSize: "",
+    withdrawalPeriod: "0 days",
+    coldChainRequired: defaultProductType === "INJECTION",
+    injSchedule: "Schedule H",
+    injControlledSubstance: false,
+
+    unit: defaultProductType === "MEDICINE" ? "Tablet"
+      : defaultProductType === "INJECTION" ? "Vial"
+      : defaultProductType === "FOOD" ? "Box" : "Piece",
     purchaseUom: "",
     salesUom: "",
     maintainStock: true,
-    valuationMethod: defaultProductType === "MEDICINE" ? "FEFO" : "FIFO",
+    valuationMethod: defaultProductType === "MEDICINE" || defaultProductType === "INJECTION" ? "FEFO" : "FIFO",
     openingStock: "0",
     currentStock: 0,
-    reorderLevel: defaultProductType === "MEDICINE" ? "20" : defaultProductType === "FOOD" ? "10" : "5",
-    reorderQty: defaultProductType === "MEDICINE" ? "50" : defaultProductType === "FOOD" ? "20" : "15",
+    reorderLevel: defaultProductType === "MEDICINE" ? "20"
+      : defaultProductType === "INJECTION" ? "10"
+      : defaultProductType === "FOOD" ? "10" : "5",
+    reorderQty: defaultProductType === "MEDICINE" ? "50"
+      : defaultProductType === "INJECTION" ? "20"
+      : defaultProductType === "FOOD" ? "20" : "15",
     safetyStock: "5",
-    storageLocation: defaultProductType === "MEDICINE" ? "Pharmacy Shelf A1" : "Retail Floor",
-    batchTracking: defaultProductType === "MEDICINE",
+    storageLocation: defaultProductType === "MEDICINE" ? "Pharmacy Shelf A1"
+      : defaultProductType === "INJECTION" ? "Pharmacy Cold Chain Fridge"
+      : "Retail Floor",
+    batchTracking: defaultProductType === "MEDICINE" || defaultProductType === "INJECTION",
     serialTracking: false,
     allowNegativeStock: false,
 
@@ -308,8 +408,10 @@ function getDefaultFormState(
     minSalePrice: "",
     maxDiscountPct: "10",
     valuationRate: "",
-    gstRate: defaultProductType === "MEDICINE" ? "12" : defaultProductType === "FOOD" ? "5" : "18",
-    hsnCode: defaultProductType === "MEDICINE" ? "3004" : defaultProductType === "FOOD" ? "2309" : "4201",
+    gstRate: defaultProductType === "MEDICINE" || defaultProductType === "INJECTION" ? "12"
+      : defaultProductType === "FOOD" ? "5" : "18",
+    hsnCode: defaultProductType === "MEDICINE" || defaultProductType === "INJECTION" ? "3004"
+      : defaultProductType === "FOOD" ? "2309" : "4201",
     taxCategory: "Standard",
     samplePriceNote: "",
 
@@ -321,7 +423,7 @@ function getDefaultFormState(
     expenseAccount: "5020 - Operating Supplies",
 
     incomeAccount: "4010 - Sales Revenue",
-    costCenter: defaultProductType === "MEDICINE" ? "Pharmacy" : "Retail Store",
+    costCenter: defaultProductType === "MEDICINE" || defaultProductType === "INJECTION" ? "Pharmacy" : "Retail Store",
     isSalesItem: true,
     allowAlternativeItem: false,
     status: "Active",
@@ -330,38 +432,50 @@ function getDefaultFormState(
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+export interface ProductMasterWizardDialogProps {
+  open: boolean;
+  onClose: () => void;
+  editing?: Medicine | undefined;
+  defaultProductType?: ProductType;
+  initialName?: string;
+  onItemCreated?: (item: Medicine) => void;
+}
+
 export function ProductMasterWizardDialog({
   open,
   onClose,
   editing,
   defaultProductType = "MEDICINE",
-}: {
-  open: boolean;
-  onClose: () => void;
-  editing?: Medicine | undefined;
-  defaultProductType?: ProductType;
-}) {
+  initialName,
+  onItemCreated,
+}: ProductMasterWizardDialogProps) {
   const { addMedicine, updateMedicine, getTotalQty } = useInventory();
   const [currentStep, setCurrentStep] = useState(1);
-  const [form, setForm] = useState<WizardFormState>(() =>
-    getDefaultFormState(editing, defaultProductType)
-  );
+  const [form, setForm] = useState<WizardFormState>(() => {
+    const s = getDefaultFormState(editing, defaultProductType);
+    if (initialName && !editing) s.name = initialName;
+    return s;
+  });
   const [saving, setSaving] = useState(false);
   const [nextCode, setNextCode] = useState("");
   const [hasSavedDraft, setHasSavedDraft] = useState(false);
   const [draftTimestamp, setDraftTimestamp] = useState<string | null>(null);
 
   const draftKey = `vetos_draft_${form.productType}`;
+  const activeDef = CATEGORY_DEFS.find((d) => d.type === form.productType) ?? CATEGORY_DEFS[0]!;
 
   // Reset or load initial data when dialog opens
   useEffect(() => {
     if (open) {
       setCurrentStep(1);
       const initial = getDefaultFormState(editing, defaultProductType);
+      if (initialName && !editing) {
+        initial.name = initialName;
+      }
       setForm(initial);
 
-      // Check draft only when adding
-      if (!editing) {
+      // Check draft only when adding and no explicit initialName
+      if (!editing && !initialName) {
         try {
           const raw = localStorage.getItem(`vetos_draft_${defaultProductType}`);
           if (raw) {
@@ -378,15 +492,13 @@ export function ProductMasterWizardDialog({
         setHasSavedDraft(false);
       }
     }
-  }, [open, editing, defaultProductType]);
+  }, [open, editing, defaultProductType, initialName]);
 
   // Peek next code for category
   useEffect(() => {
     if (!open || editing) return;
     let cancelled = false;
-    const prefix =
-      form.productType === "MEDICINE" ? "M" : form.productType === "FOOD" ? "F" : "A";
-    peekItemCodeFn({ data: { prefix } })
+    peekItemCodeFn({ data: { type: form.productType } })
       .then((code) => {
         if (!cancelled && code) {
           setNextCode(code);
@@ -497,6 +609,8 @@ export function ProductMasterWizardDialog({
       const categoryName =
         form.productType === "MEDICINE"
           ? "Medicine"
+          : form.productType === "INJECTION"
+          ? "Injection"
           : form.productType === "FOOD"
           ? "Animal Food"
           : "Animal Accessories";
@@ -591,6 +705,22 @@ export function ProductMasterWizardDialog({
                 color: form.color,
               }
             : undefined,
+
+        injectionDetails:
+          form.productType === "INJECTION"
+            ? {
+                composition: form.injComposition,
+                strength: form.injStrength,
+                route: form.injRoute,
+                injectionSite: form.injectionSite,
+                vialSize: form.vialSize,
+                withdrawalPeriod: form.withdrawalPeriod,
+                coldChainRequired: form.coldChainRequired,
+                storageCondition: form.storageCondition,
+                schedule: form.injSchedule,
+                controlledSubstance: form.injControlledSubstance,
+              }
+            : undefined,
       };
 
       if (editing) {
@@ -600,9 +730,12 @@ export function ProductMasterWizardDialog({
         } as any);
         toast.success(`Updated ${form.name} successfully`);
       } else {
-        await addMedicine(payload as any);
+        const created = await addMedicine(payload as any);
         localStorage.removeItem(draftKey);
         toast.success(`Created ${form.name} (${nextCode || "New"}) successfully`);
+        if (created) {
+          onItemCreated?.(created);
+        }
       }
 
       onClose();
@@ -614,12 +747,46 @@ export function ProductMasterWizardDialog({
     }
   };
 
+  const handleCategorySwitch = (newType: ProductType) => {
+    if (editing || form.productType === newType) return;
+    const defaults = getDefaultFormState(undefined, newType);
+    setForm((prev) => ({
+      ...prev,
+      productType: newType,
+      unit: prev.unit || defaults.unit,
+      storageLocation: defaults.storageLocation,
+      gstRate: defaults.gstRate,
+      hsnCode: defaults.hsnCode,
+      reorderLevel: defaults.reorderLevel,
+      reorderQty: defaults.reorderQty,
+      costCenter: defaults.costCenter,
+      batchTracking: defaults.batchTracking,
+    }));
+  };
+
+  const handleQuickSave = async () => {
+    if (!form.name.trim()) {
+      toast.error("Item Name is required");
+      return;
+    }
+    if (!form.defaultSalePrice) {
+      setForm((prev) => ({ ...prev, defaultSalePrice: "0" }));
+    }
+    await handleSaveProduct();
+  };
+
   const getCategoryBadge = (type: ProductType) => {
     switch (type) {
       case "MEDICINE":
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
             <Pill className="h-3.5 w-3.5" /> Medicine Master
+          </span>
+        );
+      case "INJECTION":
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+            <Syringe className="h-3.5 w-3.5" /> Injection Master
           </span>
         );
       case "FOOD":
@@ -769,54 +936,37 @@ export function ProductMasterWizardDialog({
                   )}
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 pt-1">
-                  {(["MEDICINE", "FOOD", "ACCESSORY"] as ProductType[]).map((type) => {
-                    const isSelected = form.productType === type;
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                  {CATEGORY_DEFS.map((def) => {
+                    const isSelected = form.productType === def.type;
                     const isDisabled = !!editing;
                     return (
                       <button
-                        key={type}
+                        key={def.type}
                         type="button"
                         disabled={isDisabled}
                         onClick={() => {
                           if (!isDisabled) {
-                            setForm((prev) => getDefaultFormState(undefined, type));
+                            handleCategorySwitch(def.type);
                           }
                         }}
-                        className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                        className={`relative flex items-center gap-3 p-3 rounded-xl border text-left transition-all duration-150 ${
                           isSelected
-                            ? "bg-card border-primary ring-1 ring-primary shadow-sm"
-                            : "bg-muted/30 border-border hover:bg-muted/50"
+                            ? "bg-card border-primary ring-2 ring-primary/30 shadow-md"
+                            : "bg-muted/30 border-border hover:bg-muted/60 hover:border-border/80"
                         } ${isDisabled ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
                       >
-                        <div
-                          className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
-                            type === "MEDICINE"
-                              ? "bg-emerald-500/10 text-emerald-600"
-                              : type === "FOOD"
-                              ? "bg-amber-500/10 text-amber-600"
-                              : "bg-blue-500/10 text-blue-600"
-                          }`}
-                        >
-                          {type === "MEDICINE" && <Pill className="h-4 w-4" />}
-                          {type === "FOOD" && <Bone className="h-4 w-4" />}
-                          {type === "ACCESSORY" && <Tag className="h-4 w-4" />}
+                        <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${def.swatch}`}>
+                          <def.Icon className="h-4.5 w-4.5" />
                         </div>
-                        <div>
-                          <div className="font-semibold text-xs text-foreground">
-                            {type === "MEDICINE"
-                              ? "Medicine"
-                              : type === "FOOD"
-                              ? "Animal Food"
-                              : "Pet Accessory"}
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-xs text-foreground flex items-center justify-between">
+                            <span className="truncate">{def.label}</span>
+                            {isSelected && (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                            )}
                           </div>
-                          <div className="text-[11px] text-muted-foreground">
-                            {type === "MEDICINE"
-                              ? "Batch, expiry, Rx"
-                              : type === "FOOD"
-                              ? "Species, kibble, diet"
-                              : "Gear, bowl, comfort"}
-                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate">{def.blurb}</div>
                         </div>
                       </button>
                     );
@@ -831,13 +981,7 @@ export function ProductMasterWizardDialog({
                     Product / Brand Name <span className="text-destructive">*</span>
                   </Label>
                   <Input
-                    placeholder={
-                      form.productType === "MEDICINE"
-                        ? "e.g. Amoxicillin 250mg"
-                        : form.productType === "FOOD"
-                        ? "e.g. Royal Canin Maxi Adult 4kg"
-                        : "e.g. Ergonomic Padded Dog Harness (L)"
-                    }
+                    placeholder={activeDef.namePlaceholder}
                     value={form.name}
                     onChange={(e) => updateField("name", e.target.value)}
                   />
@@ -846,13 +990,7 @@ export function ProductMasterWizardDialog({
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold">Generic / Scientific Name</Label>
                   <Input
-                    placeholder={
-                      form.productType === "MEDICINE"
-                        ? "e.g. Amoxicillin Trihydrate"
-                        : form.productType === "FOOD"
-                        ? "e.g. Canine adult large breed diet"
-                        : "e.g. Nylon Chest Harness"
-                    }
+                    placeholder={activeDef.genericPlaceholder}
                     value={form.genericName}
                     onChange={(e) => updateField("genericName", e.target.value)}
                   />
@@ -888,13 +1026,7 @@ export function ProductMasterWizardDialog({
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold">Sub-Category / Group</Label>
                   <Input
-                    placeholder={
-                      form.productType === "MEDICINE"
-                        ? "e.g. Antibiotics, NSAIDs"
-                        : form.productType === "FOOD"
-                        ? "e.g. Dog Food, Feline Diet"
-                        : "e.g. Gear, Feeding, Comfort"
-                    }
+                    placeholder={activeDef.subGroupPlaceholder}
                     value={form.subGroup}
                     onChange={(e) => updateField("subGroup", e.target.value)}
                   />
@@ -907,6 +1039,7 @@ export function ProductMasterWizardDialog({
                   <Info className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-xs text-foreground">
                     {form.productType === "MEDICINE" && "Clinical & Pharmaceutical Specifications"}
+                    {form.productType === "INJECTION" && "Injectable Clinical & Cold Chain Specifications"}
                     {form.productType === "FOOD" && "Dietary & Nutritional Profile"}
                     {form.productType === "ACCESSORY" && "Physical Variant & Material Specifications"}
                   </span>
@@ -1198,6 +1331,145 @@ export function ProductMasterWizardDialog({
                         value={form.color}
                         onChange={(e) => updateField("color", e.target.value)}
                       />
+                    </div>
+                  </div>
+                )}
+
+                {/* INJECTION SPECIFIC FIELDS */}
+                {form.productType === "INJECTION" && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Composition / Active Substance</Label>
+                      <Input
+                        placeholder="e.g. Meloxicam 20mg/ml"
+                        value={form.injComposition}
+                        onChange={(e) => updateField("injComposition", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Strength / Concentration</Label>
+                      <Input
+                        placeholder="e.g. 20mg/ml, 100 IU/ml"
+                        value={form.injStrength}
+                        onChange={(e) => updateField("injStrength", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Vial / Ampoule Size</Label>
+                      <Input
+                        placeholder="e.g. 10ml vial, 1ml ampoule"
+                        value={form.vialSize}
+                        onChange={(e) => updateField("vialSize", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Administration Route</Label>
+                      <Select
+                        value={form.injRoute || "IM"}
+                        onValueChange={(v) => updateField("injRoute", v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select route" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {["IV", "IM", "SC", "Intradermal", "Intramammary", "Epidural"].map((r) => (
+                            <SelectItem key={r} value={r}>
+                              {r}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Injection Site</Label>
+                      <Input
+                        placeholder="e.g. Gluteal, Cervical, Hind limb"
+                        value={form.injectionSite}
+                        onChange={(e) => updateField("injectionSite", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Withdrawal Period</Label>
+                      <Input
+                        placeholder="e.g. 0 days, 7 days meat/milk"
+                        value={form.withdrawalPeriod}
+                        onChange={(e) => updateField("withdrawalPeriod", e.target.value)}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        For food-producing animals — time before meat/milk is safe for consumption.
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Storage / Cold Chain Condition</Label>
+                      <Select
+                        value={form.storageCondition || "Cold Chain (2-8°C)"}
+                        onValueChange={(v) => updateField("storageCondition", v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Storage" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[
+                            "Cold Chain (2-8°C)",
+                            "Room Temperature (15-25°C)",
+                            "Deep Freeze (< -18°C)",
+                            "Protect from Light",
+                          ].map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Drug Schedule / Classification</Label>
+                      <Select
+                        value={form.injSchedule || "Schedule H"}
+                        onValueChange={(v) => updateField("injSchedule", v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Schedule" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {["Schedule H", "Schedule H1", "Schedule X", "OTC", "Prescription Only", "General Sale"].map(
+                            (sc) => (
+                              <SelectItem key={sc} value={sc}>
+                                {sc}
+                              </SelectItem>
+                            )
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 rounded-lg border bg-card">
+                      <Label htmlFor="coldChainReq" className="text-xs font-medium cursor-pointer">
+                        Cold Chain Required
+                      </Label>
+                      <Switch
+                        id="coldChainReq"
+                        checked={form.coldChainRequired}
+                        onCheckedChange={(c) => updateField("coldChainRequired", c)}
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-3 col-span-full">
+                      <Checkbox
+                        id="injControlledSub"
+                        checked={form.injControlledSubstance}
+                        onCheckedChange={(c) => updateField("injControlledSubstance", !!c)}
+                      />
+                      <Label htmlFor="injControlledSub" className="text-xs cursor-pointer font-medium">
+                        Controlled Substance / Narcotic Register entry mandatory
+                      </Label>
                     </div>
                   </div>
                 )}
@@ -1685,6 +1957,21 @@ export function ProductMasterWizardDialog({
             >
               Cancel
             </Button>
+
+            {currentStep < 5 && !editing && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleQuickSave}
+                disabled={saving || !form.name.trim()}
+                className="text-xs border-dashed text-primary hover:bg-primary/5 font-medium"
+                title="Save immediately with standard defaults"
+              >
+                <Save className="h-3.5 w-3.5 mr-1" />
+                Quick Save
+              </Button>
+            )}
 
             {currentStep < 5 ? (
               <Button

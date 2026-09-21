@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
 import { useInventory } from "@/components/erp/inventory/useInventoryStore";
 
-export type CatalogueType = "medicine" | "food" | "accessory";
+export type CatalogueType = "medicine" | "injection" | "food" | "accessory";
 
 export interface CatalogueSearchProps {
   type: CatalogueType;
@@ -43,6 +43,24 @@ export function filterByCatalogueType(items: any[], type: CatalogueType): any[] 
         item.lineType === "Pharmacy" ||
         item.lineType === "Vaccine" ||
         (!pType && !cat)
+      );
+    }
+
+    if (type === "injection") {
+      // Must NOT be food or accessory
+      if (pType === "FOOD" || pType === "ACCESSORY") return false;
+      if (cat.includes("food") || cat.includes("accessory") || cat.includes("accessories")) return false;
+      // Must be a dedicated Injection-type item, OR a legacy Medicine item whose dosage
+      // form / name marks it as injectable (keeps pre-existing injectable stock reachable).
+      const dosageForm = String(item.medicineDetails?.dosageForm || "").toLowerCase();
+      const name = String(item.name || "").toLowerCase();
+      return (
+        pType === "INJECTION" ||
+        cat === "injection" ||
+        item.lineType === "Injection" ||
+        item.lineType === "Vaccine" ||
+        /inject|vaccine|vial/.test(dosageForm) ||
+        /inject|vaccine/.test(name)
       );
     }
 
@@ -109,9 +127,17 @@ export function CatalogueSearch({
     const loadItems = async () => {
       setLoading(true);
       try {
-        const serverType =
-          type === "medicine" ? "MEDICINE" : type === "food" ? "FOOD" : "ACCESSORY";
-        const result = await getItemsFn({ data: { type: serverType, status: "Active" } });
+        // Injection search also needs to surface legacy Medicine items with an injectable
+        // dosage form, so it fetches unscoped and lets filterByCatalogueType do the matching.
+        const result =
+          type === "injection"
+            ? await getItemsFn({ data: { status: "Active" } })
+            : await getItemsFn({
+                data: {
+                  type: type === "medicine" ? "MEDICINE" : type === "food" ? "FOOD" : "ACCESSORY",
+                  status: "Active",
+                },
+              });
         if (active && result && result.length > 0) {
           setServerItems(result);
         }
@@ -137,6 +163,8 @@ export function CatalogueSearch({
     if (pool.length === 0) {
       if (type === "medicine" && inventoryStore.medicinesList.length > 0) {
         pool = [...inventoryStore.medicinesList];
+      } else if (type === "injection") {
+        pool = [...inventoryStore.injectionList, ...inventoryStore.medicinesList];
       } else if (type === "food" && inventoryStore.foodList.length > 0) {
         pool = [...inventoryStore.foodList];
       } else if (type === "accessory" && inventoryStore.accessoriesList.length > 0) {

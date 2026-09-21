@@ -66,7 +66,10 @@ test.describe.serial('Clinical Consultation & Prescription: All 10 Rx Sections',
     await fillStable(findingsInput, 'Vomit');
     await reopened.getByRole('button', { name: 'Vomiting', exact: true }).click({ timeout: 10000 });
     await fillStable(findingsInput, 'Anorexia');
-    await reopened.getByRole('button', { name: /anorexia/i }).click({ timeout: 10000 });
+    // Not `/anorexia/i` — the picker also offers an "Add "Anorexia" as custom finding" button
+    // whenever the query isn't an exact match to a canned option (it isn't: the canned option is
+    // "Anorexia / Loss of Appetite"), so a loose regex matches both and throws a strict-mode error.
+    await reopened.getByRole('button', { name: 'Anorexia / Loss of Appetite', exact: true }).click({ timeout: 10000 });
     await findingsInput.fill('');
     // Close the still-open dropdown overlay by clicking outside its container. It closes on
     // outside mousedown (not Escape, which would bubble to the parent Dialog instead), and the

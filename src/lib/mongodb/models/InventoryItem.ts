@@ -6,7 +6,7 @@
 import mongoose, { Schema, model } from "mongoose";
 
 export type MedicineCategory =
-  "Medicine" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
+  "Medicine" | "Injection" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
 export type UnitOfMeasure =
   "Tablet" | "ml" | "Vial" | "Box" | "Strip" | "Kg" | "Bottle" | "Unit" | "Piece" | "Gm" | "Litre";
 export type ValuationMethod = "FEFO" | "FIFO" | "Moving Average";
@@ -17,28 +17,45 @@ export interface UomConversion {
   conversionFactor: number;
 }
 
-export type ProductType = "MEDICINE" | "FOOD" | "ACCESSORY";
+export type ProductType = "MEDICINE" | "INJECTION" | "FOOD" | "ACCESSORY";
 
 export interface MedicineDetails {
-  medicineType?: string;
-  genericComposition?: string;
+  composition?: string;
   strength?: string;
   dosageForm?: string;
-  packSize?: string;
-  batchNumber?: string;
-  expiryDate?: string;
+  route?: string;
+  storageCondition?: string;
+  schedule?: string;
+  controlledSubstance?: boolean;
 }
 
 export interface FoodDetails {
+  targetSpecies?: string;
   foodType?: string;
-  species?: string;
-  variantFlavour?: string;
+  lifeStage?: string;
+  flavour?: string;
   packSize?: string;
+  dietaryIndication?: string;
 }
 
 export interface AccessoryDetails {
   accessoryType?: string;
-  sizeVariant?: string;
+  petSize?: string;
+  material?: string;
+  color?: string;
+}
+
+export interface InjectionDetails {
+  composition?: string;
+  strength?: string;
+  route?: string;
+  injectionSite?: string;
+  vialSize?: string;
+  withdrawalPeriod?: string;
+  coldChainRequired?: boolean;
+  storageCondition?: string;
+  schedule?: string;
+  controlledSubstance?: boolean;
 }
 
 export interface IInventoryItem {
@@ -59,6 +76,7 @@ export interface IInventoryItem {
   medicineDetails?: MedicineDetails;
   foodDetails?: FoodDetails;
   accessoryDetails?: AccessoryDetails;
+  injectionDetails?: InjectionDetails;
 
   // ── Stock & Inventory ─────────────────────────────────────────────────────
   unit: UnitOfMeasure;
@@ -136,23 +154,25 @@ const uomConversionSchema = new Schema<UomConversion>(
 
 const medicineDetailsSchema = new Schema<MedicineDetails>(
   {
-    medicineType: { type: String, default: "" },
-    genericComposition: { type: String, default: "" },
+    composition: { type: String, default: "" },
     strength: { type: String, default: "" },
     dosageForm: { type: String, default: "" },
-    packSize: { type: String, default: "" },
-    batchNumber: { type: String, default: "" },
-    expiryDate: { type: String, default: "" },
+    route: { type: String, default: "" },
+    storageCondition: { type: String, default: "" },
+    schedule: { type: String, default: "" },
+    controlledSubstance: { type: Boolean, default: false },
   },
   { _id: false },
 );
 
 const foodDetailsSchema = new Schema<FoodDetails>(
   {
+    targetSpecies: { type: String, default: "" },
     foodType: { type: String, default: "" },
-    species: { type: String, default: "" },
-    variantFlavour: { type: String, default: "" },
+    lifeStage: { type: String, default: "" },
+    flavour: { type: String, default: "" },
     packSize: { type: String, default: "" },
+    dietaryIndication: { type: String, default: "" },
   },
   { _id: false },
 );
@@ -160,7 +180,25 @@ const foodDetailsSchema = new Schema<FoodDetails>(
 const accessoryDetailsSchema = new Schema<AccessoryDetails>(
   {
     accessoryType: { type: String, default: "" },
-    sizeVariant: { type: String, default: "" },
+    petSize: { type: String, default: "" },
+    material: { type: String, default: "" },
+    color: { type: String, default: "" },
+  },
+  { _id: false },
+);
+
+const injectionDetailsSchema = new Schema<InjectionDetails>(
+  {
+    composition: { type: String, default: "" },
+    strength: { type: String, default: "" },
+    route: { type: String, default: "" },
+    injectionSite: { type: String, default: "" },
+    vialSize: { type: String, default: "" },
+    withdrawalPeriod: { type: String, default: "" },
+    coldChainRequired: { type: Boolean, default: false },
+    storageCondition: { type: String, default: "" },
+    schedule: { type: String, default: "" },
+    controlledSubstance: { type: Boolean, default: false },
   },
   { _id: false },
 );
@@ -171,7 +209,7 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
     itemCode: { type: String, required: true, unique: true, index: true },
     productType: {
       type: String,
-      enum: ["MEDICINE", "FOOD", "ACCESSORY"],
+      enum: ["MEDICINE", "INJECTION", "FOOD", "ACCESSORY"],
       default: "MEDICINE",
       index: true,
     },
@@ -183,7 +221,7 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
     category: {
       type: String,
       required: true,
-      enum: ["Medicine", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"],
+      enum: ["Medicine", "Injection", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"],
     },
     subGroup: { type: String, default: "" },
     hasVariants: { type: Boolean, default: false },
@@ -192,6 +230,7 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
     medicineDetails: { type: medicineDetailsSchema, default: () => ({}) },
     foodDetails: { type: foodDetailsSchema, default: () => ({}) },
     accessoryDetails: { type: accessoryDetailsSchema, default: () => ({}) },
+    injectionDetails: { type: injectionDetailsSchema, default: () => ({}) },
 
     // Stock & Inventory
     unit: { type: String, required: true },
@@ -257,6 +296,10 @@ inventoryItemSchema.index({ productType: 1, status: 1 });
 inventoryItemSchema.index({ category: 1, status: 1 });
 inventoryItemSchema.index({ name: "text", genericName: "text" });
 
+// `mongoose.models` caches the compiled schema for the lifetime of the Node process — a Vite
+// dev-server HMR reload of this file does NOT re-register it. After changing any field on the
+// schema above, fully restart `npm run dev`; otherwise writes silently keep using the old shape
+// (fields not in the stale cached schema get dropped, with no error).
 export const InventoryItem: mongoose.Model<InventoryItemDocument> =
   (mongoose.models["InventoryItem"] as mongoose.Model<InventoryItemDocument>) ??
   model<InventoryItemDocument>("InventoryItem", inventoryItemSchema);

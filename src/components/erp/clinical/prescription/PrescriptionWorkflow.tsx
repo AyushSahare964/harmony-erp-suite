@@ -1841,7 +1841,7 @@ export function PrescriptionWorkflow({
               title="Injectable / Vaccine Administration"
               subtitle="Injections & vaccines administered by doctor or veterinary nurse"
               icon={<Syringe className="size-4 text-purple-600" />}
-              catalogueType="medicine"
+              catalogueType="injection"
               items={injectables}
               onChange={setInjectables}
               onSave={handleSaveInjectable}

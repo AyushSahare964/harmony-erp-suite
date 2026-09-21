@@ -25,15 +25,28 @@ export interface SeedAccessoryDetail {
   sizeVariant: string;
 }
 
+export interface SeedInjectionDetail {
+  composition: string;
+  strength: string;
+  route: string;
+  injectionSite: string;
+  vialSize: string;
+  withdrawalPeriod: string;
+  coldChainRequired: boolean;
+  storageCondition: string;
+  schedule: string;
+  controlledSubstance: boolean;
+}
+
 export interface SeedItem {
   itemCode: string;
-  productType: "MEDICINE" | "FOOD" | "ACCESSORY";
+  productType: "MEDICINE" | "INJECTION" | "FOOD" | "ACCESSORY";
   name: string;
   genericName: string;
   brand: string;
   manufacturer: string;
   description: string;
-  category: "Medicine" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
+  category: "Medicine" | "Injection" | "Food" | "Accessory" | "Consumable" | "Animal Food" | "Animal Accessories";
   subGroup: string;
   hasVariants: boolean;
   sku: string;
@@ -81,6 +94,7 @@ export interface SeedItem {
   medicineDetails?: SeedMedicineDetail;
   foodDetails?: SeedFoodDetail;
   accessoryDetails?: SeedAccessoryDetail;
+  injectionDetails?: SeedInjectionDetail;
 }
 
 export type MedicineDetails = SeedMedicineDetail & {
@@ -103,6 +117,8 @@ export type AccessoryDetails = SeedAccessoryDetail & {
   material?: string;
   color?: string;
 };
+
+export type InjectionDetails = SeedInjectionDetail;
 
 // ─── Seed Items (Empty by default) ───────────────────────────────────────────
 export const SEED_MEDICINES: SeedItem[] = [];

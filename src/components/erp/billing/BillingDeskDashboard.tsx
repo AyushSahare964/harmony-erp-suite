@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Eye,
@@ -76,6 +77,8 @@ import { cn } from "@/lib/utils";
 interface BillingDeskDashboardProps {
   invoices: any[];
   loading?: boolean;
+  /** Deep link from Global Search — filter the invoice register to this patient and highlight it. */
+  deepLinkPet?: { petId: string; petName: string } | null;
   onRefresh: () => void;
   onNewInvoice: () => void;
   onNewQuotation: () => void;
@@ -93,6 +96,7 @@ interface BillingDeskDashboardProps {
 export function BillingDeskDashboard({
   invoices,
   loading = false,
+  deepLinkPet,
   onRefresh,
   onNewInvoice,
   onNewQuotation,
@@ -151,6 +155,29 @@ export function BillingDeskDashboard({
   // Invoices table search and filter
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Deep link from Global Search: filter the invoice register to that patient and highlight
+  // it if they have records, or tell the user plainly that they don't — instead of silently
+  // showing the whole, unfiltered register.
+  const [highlightRegister, setHighlightRegister] = useState(false);
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (loading || !deepLinkPet || deepLinkHandled.current) return;
+    deepLinkHandled.current = true;
+
+    const hasRecords = invoices.some((inv) => inv.petId === deepLinkPet.petId);
+    if (!hasRecords) {
+      toast.error(`No billing records found for ${deepLinkPet.petName}.`);
+      return;
+    }
+    setRegisterTab("invoices");
+    // The invoice register's own search only matches invoiceNo/ownerName/ownerPhone/
+    // petName/doctorName (not petId) — filter by petName to actually narrow the table.
+    setSearchQuery(deepLinkPet.petName);
+    setHighlightRegister(true);
+    document.getElementById("billing-invoice-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => setHighlightRegister(false), 3000);
+  }, [loading, deepLinkPet, invoices]);
 
   // Modals
   const [dailySummaryOpen, setDailySummaryOpen] = useState(false);
@@ -1514,7 +1541,13 @@ export function BillingDeskDashboard({
           </div>
         ) : (
           /* ═══ 5. INVOICES REGISTER TABLE (DEFAULT) ═══ */
-          <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
+          <div
+            id="billing-invoice-register"
+            className={cn(
+              "rounded-2xl border bg-card shadow-xs overflow-hidden transition-shadow duration-300",
+              highlightRegister ? "ring-4 ring-primary/40 border-primary" : "border-border"
+            )}
+          >
             {/* Table Search & Status Filters */}
             <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[260px] flex-1">

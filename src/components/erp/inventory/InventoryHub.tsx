@@ -4,11 +4,12 @@
  * Transaction-Driven Ledger & Real-Time Stock Engine
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Boxes,
   Pill,
+  Syringe,
   Bone,
   Tag,
   BarChart2,
@@ -21,6 +22,7 @@ import { Shell } from "@/components/erp/Shell";
 
 import { InventoryProvider } from "./useInventoryStore";
 import { MedicineCatalogue } from "./MedicineCatalogue";
+import { InjectionCatalogue } from "./InjectionCatalogue";
 import { FoodCatalogue } from "./FoodCatalogue";
 import { AccessoriesCatalogue } from "./AccessoriesCatalogue";
 import { StockView } from "./StockView";
@@ -28,7 +30,7 @@ import { StockMovements } from "./StockMovements";
 import { AlertsPanel } from "./AlertsPanel";
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
-export type TabId = "catalogue" | "food" | "accessories" | "stock" | "movements" | "alerts";
+export type TabId = "catalogue" | "injection" | "food" | "accessories" | "stock" | "movements" | "alerts";
 
 interface TabDef {
   id: TabId;
@@ -40,16 +42,36 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { id: "catalogue",   label: "Medicine Catalogue",      Icon: Pill,           badge: "12.4" },
-  { id: "food",        label: "Food Catalogue",          Icon: Bone,           badge: "12.5" },
-  { id: "accessories", label: "Accessories Catalogue",   Icon: Tag,            badge: "12.6" },
-  { id: "stock",       label: "Real-Time Stock",         Icon: BarChart2,      badge: "12.7" },
-  { id: "movements",   label: "Stock Movements",         Icon: ArrowLeftRight, badge: "12.8" },
-  { id: "alerts",      label: "Alerts",                  Icon: Bell,           badge: "12.9" },
+  { id: "injection",   label: "Injection Catalogue",     Icon: Syringe,        badge: "12.5" },
+  { id: "food",        label: "Food Catalogue",          Icon: Bone,           badge: "12.6" },
+  { id: "accessories", label: "Accessories Catalogue",   Icon: Tag,            badge: "12.7" },
+  { id: "stock",       label: "Real-Time Stock",         Icon: BarChart2,      badge: "12.8" },
+  { id: "movements",   label: "Stock Movements",         Icon: ArrowLeftRight, badge: "12.9" },
+  { id: "alerts",      label: "Alerts",                  Icon: Bell,           badge: "12.10" },
 ];
 
 // ─── Inner hub (needs InventoryProvider in scope) ─────────────────────────────
-function InventoryHubInner() {
-  const [activeTab, setActiveTab] = useState<TabId>("catalogue");
+export interface InventoryHubProps {
+  initialTab?: TabId;
+}
+
+function InventoryHubInner({ initialTab = "catalogue" }: InventoryHubProps) {
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const tabParam = sp.get("tab") as TabId;
+      if (tabParam && ["catalogue", "injection", "food", "accessories", "stock", "movements", "alerts"].includes(tabParam)) {
+        return tabParam;
+      }
+    }
+    return initialTab;
+  });
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   return (
     <Shell title="Inventory & Procurement">
@@ -131,6 +153,7 @@ function InventoryHubInner() {
             transition={{ duration: 0.22, ease: "easeOut" }}
           >
             {activeTab === "catalogue"   && <MedicineCatalogue />}
+            {activeTab === "injection"   && <InjectionCatalogue />}
             {activeTab === "food"        && <FoodCatalogue />}
             {activeTab === "accessories" && <AccessoriesCatalogue />}
             {activeTab === "stock"       && <StockView />}
@@ -144,10 +167,10 @@ function InventoryHubInner() {
 }
 
 // ─── Public export — wraps with the shared store provider ─────────────────────
-export function InventoryHub() {
+export function InventoryHub({ initialTab }: InventoryHubProps = {}) {
   return (
     <InventoryProvider>
-      <InventoryHubInner />
+      <InventoryHubInner initialTab={initialTab} />
     </InventoryProvider>
   );
 }

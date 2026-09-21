@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -50,6 +50,10 @@ export function LaboratoryHub() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
 
+  // Deep link from Global Search: ?petId=...&petName=... — resolve once orders are loaded
+  const [highlightOrders, setHighlightOrders] = useState(false);
+  const deepLinkHandled = useRef(false);
+
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showResultsModal, setShowResultsModal] = useState(false);
@@ -59,6 +63,31 @@ export function LaboratoryHub() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  // Deep link from Global Search: filter to that patient's lab records if any exist,
+  // or tell the user plainly that there are none — instead of silently showing everything.
+  useEffect(() => {
+    if (loading || deepLinkHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const deepPetId = params.get("petId");
+    if (!deepPetId) return;
+    deepLinkHandled.current = true;
+
+    const deepPetName = params.get("petName") || "this patient";
+    const hasRecords = orders.some((o) => o.petId === deepPetId);
+    if (!hasRecords) {
+      toast.error(`No lab records found for ${deepPetName}.`);
+    } else {
+      setQuery(deepPetId);
+      setHighlightOrders(true);
+      setTimeout(() => setHighlightOrders(false), 3000);
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("petId");
+    url.searchParams.delete("petName");
+    window.history.replaceState({}, "", url.toString());
+  }, [loading, orders]);
 
   const loadData = async () => {
     setLoading(true);
@@ -282,7 +311,10 @@ export function LaboratoryHub() {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="erp-card overflow-hidden shadow-xs space-y-0"
+            className={cn(
+              "erp-card overflow-hidden shadow-xs space-y-0 transition-shadow duration-300",
+              highlightOrders && "ring-4 ring-primary/40 border-primary"
+            )}
           >
             {/* Search and Filters Bar */}
             <div className="flex flex-wrap items-center gap-3 border-b border-border p-4 bg-card">

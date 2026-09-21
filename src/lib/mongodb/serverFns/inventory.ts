@@ -19,7 +19,7 @@ import { nextSeq, peekNextSeq } from "@/lib/mongodb/serverFns/counters";
 
 export interface InventoryItemRow {
   itemCode: string;
-  productType: "MEDICINE" | "FOOD" | "ACCESSORY";
+  productType: "MEDICINE" | "INJECTION" | "FOOD" | "ACCESSORY";
   name: string;
   genericName: string;
   brand: string;
@@ -30,23 +30,39 @@ export interface InventoryItemRow {
   hasVariants: boolean;
   sku: string;
   medicineDetails?: {
-    medicineType?: string;
-    genericComposition?: string;
+    composition?: string;
     strength?: string;
     dosageForm?: string;
-    packSize?: string;
-    batchNumber?: string;
-    expiryDate?: string;
+    route?: string;
+    storageCondition?: string;
+    schedule?: string;
+    controlledSubstance?: boolean;
   };
   foodDetails?: {
+    targetSpecies?: string;
     foodType?: string;
-    species?: string;
-    variantFlavour?: string;
+    lifeStage?: string;
+    flavour?: string;
     packSize?: string;
+    dietaryIndication?: string;
   };
   accessoryDetails?: {
     accessoryType?: string;
-    sizeVariant?: string;
+    petSize?: string;
+    material?: string;
+    color?: string;
+  };
+  injectionDetails?: {
+    composition?: string;
+    strength?: string;
+    route?: string;
+    injectionSite?: string;
+    vialSize?: string;
+    withdrawalPeriod?: string;
+    coldChainRequired?: boolean;
+    storageCondition?: string;
+    schedule?: string;
+    controlledSubstance?: boolean;
   };
   unit: string;
   purchaseUom: string;
@@ -117,36 +133,53 @@ const UomConversionZ = z.object({
 });
 
 const MedicineDetailsZ = z.object({
-  medicineType: z.string().default(""),
-  genericComposition: z.string().default(""),
+  composition: z.string().default(""),
   strength: z.string().default(""),
   dosageForm: z.string().default(""),
-  packSize: z.string().default(""),
-  batchNumber: z.string().default(""),
-  expiryDate: z.string().default(""),
+  route: z.string().default(""),
+  storageCondition: z.string().default(""),
+  schedule: z.string().default(""),
+  controlledSubstance: z.boolean().default(false),
 }).partial();
 
 const FoodDetailsZ = z.object({
+  targetSpecies: z.string().default(""),
   foodType: z.string().default(""),
-  species: z.string().default(""),
-  variantFlavour: z.string().default(""),
+  lifeStage: z.string().default(""),
+  flavour: z.string().default(""),
   packSize: z.string().default(""),
+  dietaryIndication: z.string().default(""),
 }).partial();
 
 const AccessoryDetailsZ = z.object({
   accessoryType: z.string().default(""),
-  sizeVariant: z.string().default(""),
+  petSize: z.string().default(""),
+  material: z.string().default(""),
+  color: z.string().default(""),
+}).partial();
+
+const InjectionDetailsZ = z.object({
+  composition: z.string().default(""),
+  strength: z.string().default(""),
+  route: z.string().default(""),
+  injectionSite: z.string().default(""),
+  vialSize: z.string().default(""),
+  withdrawalPeriod: z.string().default(""),
+  coldChainRequired: z.boolean().default(false),
+  storageCondition: z.string().default(""),
+  schedule: z.string().default(""),
+  controlledSubstance: z.boolean().default(false),
 }).partial();
 
 const InventoryItemInputZ = z.object({
   // Identity
-  productType: z.enum(["MEDICINE", "FOOD", "ACCESSORY"]).default("MEDICINE"),
+  productType: z.enum(["MEDICINE", "INJECTION", "FOOD", "ACCESSORY"]).default("MEDICINE"),
   name:        z.string().min(1, "Item name is required"),
   genericName: z.string().default(""),
   brand:       z.string().default(""),
   manufacturer:z.string().default(""),
   description: z.string().default(""),
-  category:    z.enum(["Medicine", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"]),
+  category:    z.enum(["Medicine", "Injection", "Food", "Accessory", "Consumable", "Animal Food", "Animal Accessories"]),
   subGroup:    z.string().default(""),
   hasVariants: z.boolean().default(false),
   sku:         z.string().default(""),
@@ -154,6 +187,7 @@ const InventoryItemInputZ = z.object({
   medicineDetails: MedicineDetailsZ.optional(),
   foodDetails: FoodDetailsZ.optional(),
   accessoryDetails: AccessoryDetailsZ.optional(),
+  injectionDetails: InjectionDetailsZ.optional(),
 
   // Stock
   unit:               z.string().min(1, "Unit of measure is required"),
@@ -233,21 +267,21 @@ const StockBatchInputZ = z.object({
 });
 
 const StockAdjustmentInputZ = z.object({
-  itemId:       z.string(),
+  itemId:       z.string().optional().default(""),
   itemCode:     z.string(),
-  itemName:     z.string(),
-  batchId:      z.string(),
-  batchCode:    z.string(),
-  batchNo:      z.string(),
+  itemName:     z.string().optional().default(""),
+  batchId:      z.string().optional().default(""),
+  batchCode:    z.string().optional().default(""),
+  batchNo:      z.string().optional().default(""),
   movementType: z.enum(["adjustment_in", "adjustment_out", "expiry_writeoff", "damage_writeoff", "transfer"]),
   adjustedQty:  z.number().positive(),
-  targetLocation:z.string().default(""),
-  referenceNo:  z.string().default(""),
-  reasonCode:   z.enum(["Damage", "Expiry", "Pilferage", "Count Error", "Transfer", "Other"]),
-  remarks:      z.string().min(1, "Remarks required for adjustments"),
-  authorizedBy: z.string().default(""),
-  dateTime:     z.string(),
-  actor:        z.string().default("System"),
+  targetLocation:z.string().optional().default(""),
+  referenceNo:  z.string().optional().default(""),
+  reasonCode:   z.string().default("Other"),
+  remarks:      z.string().optional().default(""),
+  authorizedBy: z.string().optional().default(""),
+  dateTime:     z.string().optional().default(""),
+  actor:        z.string().optional().default("System"),
 });
 
 // ─── Serialization helper ───────────────────────────────────────────────────
@@ -255,12 +289,22 @@ function toPlain<T>(doc: T): T {
   return JSON.parse(JSON.stringify(doc)) as T;
 }
 
+// ─── Item-code prefix ───────────────────────────────────────────────────────
+function productTypePrefix(pType: string | undefined): string {
+  switch (pType) {
+    case "FOOD": return "F";
+    case "ACCESSORY": return "A";
+    case "INJECTION": return "I";
+    default: return "M";
+  }
+}
+
 // ─── getItemsFn ───────────────────────────────────────────────────────────────
 
 export const getItemsFn = createServerFn({ method: "GET" })
   .validator((raw: unknown) =>
     z.object({
-      type: z.enum(["MEDICINE", "FOOD", "ACCESSORY"]).optional(),
+      type: z.enum(["MEDICINE", "INJECTION", "FOOD", "ACCESSORY"]).optional(),
       status: z.enum(["Active", "Inactive", "all"]).optional(),
       dosageForms: z.array(z.string()).optional(),
       injectableOnly: z.boolean().optional(),
@@ -308,13 +352,12 @@ export const getItemsFn = createServerFn({ method: "GET" })
 export const peekItemCodeFn = createServerFn({ method: "GET" })
   .validator((raw: unknown) =>
     z.object({
-      type: z.enum(["MEDICINE", "FOOD", "ACCESSORY"]).optional(),
+      type: z.enum(["MEDICINE", "INJECTION", "FOOD", "ACCESSORY"]).optional(),
     }).optional().parse(raw)
   )
   .handler(async ({ data }): Promise<string> => {
     await connectDB();
-    const pType = data?.type || "MEDICINE";
-    const prefix = pType === "FOOD" ? "F" : pType === "ACCESSORY" ? "A" : "M";
+    const prefix = productTypePrefix(data?.type);
     return peekNextSeq("inventory_item_" + prefix, prefix, 4);
   });
 
@@ -324,7 +367,7 @@ export const addItemFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) => InventoryItemInputZ.parse(raw))
   .handler(async ({ data }): Promise<InventoryItemRow> => {
     await connectDB();
-    const prefix = data.productType === "FOOD" ? "F" : data.productType === "ACCESSORY" ? "A" : "M";
+    const prefix = productTypePrefix(data.productType);
     const itemCode = await nextSeq("inventory_item_" + prefix, prefix, 4);
     const newItem = await InventoryItem.create({
       ...(data as unknown as Record<string, unknown>),
@@ -340,7 +383,7 @@ export const addItemFn = createServerFn({ method: "POST" })
           medicineId: itemCode,
           medicineName: data.name,
           batchId: `OPN-${itemCode}`,
-          batchNo: data.medicineDetails?.batchNumber || "OPENING-STOCK",
+          batchNo: "OPENING-STOCK",
           movementType: "opening_stock",
           quantity: data.currentStock,
           sourceType: "manual_adjustment",
@@ -515,46 +558,84 @@ export const adjustStockFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ success: boolean; newQty: number; referenceNo: string }> => {
     await connectDB();
 
-    const batch = await StockBatch.findOne({ batchCode: data.batchId }).lean();
-    if (!batch) throw new Error("Batch not found");
-
     const isIn = data.movementType === "adjustment_in" || data.movementType === "transfer";
-    const newQty = isIn
-      ? batch.qty + data.adjustedQty
-      : Math.max(0, batch.qty - data.adjustedQty);
-
-    await StockBatch.findOneAndUpdate({ batchCode: data.batchId }, { qty: newQty });
-
-    // Keep InventoryItem.currentStock in sync with the batch-level adjustment
     const stockDelta = isIn ? data.adjustedQty : -data.adjustedQty;
-    await InventoryItem.findOneAndUpdate(
-      { itemCode: data.itemCode },
-      { $inc: { currentStock: stockDelta } }
-    );
+
+    // Find the item
+    const item = await InventoryItem.findOne({ itemCode: data.itemCode });
+    if (!item) {
+      throw new Error(`Item ${data.itemCode} not found in inventory`);
+    }
+
+    let batchDoc: any = null;
+
+    if (data.batchId && data.batchId !== "DIRECT") {
+      // batchCode (e.g. "B-0013") is the only identifier callers ever send — it's
+      // what Batch.id is throughout the client. Matching against `_id` too looks more
+      // defensive, but Mongoose eagerly casts every $or branch against the schema
+      // before running the query, and a non-ObjectId string in an `_id` branch throws
+      // a CastError that aborts the whole query — even though the batchCode branch
+      // alone would have matched fine. So: batchCode only.
+      batchDoc = await StockBatch.findOne({ batchCode: data.batchId });
+      if (batchDoc) {
+        const newBatchQty = isIn
+          ? batchDoc.qty + data.adjustedQty
+          : Math.max(0, batchDoc.qty - data.adjustedQty);
+        batchDoc.qty = newBatchQty;
+        if (newBatchQty === 0 && !isIn) {
+          batchDoc.status = "Exhausted";
+        }
+        await batchDoc.save();
+      }
+    } else if (!isIn) {
+      // If adjusting out without a specific batch, try FIFO across active batches
+      const activeBatches = await StockBatch.find({
+        itemCode: data.itemCode,
+        status: "Active",
+        qty: { $gt: 0 },
+      }).sort({ expiryDate: 1 });
+
+      let remainingToDeduct = data.adjustedQty;
+      for (const b of activeBatches) {
+        if (remainingToDeduct <= 0) break;
+        const take = Math.min(b.qty, remainingToDeduct);
+        b.qty -= take;
+        remainingToDeduct -= take;
+        if (b.qty === 0) {
+          b.status = "Exhausted";
+        }
+        await b.save();
+      }
+    }
+
+    // Keep InventoryItem.currentStock in sync
+    const newStock = Math.max(0, (item.currentStock ?? 0) + stockDelta);
+    item.currentStock = newStock;
+    await item.save();
 
     const adjRef = data.referenceNo || (await nextSeq("stock_adjustment", "ADJ", 4));
 
-    // Ledger entry
+    // Ledger entry in ErpRow
     await ErpRow.create({
       moduleId: "inventory_ledger",
       data: {
         id: await nextSeq("ledger_entry", "L", 4),
         medicineId: data.itemCode,
-        medicineName: data.itemName,
-        batchId: data.batchId,
-        batchNo: data.batchNo,
+        medicineName: data.itemName || item.name,
+        batchId: data.batchId || (batchDoc ? batchDoc.batchCode : "DIRECT"),
+        batchNo: data.batchNo || (batchDoc ? batchDoc.batchNo : "ADJ-DIRECT"),
         movementType: data.movementType,
         quantity: data.adjustedQty,
         sourceType: "manual_adjustment",
         sourceRef: adjRef,
-        balanceAfter: newQty,
-        actorName: data.actor,
+        balanceAfter: newStock,
+        actorName: data.actor || "Staff",
         createdAt: data.dateTime || new Date().toISOString().replace("T", " ").slice(0, 16),
-        reason: `${data.reasonCode}: ${data.remarks}`,
+        reason: data.remarks ? `${data.reasonCode}: ${data.remarks}` : data.reasonCode,
       },
     });
 
-    return { success: true, newQty, referenceNo: adjRef };
+    return { success: true, newQty: newStock, referenceNo: adjRef };
   });
 
 // ─── getBatchesFn ─────────────────────────────────────────────────────────────

@@ -47,7 +47,7 @@ export interface InventoryItemSectionProps {
   title: string;
   subtitle?: string | undefined;
   icon?: React.ReactNode | undefined;
-  catalogueType: "medicine" | "food" | "accessory";
+  catalogueType: "medicine" | "injection" | "food" | "accessory";
   items: InventoryItemLine[];
   onChange: (items: InventoryItemLine[]) => void;
   onSave: () => Promise<void>;
@@ -125,11 +125,11 @@ export function InventoryItemSection({
     const unitPrice =
       rawItem.defaultSalePrice ??
       rawItem.mrp ??
-      (catalogueType === "food" ? 850 : catalogueType === "accessory" ? 320 : 150);
+      (catalogueType === "food" ? 850 : catalogueType === "accessory" ? 320 : catalogueType === "injection" ? 200 : 150);
 
     const defaultUnit =
       rawItem.unit ||
-      (catalogueType === "food" ? "Kg" : catalogueType === "accessory" ? "Piece" : "Tablet");
+      (catalogueType === "food" ? "Kg" : catalogueType === "accessory" ? "Piece" : catalogueType === "injection" ? "Vial" : "Tablet");
 
     const newLine: InventoryItemLine = {
       id: generateStableId(section.toLowerCase().substring(0, 4)),
@@ -154,7 +154,7 @@ export function InventoryItemSection({
       route: showRoute ? "SC" : "Oral",
       availableStock: rawItem.currentStock,
       inactive: rawItem.status === "Inactive",
-      gstRate: rawItem.gstRate ?? (catalogueType === "medicine" ? 12 : 18),
+      gstRate: rawItem.gstRate ?? (catalogueType === "medicine" || catalogueType === "injection" ? 12 : 18),
     };
 
     onChange([...items, newLine]);

@@ -305,9 +305,10 @@ function PharmacyRetailHubInner() {
                         "text-[11px] font-bold px-2 py-0.5 rounded flex items-center gap-1 w-fit",
                         row.category === "Accessory" ? "bg-purple-500/10 text-purple-600 border border-purple-500/30" :
                         row.category === "Food" ? "bg-amber-500/10 text-amber-600 border border-amber-500/30" :
+                        row.category === "Injection" ? "bg-rose-500/10 text-rose-600 border border-rose-500/30" :
                         "bg-primary/10 text-primary border border-primary/30"
                       )}>
-                        {row.category === "Accessory" ? "🎀 Accessory" : row.category === "Food" ? "🥣 Food" : "💊 Medicine"}
+                        {row.category === "Accessory" ? "🎀 Accessory" : row.category === "Food" ? "🥣 Food" : row.category === "Injection" ? "💉 Injection" : "💊 Medicine"}
                       </span>
                     </td>
 
