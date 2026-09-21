@@ -22,6 +22,10 @@ import {
   type StockBatchRow,
 } from "@/lib/mongodb/serverFns/inventory";
 import {
+  getStockStatus as sharedGetStockStatus,
+  getExpiryBand as sharedGetExpiryBand,
+} from "@/lib/inventory/stockStatus";
+import {
   ALL_SEED_ITEMS,
   type SeedItem,
   type MedicineDetails,
@@ -453,23 +457,13 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     (itemCode: string): "OK" | "Low" | "Out of Stock" => {
       const med = medicines.find((m) => m.itemCode === itemCode);
       const qty = getTotalQty(itemCode);
-      if (qty === 0) return "Out of Stock";
-      if (med && qty <= med.reorderLevel) return "Low";
-      return "OK";
+      return sharedGetStockStatus(qty, med?.reorderLevel ?? 0);
     },
     [medicines, getTotalQty]
   );
 
   const getExpiryStatus = useCallback(
-    (expiryDate: string): "safe" | "expiring-soon" | "critical" | "expired" => {
-      const today = new Date();
-      const expiry = new Date(expiryDate);
-      const diffDays = Math.floor((expiry.getTime() - today.getTime()) / 86400000);
-      if (diffDays < 0) return "expired";
-      if (diffDays <= 7) return "critical";
-      if (diffDays <= 30) return "expiring-soon";
-      return "safe";
-    },
+    (expiryDate: string): "safe" | "expiring-soon" | "critical" | "expired" => sharedGetExpiryBand(expiryDate),
     []
   );
 

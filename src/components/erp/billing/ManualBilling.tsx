@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Plus, Trash2, CheckCircle2, FileText, Search,
+  Plus, Trash2, CheckCircle2, Search,
   ShoppingCart, Package, User, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,27 +16,13 @@ import {
 } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { toast } from "sonner";
-import { todayDisplay } from "@/lib/utils/dateUtils";
+import { todayIST } from "@/lib/utils/dateUtils";
+import { getItemsFn, type InventoryItemRow } from "@/lib/mongodb/serverFns/inventory";
+import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { finalizeVisitAndBillFn } from "@/lib/mongodb/serverFns/clinical";
+import { listInvoicesFn, deleteInvoiceFn } from "@/lib/mongodb/serverFns/billing";
 
-/* ─── Catalogue ─────────────────────────────────────────────────── */
-const PRODUCTS = [
-  { id: "P001", name: "Amoxicillin 250mg", category: "Medicine",  unitPrice: 24,   taxRate: 12, stock: 42 },
-  { id: "P002", name: "Royal Canin Maxi 4kg", category: "Food",   unitPrice: 1850, taxRate: 5,  stock: 26 },
-  { id: "P003", name: "Tick collar (large)", category: "Retail",  unitPrice: 320,  taxRate: 18, stock: 14 },
-  { id: "P004", name: "Rabies Vaccine",     category: "Medicine", unitPrice: 480,  taxRate: 5,  stock: 118 },
-  { id: "P005", name: "Dental chews (pk10)",category: "Retail",   unitPrice: 220,  taxRate: 18, stock: 31 },
-  { id: "P006", name: "Grooming shampoo",  category: "Retail",   unitPrice: 390,  taxRate: 18, stock: 8  },
-  { id: "P007", name: "Deworming syrup",   category: "Medicine", unitPrice: 95,   taxRate: 12, stock: 31 },
-  { id: "P008", name: "IV fluid RL 500ml", category: "Medicine", unitPrice: 65,   taxRate: 5,  stock: 12 },
-];
-
-const PETS = [
-  { id: "PET-001", name: "Bruno", owner: "Tariq Hussain" },
-  { id: "PET-002", name: "Luna",  owner: "Vikram Shetty" },
-  { id: "PET-003", name: "Simba", owner: "Nalini Prasad" },
-  { id: "PET-004", name: "Coco",  owner: "Deepika Iyer"  },
-  { id: "PET-005", name: "Milo",  owner: "Ananya Sharma" },
-];
+interface PetOption { id: string; name: string; owner: string; ownerId?: string; ownerPhone?: string; species?: string; breed?: string; }
 
 interface LineItem {
   id: string;
@@ -48,18 +34,6 @@ interface LineItem {
   lineTotal: number;
 }
 
-interface ManualBill {
-  id: string;
-  ref: string;
-  petId: string;
-  petName: string;
-  ownerName: string;
-  status: "Draft" | "Finalized" | "Void";
-  createdAt: string;
-  grandTotal: number;
-  lines: LineItem[];
-}
-
 function money(v: number) {
   return `₹${v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -68,35 +42,42 @@ function money(v: number) {
 function NewBillDialog({
   open,
   onClose,
-  onSave,
+  onSaved,
+  products,
+  pets,
 }: {
   open: boolean;
   onClose: () => void;
-  onSave: (bill: ManualBill, asDraft: boolean) => void;
+  onSaved: () => void;
+  products: InventoryItemRow[];
+  pets: PetOption[];
 }) {
   const [petId, setPetId] = useState("walkin");
   const [lines, setLines] = useState<LineItem[]>([]);
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
   const [prodSearch, setProdSearch] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const pet = PETS.find((p) => p.id === petId);
+  const pet = pets.find((p) => p.id === petId);
 
   const filteredProds = useMemo(
     () =>
-      PRODUCTS.filter((p) =>
+      products.filter((p) =>
         p.name.toLowerCase().includes(prodSearch.toLowerCase()) ||
-        p.category.toLowerCase().includes(prodSearch.toLowerCase())
+        (p.category || "").toLowerCase().includes(prodSearch.toLowerCase())
       ),
-    [prodSearch]
+    [prodSearch, products]
   );
 
-  const addLine = (prod: (typeof PRODUCTS)[0]) => {
-    const existing = lines.find((l) => l.productId === prod.id);
+  const addLine = (prod: InventoryItemRow) => {
+    const price = prod.defaultSalePrice ?? 0;
+    const gst = (prod as any).gstRate ?? 0;
+    const existing = lines.find((l) => l.productId === prod.itemCode);
     if (existing) {
       setLines((prev) =>
         prev.map((l) =>
-          l.productId === prod.id
+          l.productId === prod.itemCode
             ? recalcLine({ ...l, qty: l.qty + 1 })
             : l
         )
@@ -106,11 +87,11 @@ function NewBillDialog({
         ...prev,
         recalcLine({
           id: crypto.randomUUID(),
-          productId: prod.id,
+          productId: prod.itemCode,
           productName: prod.name,
           qty: 1,
-          unitPrice: prod.unitPrice,
-          taxRate: prod.taxRate,
+          unitPrice: price,
+          taxRate: gst,
           lineTotal: 0,
         }),
       ]);
@@ -144,31 +125,69 @@ function NewBillDialog({
     (s, l) => s + l.qty * l.unitPrice * (l.taxRate / 100),
     0
   );
-  const grandTotal = subtotal + taxTotal - discount;
+  const grandTotal = Math.max(0, subtotal + taxTotal - discount);
 
-  const build = (status: "Draft" | "Finalized"): ManualBill => ({
-    id: crypto.randomUUID(),
-    ref: `MB-${String(Math.floor(Math.random() * 9000 + 1000))}`,
-    petId,
-    petName: pet?.name ?? "Walk-in",
-    ownerName: pet?.owner ?? "—",
-    status,
-    createdAt: todayDisplay(),
-    grandTotal,
-    lines,
-  });
-
-  const handleSave = (asDraft: boolean) => {
+  const handleSave = async () => {
     if (lines.length === 0) {
       toast.error("Add at least one product");
       return;
     }
-    onSave(build(asDraft ? "Draft" : "Finalized"), asDraft);
-    setLines([]);
-    setPetId("walkin");
-    setDiscount(0);
-    setNotes("");
-    setProdSearch("");
+    setSaving(true);
+    try {
+      const visitId = `V-MB-${Date.now().toString(36).toUpperCase()}`;
+      const res = await finalizeVisitAndBillFn({
+        data: {
+          visitId,
+          petId: pet?.id || "OTC-WALKIN",
+          petName: pet?.name || "General OTC Walk-in",
+          species: pet?.species || "General",
+          breed: pet?.breed || "General",
+          ownerId: pet?.ownerId || "WALKIN",
+          ownerName: pet?.owner || "CASH",
+          ownerPhone: pet?.ownerPhone,
+          branch: "Main Clinic",
+          billType: "GST" as const,
+          doctorName: "Manual Billing",
+          diagnosis: "Manual Product Bill",
+          clinicalNotes: notes || undefined,
+          items: lines.map((l) => ({
+            lineType: "Pharmacy" as const,
+            name: l.productName,
+            quantity: l.qty,
+            unitPrice: l.unitPrice,
+            discountPercent: 0,
+            discountType: "percentage" as const,
+            discountValue: 0,
+            gstRate: l.taxRate,
+            lineTotal: l.lineTotal,
+          })),
+          subtotal,
+          billDiscount: discount,
+          taxableAmount: subtotal - discount,
+          gstAmount: taxTotal,
+          roundOff: 0,
+          totalAmount: grandTotal,
+          amountPaid: grandTotal,
+          pendingAmount: 0,
+          paymentStatus: "Full" as const,
+          paymentMode: "Cash" as const,
+        },
+      });
+
+      toast.success(`Bill ${res.invoiceNo || visitId} finalized — stock decremented`);
+      onSaved();
+      onClose();
+      setLines([]);
+      setPetId("walkin");
+      setDiscount(0);
+      setNotes("");
+      setProdSearch("");
+    } catch (err) {
+      console.error("[ManualBilling] Save failed:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to save bill");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -196,7 +215,7 @@ function NewBillDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="walkin">Walk-in / No pet record</SelectItem>
-                {PETS.map((p) => (
+                {pets.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.name} — {p.owner}
                   </SelectItem>
@@ -220,27 +239,33 @@ function NewBillDialog({
               />
             </div>
             <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-muted/30 divide-y divide-border">
-              {filteredProds.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => addLine(p)}
-                  className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-primary-soft/40 transition-colors text-left"
-                >
-                  <span>
-                    <span className="font-medium">{p.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{p.category}</span>
-                  </span>
-                  <span className="flex items-center gap-3 shrink-0">
-                    {p.stock < 20 && (
-                      <span className="text-xs text-amber-600 flex items-center gap-1">
-                        <AlertTriangle className="size-3" /> {p.stock} left
-                      </span>
-                    )}
-                    <span className="font-semibold text-primary">{money(p.unitPrice)}</span>
-                    <Plus className="size-3.5 text-muted-foreground" />
-                  </span>
-                </button>
-              ))}
+              {filteredProds.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-center text-muted-foreground">
+                  No inventory items match. Add items from Inventory & Procurement first.
+                </p>
+              ) : (
+                filteredProds.map((p) => (
+                  <button
+                    key={p.itemCode}
+                    onClick={() => addLine(p)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-primary-soft/40 transition-colors text-left"
+                  >
+                    <span>
+                      <span className="font-medium">{p.name}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{p.category}</span>
+                    </span>
+                    <span className="flex items-center gap-3 shrink-0">
+                      {(p.currentStock ?? 0) < 20 && (
+                        <span className="text-xs text-amber-600 flex items-center gap-1">
+                          <AlertTriangle className="size-3" /> {p.currentStock ?? 0} left
+                        </span>
+                      )}
+                      <span className="font-semibold text-primary">{money(p.defaultSalePrice ?? 0)}</span>
+                      <Plus className="size-3.5 text-muted-foreground" />
+                    </span>
+                  </button>
+                ))
+              )}
             </div>
           </div>
 
@@ -345,11 +370,8 @@ function NewBillDialog({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button variant="outline" onClick={() => handleSave(true)} className="text-amber-600 border-amber-300 hover:bg-amber-50">
-            <FileText className="size-4" /> Save as Draft
-          </Button>
-          <Button onClick={() => handleSave(false)} className="bg-primary">
-            <CheckCircle2 className="size-4" /> Finalize & Bill
+          <Button disabled={saving} onClick={handleSave} className="bg-primary">
+            <CheckCircle2 className="size-4" /> {saving ? "Saving..." : "Finalize & Bill"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -359,62 +381,61 @@ function NewBillDialog({
 
 /* ─── Main Component ─────────────────────────────────────────────── */
 export function ManualBilling() {
-  const [bills, setBills] = useState<ManualBill[]>([
-    {
-      id: "1", ref: "MB-1041", petId: "PET-001", petName: "Bruno", ownerName: "Tariq Hussain",
-      status: "Finalized", createdAt: "15/08/2026", grandTotal: 2428.8,
-      lines: [
-        { id: "l1", productId: "P001", productName: "Amoxicillin 250mg", qty: 3, unitPrice: 24, taxRate: 12, lineTotal: 80.64 },
-        { id: "l2", productId: "P003", productName: "Tick collar (large)", qty: 1, unitPrice: 320, taxRate: 18, lineTotal: 377.6 },
-      ],
-    },
-    {
-      id: "2", ref: "MB-1042", petId: "walkin", petName: "Walk-in", ownerName: "—",
-      status: "Draft", createdAt: "16/08/2026", grandTotal: 2183,
-      lines: [
-        { id: "l3", productId: "P002", productName: "Royal Canin Maxi 4kg", qty: 1, unitPrice: 1850, taxRate: 5, lineTotal: 1942.5 },
-        { id: "l4", productId: "P005", productName: "Dental chews (pk10)", qty: 1, unitPrice: 220, taxRate: 18, lineTotal: 259.6 },
-      ],
-    },
-    {
-      id: "3", ref: "MB-1043", petId: "PET-004", petName: "Coco", ownerName: "Deepika Iyer",
-      status: "Finalized", createdAt: "16/08/2026", grandTotal: 504,
-      lines: [
-        { id: "l5", productId: "P006", productName: "Grooming shampoo", qty: 1, unitPrice: 390, taxRate: 18, lineTotal: 460.2 },
-      ],
-    },
-  ]);
+  const [bills, setBills] = useState<any[]>([]);
+  const [products, setProducts] = useState<InventoryItemRow[]>([]);
+  const [pets, setPets] = useState<PetOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
+  const loadBills = useCallback(async () => {
+    try {
+      const rows = await listInvoicesFn({ data: {} });
+      // "Manual" bills are ones created here — recognizable by the doctorName tag this
+      // component always sets, distinguishing them from clinical-visit invoices.
+      setBills(rows.filter((r: any) => r.doctorName === "Manual Billing"));
+    } catch (err) {
+      console.error("[ManualBilling] Failed to load bills:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      getItemsFn({ data: { status: "Active" } }).catch(() => []),
+      listPetsWithOwnersFn().catch(() => []),
+      loadBills(),
+    ])
+      .then(([items, petRows]) => {
+        setProducts(items as InventoryItemRow[]);
+        setPets(
+          (petRows as any[]).map((p) => ({
+            id: p.petId,
+            name: p.name,
+            owner: p.owner?.name || "—",
+            ownerId: p.owner?.ownerId || p.ownerId,
+            ownerPhone: p.owner?.phone,
+            species: p.species,
+            breed: p.breed,
+          }))
+        );
+      })
+      .finally(() => setLoading(false));
+  }, [loadBills]);
+
   const visible = bills.filter((b) =>
-    [b.ref, b.petName, b.ownerName].some((v) => v.toLowerCase().includes(query.toLowerCase()))
+    [b.invoiceNo, b.petName, b.ownerName].some((v) => (v || "").toLowerCase().includes(query.toLowerCase()))
   );
 
-  const handleSave = (bill: ManualBill, asDraft: boolean) => {
-    setBills((prev) => [bill, ...prev]);
-    toast.success(
-      asDraft
-        ? `Draft ${bill.ref} saved — you can edit it before finalizing`
-        : `Bill ${bill.ref} finalized — stock decremented`
-    );
-    setOpen(false);
-  };
-
-  const voidBill = (id: string) => {
-    setBills((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, status: "Void" } : b))
-    );
-    toast.success("Bill voided (credit note created)");
-  };
-
-  const finalizeBill = (id: string) => {
-    setBills((prev) =>
-      prev.map((b) =>
-        b.id === id && b.status === "Draft" ? { ...b, status: "Finalized" } : b
-      )
-    );
-    toast.success("Bill finalized — stock decremented");
+  const voidBill = async (invoiceNo: string) => {
+    if (!window.confirm(`Void bill ${invoiceNo}? This permanently removes it.`)) return;
+    try {
+      await deleteInvoiceFn({ data: { invoiceNo } });
+      toast.success("Bill voided");
+      await loadBills();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to void bill");
+    }
   };
 
   return (
@@ -439,14 +460,14 @@ export function ManualBilling() {
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "Bills today", value: String(bills.filter(b => b.createdAt === todayDisplay()).length || bills.length) },
-          { label: "Finalized", value: String(bills.filter(b => b.status === "Finalized").length) },
-          { label: "Drafts", value: String(bills.filter(b => b.status === "Draft").length), warn: true },
-          { label: "Total collected", value: `₹${bills.filter(b => b.status === "Finalized").reduce((s, b) => s + b.grandTotal, 0).toLocaleString("en-IN")}` },
+          { label: "Bills today", value: String(bills.filter(b => (b.date || "").slice(0, 10) === todayIST()).length) },
+          { label: "Finalized", value: String(bills.filter(b => b.status === "Paid" || b.status === "Billed").length) },
+          { label: "Total bills", value: String(bills.length) },
+          { label: "Total collected", value: `₹${bills.reduce((s, b) => s + (b.amountPaid || 0), 0).toLocaleString("en-IN")}` },
         ].map((k) => (
           <div key={k.label} className="erp-card px-4 py-3">
             <p className="text-xs text-muted-foreground">{k.label}</p>
-            <p className={`text-2xl font-bold mt-0.5 ${k.warn ? "text-amber-600" : "text-foreground"}`}>{k.value}</p>
+            <p className="text-2xl font-bold mt-0.5 text-foreground">{k.value}</p>
           </div>
         ))}
       </div>
@@ -477,51 +498,45 @@ export function ManualBilling() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              <AnimatePresence mode="popLayout">
-                {visible.map((b) => (
-                  <motion.tr
-                    key={b.id}
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.98 }}
-                    className="hover:bg-primary-soft/30 transition-colors"
-                  >
-                    <td className="px-4 py-3 font-mono font-semibold text-primary">{b.ref}</td>
-                    <td className="px-4 py-3">{b.petName}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{b.ownerName}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{b.lines.length} item{b.lines.length !== 1 ? "s" : ""}</td>
-                    <td className="px-4 py-3 text-right font-semibold">{money(b.grandTotal)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{b.createdAt}</td>
-                    <td className="px-4 py-3"><StatusPill value={b.status} /></td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        {b.status === "Draft" && (
-                          <button
-                            onClick={() => finalizeBill(b.id)}
-                            className="text-xs px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 font-medium transition-colors"
-                          >
-                            Finalize
-                          </button>
-                        )}
-                        {b.status === "Finalized" && (
-                          <button
-                            onClick={() => voidBill(b.id)}
-                            className="text-xs px-2 py-1 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 font-medium transition-colors"
-                          >
-                            Void
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </motion.tr>
-                ))}
-              </AnimatePresence>
+              {loading ? (
+                <tr><td colSpan={8} className="px-4 py-6 text-center text-xs text-muted-foreground">Loading bills…</td></tr>
+              ) : visible.length === 0 ? (
+                <tr><td colSpan={8} className="px-4 py-6 text-center text-xs text-muted-foreground">No manual bills yet. Click "New Manual Bill" to create one.</td></tr>
+              ) : (
+                <AnimatePresence mode="popLayout">
+                  {visible.map((b) => (
+                    <motion.tr
+                      key={b.invoiceNo || b._id}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.98 }}
+                      className="hover:bg-primary-soft/30 transition-colors"
+                    >
+                      <td className="px-4 py-3 font-mono font-semibold text-primary">{b.invoiceNo}</td>
+                      <td className="px-4 py-3">{b.petName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{b.ownerName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{(b.items || []).length} item{(b.items || []).length !== 1 ? "s" : ""}</td>
+                      <td className="px-4 py-3 text-right font-semibold">{money(b.totalAmount || 0)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{b.date}</td>
+                      <td className="px-4 py-3"><StatusPill value={b.status || "Paid"} /></td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => voidBill(b.invoiceNo)}
+                          className="text-xs px-2 py-1 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 font-medium transition-colors"
+                        >
+                          Void
+                        </button>
+                      </td>
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      <NewBillDialog open={open} onClose={() => setOpen(false)} onSave={handleSave} />
+      <NewBillDialog open={open} onClose={() => setOpen(false)} onSaved={loadBills} products={products} pets={pets} />
     </motion.div>
   );
 }

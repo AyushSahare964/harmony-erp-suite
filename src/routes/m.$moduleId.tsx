@@ -19,6 +19,8 @@ import { PatientBillingHub } from "@/components/erp/billing/PatientBillingHub";
 import { AppointmentsQueueHub } from "@/components/erp/appointments/AppointmentsQueueHub";
 import { BoardingSwimmingHub } from "@/components/erp/boarding/BoardingSwimmingHub";
 import { LaboratoryHub } from "@/components/erp/laboratory/LaboratoryHub";
+import { PharmacyRetailHub } from "@/components/erp/pharmacy/PharmacyRetailHub";
+import { BillingHub } from "@/components/erp/billing/BillingHub";
 
 import { FoodNutritionHub } from "@/components/erp/nutrition/FoodNutritionHub";
 import { ClinicalReportsHub } from "@/components/erp/reports/ClinicalReportsHub";
@@ -145,6 +147,19 @@ function ModulePage() {
   // ── Laboratory & Diagnostics module → dedicated LaboratoryHub ──
   if (moduleId === "laboratory" || moduleId === "lab" || moduleId === "diagnostics") {
     return <LaboratoryHub />;
+  }
+
+  // ── Pharmacy & Retail module → dedicated PharmacyRetailHub (POS) ──
+  if (moduleId === "pharmacy") {
+    return <PharmacyRetailHub />;
+  }
+
+  // ── Billing Suite (manual billing, payment analytics, subscriptions, Razorpay) ──
+  // Separate from "billing"/"sales"/"invoices" → PatientBillingHub above; those dashboard
+  // cards previously all pointed at "billing" too, landing on the same desk regardless of
+  // which feature the card advertised.
+  if (moduleId === "billing-suite") {
+    return <BillingHub />;
   }
 
 

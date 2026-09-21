@@ -12,6 +12,7 @@ import {
   Receipt,
   CreditCard,
   ShoppingBag,
+  PiggyBank,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Shell } from "@/components/erp/Shell";
@@ -25,6 +26,7 @@ import { FinancialReports } from "./FinancialReports";
 import { SupplierBillsTab } from "./SupplierBillsTab";
 import { PaymentOutTab } from "./PaymentOutTab";
 import { ExpensesTab } from "./ExpensesTab";
+import { BudgetingCostCenters } from "./BudgetingCostCenters";
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 type TabId =
@@ -36,6 +38,7 @@ type TabId =
   | "supplier-bills"
   | "payment-out"
   | "expenses"
+  | "budgeting"
   | "reports";
 
 interface TabDef {
@@ -54,6 +57,7 @@ const TABS: TabDef[] = [
   { id: "supplier-bills", label: "Supplier Bills",           Icon: ShoppingBag,     badge: "18.6" },
   { id: "payment-out",    label: "Payment Out",              Icon: CreditCard,      badge: "18.7" },
   { id: "expenses",       label: "Expenses",                 Icon: Receipt,         badge: "18.8" },
+  { id: "budgeting",      label: "Budgeting & Cost Centers",  Icon: PiggyBank,       badge: "18.10" },
   { id: "reports",        label: "Financial Statements",     Icon: FileSpreadsheet, badge: "18.9" },
 ];
 
@@ -171,6 +175,7 @@ export function AccountingHub() {
               />
             )}
             {activeTab === "expenses"       && <ExpensesTab />}
+            {activeTab === "budgeting"      && <BudgetingCostCenters />}
             {activeTab === "reports"        && <FinancialReports />}
           </motion.div>
         </AnimatePresence>

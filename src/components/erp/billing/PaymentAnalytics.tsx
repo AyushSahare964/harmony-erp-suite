@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -6,58 +6,26 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, CreditCard, Banknote, Smartphone,
-  Building2, Zap, Clock,
+  Building2, Zap, Clock, Wallet,
 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { StatusPill } from "@/components/erp/StatusPill";
+import { getPaymentAnalyticsFn, type PaymentAnalyticsData } from "@/lib/mongodb/serverFns/finance";
 
-/* ─── Data ───────────────────────────────────────────────────────── */
-const METHOD_DATA = [
-  { name: "Cash",      value: 38400, color: "#10b981" },
-  { name: "UPI",       value: 51200, color: "#6366f1" },
-  { name: "Card",      value: 22800, color: "#f59e0b" },
-  { name: "Bank",      value: 9600,  color: "#3b82f6" },
-  { name: "Razorpay",  value: 17650, color: "#ec4899" },
-];
-
-const DAILY_TREND = [
-  { day: "10 Aug", collected: 98200, outstanding: 14200 },
-  { day: "11 Aug", collected: 112400, outstanding: 12600 },
-  { day: "12 Aug", collected: 88700, outstanding: 18300 },
-  { day: "13 Aug", collected: 124850, outstanding: 11400 },
-  { day: "14 Aug", collected: 109300, outstanding: 13800 },
-  { day: "15 Aug", collected: 139650, outstanding: 9200 },
-  { day: "16 Aug", collected: 124850, outstanding: 16800 },
-];
-
-const MONTHLY_TREND = [
-  { name: "Mar", value: 182000 },
-  { name: "Apr", value: 194000 },
-  { name: "May", value: 201000 },
-  { name: "Jun", value: 208000 },
-  { name: "Jul", value: 210000 },
-  { name: "Aug", value: 216000 },
-];
-
-const AGEING_DATA = [
-  { owner: "Deepika Iyer", invoice: "INV-20483", dept: "Laboratory", amount: 1650, daysOverdue: 5, status: "Overdue" },
-  { owner: "Rajan Kumar",  invoice: "INV-20484", dept: "OPD",        amount: 600,  daysOverdue: 3, status: "Overdue" },
-  { owner: "Vikram Shetty",invoice: "INV-20485", dept: "Boarding",   amount: 4500, daysOverdue: 0, status: "Partial" },
-  { owner: "Meena Joshi",  invoice: "INV-20479", dept: "Swimming",   amount: 1300, daysOverdue: 12,status: "Overdue" },
-  { owner: "Farhan Mirza", invoice: "INV-20471", dept: "OPD",        amount: 900,  daysOverdue: 21,status: "Overdue" },
-];
-
-const KPIS = [
-  { label: "Total Collected (MTD)", value: "₹21.6L", trend: "+9.4%", trendUp: true, Icon: TrendingUp },
-  { label: "Outstanding",           value: "₹38,400", trend: "+₹4.2k", trendUp: false, Icon: TrendingDown },
-  { label: "Refunded (MTD)",        value: "₹6,400",  trend: "3 requests", trendUp: true, Icon: CreditCard },
-  { label: "Razorpay Success Rate", value: "96.8%",   trend: "+1.2%",   trendUp: true, Icon: Zap },
-];
+const METHOD_COLORS: Record<string, string> = {
+  Cash: "#10b981", UPI: "#6366f1", Card: "#f59e0b", NetBanking: "#3b82f6",
+  "Bank Transfer": "#3b82f6", Cheque: "#8b5cf6", "Account Due": "#94a3b8", Razorpay: "#ec4899",
+};
+const FALLBACK_COLORS = ["#10b981", "#6366f1", "#f59e0b", "#3b82f6", "#ec4899", "#8b5cf6"];
+function colorFor(name: string, i: number) {
+  return METHOD_COLORS[name] ?? FALLBACK_COLORS[i % FALLBACK_COLORS.length];
+}
 
 const METHOD_ICONS: Record<string, React.FC<{ className?: string }>> = {
-  Cash: Banknote, UPI: Smartphone, Card: CreditCard, Bank: Building2, Razorpay: Zap,
+  Cash: Banknote, UPI: Smartphone, Card: CreditCard, NetBanking: Building2,
+  "Bank Transfer": Building2, Razorpay: Zap,
 };
 
 function money(v: number) {
@@ -77,11 +45,37 @@ function DonutLabel({ cx, cy, total }: { cx: number; cy: number; total: number }
 }
 
 /* ─── Main ───────────────────────────────────────────────────────── */
+const EMPTY_DATA: PaymentAnalyticsData = {
+  methodBreakdown: [], dailyTrend: [], monthlyTrend: [], ageing: [],
+  kpis: { totalCollectedMTD: 0, totalCollectedTrendPct: 0, outstanding: 0, outstandingOverdueCount: 0, avgBillMTD: 0, avgBillTrendPct: 0, digitalSharePct: 0, digitalShareTrendPct: 0 },
+};
+
 export function PaymentAnalytics() {
   const [range, setRange] = useState("7d");
   const [method, setMethod] = useState("all");
-  const trendData = range === "monthly" ? MONTHLY_TREND : DAILY_TREND;
-  const totalDonut = METHOD_DATA.reduce((s, m) => s + m.value, 0);
+  const [data, setData] = useState<PaymentAnalyticsData>(EMPTY_DATA);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getPaymentAnalyticsFn()
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const methodData = data.methodBreakdown.map((m, i) => ({ ...m, color: colorFor(m.name, i) }));
+  const trendData = range === "monthly" ? data.monthlyTrend : data.dailyTrend;
+  const totalDonut = methodData.reduce((s, m) => s + m.value, 0);
+
+  const KPIS = [
+    { label: "Total Collected (MTD)", value: money(data.kpis.totalCollectedMTD), trend: `${data.kpis.totalCollectedTrendPct >= 0 ? "+" : ""}${data.kpis.totalCollectedTrendPct}%`, trendUp: data.kpis.totalCollectedTrendPct >= 0, Icon: TrendingUp },
+    { label: "Outstanding",           value: money(data.kpis.outstanding), trend: `${data.kpis.outstandingOverdueCount} overdue`, trendUp: false, Icon: TrendingDown },
+    { label: "Avg Bill Value (MTD)",  value: money(data.kpis.avgBillMTD), trend: `${data.kpis.avgBillTrendPct >= 0 ? "+" : ""}${data.kpis.avgBillTrendPct}%`, trendUp: data.kpis.avgBillTrendPct >= 0, Icon: Wallet },
+    { label: "Digital Payment Share", value: `${data.kpis.digitalSharePct}%`, trend: `${data.kpis.digitalShareTrendPct >= 0 ? "+" : ""}${data.kpis.digitalShareTrendPct}pp`, trendUp: data.kpis.digitalShareTrendPct >= 0, Icon: Zap },
+  ];
+
+  if (loading) {
+    return <div className="py-12 text-center text-sm text-muted-foreground">Loading payment analytics…</div>;
+  }
 
   return (
     <motion.div
@@ -113,7 +107,7 @@ export function PaymentAnalytics() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All methods</SelectItem>
-              {METHOD_DATA.map((m) => (
+              {methodData.map((m) => (
                 <SelectItem key={m.name} value={m.name}>{m.name}</SelectItem>
               ))}
             </SelectContent>
@@ -157,7 +151,7 @@ export function PaymentAnalytics() {
           <p className="section-label mb-4">Collection by Method</p>
           <div className="h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={METHOD_DATA} margin={{ top: 4, right: 0, left: -10, bottom: 0 }}>
+              <BarChart data={methodData} margin={{ top: 4, right: 0, left: -10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }} />
                 <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
@@ -166,7 +160,7 @@ export function PaymentAnalytics() {
                   contentStyle={{ borderRadius: 10, border: "1px solid var(--color-border)", fontSize: 12 }}
                 />
                 <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={40} isAnimationActive>
-                  {METHOD_DATA.map((m) => (
+                  {methodData.map((m) => (
                     <Cell key={m.name} fill={m.color} />
                   ))}
                 </Bar>
@@ -212,7 +206,7 @@ export function PaymentAnalytics() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={METHOD_DATA}
+                  data={methodData}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
@@ -224,7 +218,7 @@ export function PaymentAnalytics() {
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   labelLine={false}
                 >
-                  {METHOD_DATA.map((m) => (
+                  {methodData.map((m) => (
                     <Cell key={m.name} fill={m.color} />
                   ))}
                 </Pie>
@@ -234,7 +228,7 @@ export function PaymentAnalytics() {
           </div>
           {/* Legend */}
           <div className="mt-2 flex flex-wrap gap-2 justify-center">
-            {METHOD_DATA.map((m) => (
+            {methodData.map((m) => (
               <div key={m.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <div className="size-2 rounded-full" style={{ background: m.color }} />
                 {m.name}
@@ -246,7 +240,7 @@ export function PaymentAnalytics() {
 
       {/* Method breakdown cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {METHOD_DATA.map((m, i) => {
+        {methodData.map((m, i) => {
           const Icon = METHOD_ICONS[m.name] ?? CreditCard;
           return (
             <motion.div
@@ -261,7 +255,7 @@ export function PaymentAnalytics() {
               <div>
                 <p className="text-xs text-muted-foreground">{m.name}</p>
                 <p className="font-bold text-sm">{money(m.value)}</p>
-                <p className="text-xs text-muted-foreground">{((m.value / totalDonut) * 100).toFixed(1)}%</p>
+                <p className="text-xs text-muted-foreground">{totalDonut ? ((m.value / totalDonut) * 100).toFixed(1) : "0.0"}%</p>
               </div>
             </motion.div>
           );
@@ -278,7 +272,7 @@ export function PaymentAnalytics() {
         <div className="flex items-center gap-2 border-b border-border p-4">
           <Clock className="size-4 text-amber-500" />
           <p className="font-semibold text-sm">Receivables Ageing</p>
-          <span className="ml-auto text-xs text-muted-foreground">{AGEING_DATA.length} outstanding</span>
+          <span className="ml-auto text-xs text-muted-foreground">{data.ageing.length} outstanding</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -292,7 +286,7 @@ export function PaymentAnalytics() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {AGEING_DATA.map((row) => (
+              {data.ageing.map((row) => (
                 <tr key={row.invoice} className="hover:bg-primary-soft/25 transition-colors">
                   <td className="px-4 py-3 font-medium">{row.owner}</td>
                   <td className="px-4 py-3 font-mono text-primary">{row.invoice}</td>

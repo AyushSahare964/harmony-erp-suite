@@ -14,15 +14,48 @@ interface Props {
 }
 
 export function PrescriptionPrintView({ visit, open, onClose }: Props) {
-  // Doctor specialty/title lookup — keeps the letterhead accurate for whichever doctor treated this visit
+  // Load approved doctors (role: doctor | admin) from DB to resolve the correct doctor on the Rx
   const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
   useEffect(() => {
     listApprovedDoctorsFn()
       .then((docs) => setDoctorsList(docs || []))
       .catch((e) => console.warn("Could not load doctors list:", e));
   }, []);
-  const getDoctorTitle = (doctorName: string | undefined) =>
-    doctorsList.find((d) => d.name === doctorName)?.specialty || CLINIC_CONFIG.doctorDesignation;
+
+  // Resolve the prescribing doctor from the approved doctors list.
+  // Priority: (1) match visit.doctorName in the list, (2) first approved doctor in DB,
+  // (3) CLINIC_CONFIG.doctorName as ultimate fallback.
+  const resolvedDoctor = (() => {
+    const visitName = visit?.doctorName;
+    // Try to find an exact match in approved list
+    const matched = visitName
+      ? doctorsList.find((d) => d.name === visitName || d.name === `Dr. ${visitName}`)
+      : undefined;
+    if (matched) return matched;
+    // Fall back to first approved DB doctor (excludes hardcoded test fallbacks — those have id like "doc-1")
+    const firstReal = doctorsList.find((d) => !d.id.startsWith("doc-"));
+    if (firstReal) return firstReal;
+    // If no DB doctors yet, try any entry in the list whose name matches CLINIC_CONFIG.doctorName
+    const configMatch = doctorsList.find((d) => d.name === CLINIC_CONFIG.doctorName);
+    if (configMatch) return configMatch;
+    // Ultimate fallback — use CLINIC_CONFIG values
+    return {
+      id: "config",
+      name: CLINIC_CONFIG.doctorName,
+      specialty: CLINIC_CONFIG.doctorDesignation,
+    };
+  })();
+
+  const getDoctorTitle = (doctorName: string | undefined) => {
+    const doc = doctorsList.find((d) => d.name === doctorName || d.name === `Dr. ${doctorName}`);
+    if (doc?.specialty && doc.specialty !== "Administration" && doc.specialty !== "Admin") {
+      return doc.specialty;
+    }
+    if (resolvedDoctor.specialty && resolvedDoctor.specialty !== "Administration" && resolvedDoctor.specialty !== "Admin") {
+      return resolvedDoctor.specialty;
+    }
+    return CLINIC_CONFIG.doctorDesignation || "Chief Veterinary Physician & Surgeon";
+  };
 
   const handlePrint = () => {
     printOrSaveDocumentAsPdf("prescription-printable-area", `Prescription_${visit?.prescriptionNo || "Rx"}`);
@@ -42,6 +75,7 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
   const findingsOther: string = rx?.clinicalFindingsOther || "";
   const previousHistory: string = rx?.previousHistory || "";
   const symptomsText: string = rx?.symptomsText || visit?.vitals?.complaint || "";
+  const symptomTags: string[] = rx?.symptomTags || [];
 
   const immediateMeds = rx?.immediateMedicines || [];
   const prescribedMeds = rx?.prescribedMedicines || [];
@@ -82,10 +116,11 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
         </div>
 
         {/* Printable Area */}
-        <div id="prescription-printable-area" className="flex-1 overflow-y-auto p-8 bg-white text-slate-900 space-y-5 print:p-0 print:space-y-4 font-sans text-xs">
+        <div id="prescription-printable-area" className="flex-1 overflow-y-auto p-8 bg-white text-slate-900 font-sans text-xs" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
           
-          {/* Clinic Letterhead */}
-          <div className="border-b-2 border-blue-900 pb-3.5 flex items-start justify-between">
+          <div className="prescription-content-body space-y-5" style={{ flex: "1 0 auto" }}>
+            {/* Clinic Letterhead */}
+            <div className="border-b-2 border-blue-900 pb-3.5 flex items-start justify-between">
             <div className="flex items-start gap-3">
               <img
                 src={CLINIC_CONFIG.logoPath}
@@ -108,12 +143,12 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
             </div>
             <div className="text-right text-[11px] space-y-0.5">
               <p className="font-bold text-sm text-blue-900">
-                {visit?.doctorName || CLINIC_CONFIG.doctorName}
+                {resolvedDoctor.name}
               </p>
-              {(!visit?.doctorName || visit.doctorName === CLINIC_CONFIG.doctorName) && (
+              {resolvedDoctor.name === CLINIC_CONFIG.doctorName && (
                 <p className="text-slate-500 text-[10px]">{CLINIC_CONFIG.doctorQualifications}</p>
               )}
-              <p className="text-slate-500 text-[10px]">{getDoctorTitle(visit?.doctorName)}</p>
+              <p className="text-slate-500 text-[10px]">{resolvedDoctor.specialty || CLINIC_CONFIG.doctorDesignation}</p>
               <p className="text-slate-500 font-mono text-[10px]">
                 Date: {formatDisplayDate(visit?.date) || visit?.date || new Date().toISOString().slice(0, 10)}
               </p>
@@ -162,12 +197,26 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
           {/* Section 2 & 3: History & Symptoms */}
           {(previousHistory || symptomsText || visit?.clinicalNotes) && (
             <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/50 space-y-2">
-              {symptomsText && (
+              {(symptomsText || (symptomTags && symptomTags.length > 0)) && (
                 <div>
                   <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
                     Presenting Symptoms / Chief Complaint
                   </h4>
-                  <p className="text-xs text-slate-900 font-medium mt-0.5">{symptomsText}</p>
+                  {symptomTags && symptomTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1 mb-1">
+                      {symptomTags.map((tag: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="text-[10px] bg-slate-100 text-slate-800 border border-slate-300 px-1.5 py-0.5 rounded font-semibold"
+                        >
+                          • {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {symptomsText && (
+                    <p className="text-xs text-slate-900 font-medium mt-0.5">{symptomsText}</p>
+                  )}
                 </div>
               )}
               {previousHistory && (
@@ -258,8 +307,24 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
 
           {/* Section 5A (ii): Prescribed Medicines (Take-Home Rx) */}
           <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5 font-bold text-blue-900 text-xs">
-              <span className="text-base font-serif font-black">℞</span> Prescribed Medications (Take-Home Schedule)
+            <div className="flex items-center gap-2 font-bold text-blue-900 text-xs">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#1d4ed8"
+                strokeWidth="2.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ display: "inline-block", flexShrink: 0 }}
+              >
+                <path d="M5 4h6.5a4 4 0 0 1 0 8H5z" />
+                <path d="M5 12v8" />
+                <line x1="11.5" y1="12" x2="19" y2="20" />
+                <line x1="13.5" y1="18.5" x2="18.5" y2="13.5" />
+              </svg>
+              <span>Prescribed Medications (Take-Home Schedule)</span>
             </div>
 
             {prescribedMeds.length > 0 ? (
@@ -440,20 +505,35 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
               </div>
             )}
           </div>
+          </div>
 
-          {/* Footer Sign-off & Disclaimer */}
-          <div className="pt-6 flex items-end justify-between text-slate-600 border-t border-slate-200 text-[10px]">
-            <div className="space-y-0.5">
-              <p>• Administer all medicines strictly per prescribed dose and schedule.</p>
-              <p>• Store temperature-sensitive medications in a cool and dry place.</p>
-              <p>• In case of severe vomiting, diarrhea or distress, contact emergency immediately.</p>
-            </div>
-            <div className="text-center space-y-1">
-              <div className="w-44 border-b border-slate-400 pb-6 text-center text-slate-400 font-serif italic text-[10px]">
-                Digitally Signed
+          {/* Pinned Bottom Section: Footer Sign-off & Disclaimer */}
+          <div className="prescription-footer-pinned" style={{ marginTop: "auto", paddingTop: "24px" }}>
+            <div className="flex items-end justify-between text-slate-600 border-t border-slate-200 text-[10px] pt-4">
+              <div className="space-y-0.5">
+                <p>• Administer all medicines strictly per prescribed dose and schedule.</p>
+                <p>• Store temperature-sensitive medications in a cool and dry place.</p>
+                <p>• In case of severe vomiting, diarrhea or distress, contact emergency immediately.</p>
               </div>
-              <p className="font-bold text-slate-800 text-[11px]">{visit?.doctorName || "Dr. Rohit Sharma"}</p>
-              <p className="text-slate-500 text-[9px]">Registered Veterinary Practitioner</p>
+              <div className="text-center space-y-1 min-w-[180px]">
+                <div className="w-44 border-b border-slate-400 pb-3 text-center text-slate-400 font-serif italic text-[10px]">
+                  Digitally Signed
+                </div>
+                <p className="font-bold text-slate-800 text-[11px]">{resolvedDoctor.name}</p>
+                <p className="text-slate-500 text-[9px]">{resolvedDoctor.specialty || "Registered Veterinary Practitioner"}</p>
+                <p className="text-[9px] text-slate-400 font-mono">Reg No: MH/VET/2019/8821</p>
+              </div>
+            </div>
+
+            {/* Bottom Verification & Timestamp Footer */}
+            <div className="pt-3 mt-4 border-t border-dashed border-slate-200 flex items-center justify-between text-[9px] text-slate-400 font-mono">
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block size-1.5 rounded-full bg-emerald-500"></span>
+                <span>Real Care VetOS · Electronically Generated &amp; Signed Clinical Prescription</span>
+              </div>
+              <div>
+                <span>Generated: {new Date().toLocaleDateString("en-GB")} at {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })} IST</span>
+              </div>
             </div>
           </div>
 

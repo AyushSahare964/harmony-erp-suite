@@ -27,6 +27,7 @@ import { createQuotationFn } from "@/lib/mongodb/serverFns/quotations";
 import { BillingReminderModal } from "./BillingReminderModal";
 import { todayIST } from "@/lib/utils/dateUtils";
 import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
+import { QuotationPrintView } from "./QuotationPrintView";
 
 export interface QuotationItem {
   id: string;
@@ -150,7 +151,7 @@ export function QuotationModal({ open, onClose, onConvertToInvoice }: QuotationM
   const [itemUom, setItemUom] = useState("SET");
   const [quantity, setQuantity] = useState(1);
   const [salePrice, setSalePrice] = useState<number>(400);
-  const [discountPercent, setDiscountPercent] = useState<number>(5);
+  const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [itemGstRate, setItemGstRate] = useState<number>(0);
   const [itemDescription, setItemDescription] = useState("");
 
@@ -169,21 +170,7 @@ export function QuotationModal({ open, onClose, onConvertToInvoice }: QuotationM
   }, []);
 
   // Particulars Table Items (Initialized matching reference screenshot)
-  const [items, setItems] = useState<QuotationItem[]>([
-    {
-      id: "item_init_1",
-      serialNo: "SR-001",
-      name: "Marvel Animal Food",
-      category: "FOOD",
-      uom: "SET",
-      quantity: 1,
-      rate: 400,
-      discountPercent: 5,
-      gstRate: 0,
-      description: "Nutritional pet diet package",
-      lineTotal: 380,
-    },
-  ]);
+  const [items, setItems] = useState<QuotationItem[]>([]);
 
   // Bottom Settings & Terms
   const [showShipping, setShowShipping] = useState(false);
@@ -196,6 +183,9 @@ export function QuotationModal({ open, onClose, onConvertToInvoice }: QuotationM
   // Reminder Modal
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Set once "Save and Print" finishes — shows the real formatted QuotationPrintView
+  // instead of the previous raw window.print() of the unstyled entry form.
+  const [printableQuotation, setPrintableQuotation] = useState<any | null>(null);
 
   // Initialize on modal open
   useEffect(() => {
@@ -462,13 +452,15 @@ export function QuotationModal({ open, onClose, onConvertToInvoice }: QuotationM
       createdAt: new Date().toISOString(),
     };
 
+    let savedToServer = false;
     try {
       await createQuotationFn({ data: quotationPayload as any });
+      savedToServer = true;
     } catch (err) {
-      console.error("Server save fallback:", err);
+      console.error("Failed to save quotation to server:", err);
     }
 
-    // Local storage fallback for offline resilience
+    // Local storage cache regardless, so a re-opened session can still see recent quotations
     try {
       const existing = JSON.parse(localStorage.getItem("vetos_quotations") || "[]");
       existing.unshift(quotationPayload);
@@ -479,14 +471,33 @@ export function QuotationModal({ open, onClose, onConvertToInvoice }: QuotationM
     }
 
     setSaving(false);
+
+    if (!savedToServer) {
+      toast.error(`Could not save Quotation ${quotationNo} to the server — please check your connection and try again.`);
+      return;
+    }
+
     toast.success(`Quotation ${quotationNo} successfully saved!`);
 
     if (printAfter) {
-      setTimeout(() => window.print(), 200);
+      setPrintableQuotation(quotationPayload);
+    } else {
+      onClose();
     }
-
-    onClose();
   };
+
+  if (printableQuotation) {
+    return (
+      <QuotationPrintView
+        quotation={printableQuotation}
+        open={true}
+        onClose={() => {
+          setPrintableQuotation(null);
+          onClose();
+        }}
+      />
+    );
+  }
 
   return (
     <>

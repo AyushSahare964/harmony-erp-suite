@@ -25,6 +25,8 @@ import { getIcon } from "./icon";
 import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 import { getMongoStatusFn, type MongoStatusRow } from "@/lib/mongodb/serverFns/status";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
+import { listRemindersFn, settleReminderFn, type BillingReminderRow } from "@/lib/mongodb/serverFns/reminders";
+import { todayIST, formatDisplayDate } from "@/lib/utils/dateUtils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,8 +47,13 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
       .catch(() => setMongoStatus({ connected: false, readyState: 0, databaseName: "vetos_erp", host: "Atlas", latencyMs: 0, error: "Offline" }));
   }, []);
 
+  // Hidden from the sidebar by request — the routes/dashboard cards still exist,
+  // this only removes them from left-nav navigation.
+  const HIDDEN_SIDEBAR_MODULES = new Set(["hrms", "marketing", "pharmacy", "communication", "integrations", "billing-suite"]);
+
   const seen = new Set<string>();
   const navItems = roleModules(role).filter((c) => {
+    if (HIDDEN_SIDEBAR_MODULES.has(c.module)) return false;
     if (seen.has(c.module)) return false;
     seen.add(c.module);
     return true;
@@ -327,6 +334,33 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
   const navigate = useNavigate();
   const { role, roleId, setRoleId, currentUser, logout } = useErp();
 
+  const [reminders, setReminders] = useState<BillingReminderRow[]>([]);
+  const loadReminders = () => {
+    listRemindersFn()
+      .then((rows) => setReminders(rows.filter((r) => r.status === "Pending")))
+      .catch(() => {});
+  };
+  useEffect(() => {
+    loadReminders();
+    const interval = setInterval(loadReminders, 60_000); // keep the badge fresh across a long shift
+    return () => clearInterval(interval);
+  }, []);
+
+  const sortedReminders = [...reminders].sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+  const today = todayIST();
+  const overdueCount = reminders.filter((r) => r.scheduledDate < today).length;
+
+  const handleQuickSettle = async (reminderId: string) => {
+    setReminders((prev) => prev.filter((r) => r.reminderId !== reminderId));
+    try {
+      await settleReminderFn({ data: { reminderId } });
+      toast.success("Reminder marked as settled!");
+    } catch {
+      toast.error("Could not update reminder");
+      loadReminders();
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     toast.success("Logged out of staff terminal session.");
@@ -352,18 +386,87 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
       <GlobalSearch />
 
       <div className="ml-auto flex items-center gap-2">
-        <motion.button 
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className="relative rounded-lg p-2 hover:bg-muted transition-colors" 
-          aria-label="Notifications"
-          suppressHydrationWarning
-        >
-          <Bell className="size-[1.05rem]" />
-          <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[0.6rem] font-bold text-destructive-foreground">
-            5
-          </span>
-        </motion.button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="relative rounded-lg p-2 hover:bg-muted transition-colors"
+              aria-label={`Notifications${reminders.length ? ` (${reminders.length} pending)` : ""}`}
+              suppressHydrationWarning
+            >
+              <Bell className="size-[1.05rem]" />
+              {reminders.length > 0 && (
+                <span
+                  className={cn(
+                    "absolute right-1 top-1 flex size-4 items-center justify-center rounded-full text-[0.6rem] font-bold text-destructive-foreground",
+                    overdueCount > 0 ? "bg-destructive" : "bg-amber-500"
+                  )}
+                >
+                  {reminders.length > 9 ? "9+" : reminders.length}
+                </span>
+              )}
+            </motion.button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80 p-2">
+            <DropdownMenuLabel className="flex items-center justify-between text-xs font-bold">
+              <span>Billing Reminders</span>
+              {overdueCount > 0 && (
+                <span className="rounded-full bg-destructive/10 text-destructive px-2 py-0.5 text-[10px] font-bold">
+                  {overdueCount} overdue
+                </span>
+              )}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {sortedReminders.length === 0 ? (
+              <div className="py-6 text-center text-xs text-muted-foreground">
+                No pending reminders — you're all caught up.
+              </div>
+            ) : (
+              <div className="max-h-80 overflow-y-auto space-y-1">
+                {sortedReminders.slice(0, 8).map((r) => {
+                  const isOverdue = r.scheduledDate < today;
+                  return (
+                    <div
+                      key={r.reminderId}
+                      className="rounded-lg p-2 hover:bg-muted/60 transition-colors text-xs space-y-1"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-foreground truncate">
+                            {r.petName} · {r.ownerName}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {r.reminderType} · ₹{r.dueAmount.toLocaleString("en-IN")}
+                          </p>
+                        </div>
+                        <span
+                          className={cn(
+                            "shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded",
+                            isOverdue ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-600"
+                          )}
+                        >
+                          {isOverdue ? "Overdue" : formatDisplayDate(r.scheduledDate)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleQuickSettle(r.reminderId)}
+                        className="text-[11px] font-semibold text-primary hover:underline"
+                      >
+                        Mark settled
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild className="text-xs font-semibold text-primary cursor-pointer justify-center">
+              <Link to="/m/$moduleId" params={{ moduleId: "billing" }}>View all in Billing Desk</Link>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-left hover:bg-muted transition-colors outline-none focus:ring-2 focus:ring-primary/20">
@@ -401,23 +504,33 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
             <div className="px-2 py-2.5 space-y-1.5 text-[0.72rem] text-slate-600 dark:text-slate-400 border-b border-border my-1">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Department:</span>
-                <span className="font-semibold text-foreground">{currentUser?.department || role.scope}</span>
+                <span className="font-semibold text-foreground">
+                  {currentUser?.department || (currentUser?.roleId === "admin" ? "Clinical Administration & Surgery" : role.scope)}
+                </span>
               </div>
-              {currentUser?.licenseNumber && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Registration / VCI:</span>
-                  <span className="font-mono font-semibold text-emerald-600">{currentUser.licenseNumber}</span>
-                </div>
-              )}
-              {currentUser?.qualification && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Qualification:</span>
-                  <span className="font-medium text-foreground">{currentUser.qualification}</span>
-                </div>
-              )}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Registration / VCI:</span>
+                <span className="font-mono font-semibold text-emerald-600">
+                  {currentUser?.licenseNumber || (currentUser?.fullName?.includes("Dixit") ? "M.S.V.C.-8648" : "VCI-ACTIVE")}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Qualification:</span>
+                <span className="font-medium text-foreground truncate max-w-[155px]" title={currentUser?.qualification || (currentUser?.fullName?.includes("Dixit") ? CLINIC_CONFIG.doctorQualifications : "Veterinary Specialist")}>
+                  {currentUser?.qualification || (currentUser?.fullName?.includes("Dixit") ? "B.V.Sc & AH, M.V.Sc, PGDAW" : "Veterinary Specialist")}
+                </span>
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Clinic:</span>
-                <span className="font-medium text-foreground truncate max-w-[150px]">Harmony Pet Hospital</span>
+                <span className="font-medium text-foreground truncate max-w-[155px]" title={currentUser?.clinicName || CLINIC_CONFIG.fullName}>
+                  {currentUser?.clinicName || CLINIC_CONFIG.shortName}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Branch:</span>
+                <span className="font-medium text-foreground truncate max-w-[155px]">
+                  {currentUser?.branch || "Nagpur Main Clinic"}
+                </span>
               </div>
             </div>
 
@@ -446,7 +559,7 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
 export function Shell({ title, children }: { title: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { isAuthenticated, isLoadingAuth } = useErp();
+  const { isAuthenticated, isLoadingAuth, role } = useErp();
   const navigate = useNavigate();
 
   // Scroll to top smoothly on feature/route transition
@@ -461,7 +574,20 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
     }
   }, [isLoadingAuth, isAuthenticated, navigate]);
 
-  if (isLoadingAuth || !isAuthenticated) {
+  // Guard module routes by role: the sidebar only ever links to modules in
+  // roleModules(role), but until now nothing stopped a direct URL visit to a
+  // module outside that list. Reuse the same mapping the sidebar nav uses.
+  const moduleId = pathname.startsWith("/m/") ? pathname.slice(3).split("/")[0] : null;
+  const isModuleAllowed = !moduleId || roleModules(role).some((c) => c.module === moduleId);
+
+  useEffect(() => {
+    if (!isLoadingAuth && isAuthenticated && moduleId && !isModuleAllowed) {
+      toast.error("That module isn't part of your role's access.");
+      navigate({ to: "/" });
+    }
+  }, [isLoadingAuth, isAuthenticated, moduleId, isModuleAllowed, navigate]);
+
+  if (isLoadingAuth || !isAuthenticated || (moduleId && !isModuleAllowed)) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-background">
         <div className="size-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />

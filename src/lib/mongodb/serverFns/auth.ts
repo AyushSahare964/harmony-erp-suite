@@ -34,12 +34,23 @@ function getInitials(name: string): string {
 /** Convert a raw lean Mongoose document to a safe UserProfile for the client */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toProfile(user: Record<string, any>): UserProfile {
+  const isDixit = String(user["fullName"] || "").toLowerCase().includes("dixit") || String(user["email"] || "").toLowerCase().includes("dixit");
+  const rawClinic = String(user["clinicName"] || "").trim();
+  const clinicName = !rawClinic || rawClinic.toLowerCase().includes("harmony")
+    ? "Real Care Small Animal Clinic"
+    : rawClinic;
+
+  const rawBranch = String(user["branch"] || "").trim();
+  const branch = !rawBranch || rawBranch.toLowerCase().includes("koramangala")
+    ? "Nagpur Main Clinic"
+    : rawBranch;
+
   const profile: UserProfile = {
     id:             String(user["_id"]),
     fullName:       String(user["fullName"]),
     email:          String(user["email"]),
-    clinicName:     String(user["clinicName"]),
-    branch:         String(user["branch"]),
+    clinicName,
+    branch,
     roleId:         user["roleId"] as RoleId,
     roleName:       String(user["roleName"]),
     initials:       String(user["initials"]),
@@ -48,13 +59,13 @@ function toProfile(user: Record<string, any>): UserProfile {
       ? user["createdAt"].toISOString()
       : String(user["createdAt"]),
   };
-  // Only set optional fields when they actually have a value
-  if (user["phone"])         profile.phone         = String(user["phone"]);
-  if (user["licenseNumber"]) profile.licenseNumber = String(user["licenseNumber"]);
-  if (user["qualification"]) profile.qualification = String(user["qualification"]);
-  if (user["department"])    profile.department    = String(user["department"]);
-  if (user["specialty"])     profile.specialty     = user["specialty"] as NonNullable<UserProfile["specialty"]>;
-  if (user["avatarUrl"])     profile.avatarUrl     = String(user["avatarUrl"]);
+
+  profile.phone         = String(user["phone"] || (isDixit ? "+91 87674 84342" : ""));
+  profile.licenseNumber = String(user["licenseNumber"] || (isDixit ? "M.S.V.C.-8648" : ""));
+  profile.qualification = String(user["qualification"] || (isDixit ? "B.V.Sc & AH, M.V.Sc, PGDAW" : ""));
+  profile.department    = String(user["department"] || (isDixit ? "Clinical Administration & Surgery" : ""));
+  profile.specialty     = (user["specialty"] || (isDixit ? "General Practice" : "Administration")) as NonNullable<UserProfile["specialty"]>;
+  if (user["avatarUrl"]) profile.avatarUrl = String(user["avatarUrl"]);
   return profile;
 }
 
@@ -528,16 +539,16 @@ const SYSTEM_CREDENTIALS = [
     fullName:        "Dr. Makarand Dixit",
     email:           "makarand.dixit@gmail.com",
     password:        "12345678",
-    phone:           "",
+    phone:           "+91 87674 84342",
     clinicName:      "Real Care Small Animal Clinic",
-    branch:          "Nagpur",
+    branch:          "Nagpur Main Clinic",
     roleId:          "admin" as RoleId,
     roleName:        "Clinic Administrator / Medical Director",
     initials:        "MD",
-    licenseNumber:   "",
-    qualification:   "",
-    department:      "Veterinary Administration",
-    specialty:       "Administration" as const,
+    licenseNumber:   "M.S.V.C.-8648",
+    qualification:   "B.V.Sc & AH, M.V.Sc, PGDAW",
+    department:      "Clinical Administration & Surgery",
+    specialty:       "General Practice" as const,
     approvalStatus:  "approved" as ApprovalStatus,
     isSystemAccount: false,  // ← visible in staff directory
     isActive:        true,
@@ -551,7 +562,24 @@ export const seedDemoUsersFn = createServerFn({ method: "POST" })
     let seeded = 0;
     for (const cred of SYSTEM_CREDENTIALS) {
       const exists = await User.findOne({ email: cred.email.toLowerCase() }).lean();
-      if (exists) continue;
+      if (exists) {
+        // Sync real dynamic clinic profile data if updated
+        await User.updateOne(
+          { email: cred.email.toLowerCase() },
+          {
+            $set: {
+              clinicName: cred.clinicName,
+              branch: cred.branch,
+              licenseNumber: cred.licenseNumber,
+              qualification: cred.qualification,
+              department: cred.department,
+              roleName: cred.roleName,
+              phone: cred.phone,
+            },
+          }
+        );
+        continue;
+      }
       const { password, ...rest } = cred;
       const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

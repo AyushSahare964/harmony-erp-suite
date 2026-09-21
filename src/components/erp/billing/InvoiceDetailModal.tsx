@@ -121,7 +121,10 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border p-5 bg-card sticky top-0 z-10">
             <DialogHeader className="p-0">
-              <DialogTitle className="text-lg font-bold text-foreground">
+              <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
+                <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
+                  <Building className="size-4" />
+                </span>
                 Invoice - {invoice.invoiceNo || "INV/2026-27/905"}
               </DialogTitle>
               <DialogDescription className="sr-only">Detailed invoice view</DialogDescription>
@@ -129,13 +132,52 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
           </div>
 
           <div className="p-6 space-y-5">
+            {/* Balance Status Banner */}
+            <div
+              className={cn(
+                "rounded-2xl border p-4 flex items-center gap-3 shadow-2xs",
+                balanceDue > 0
+                  ? "border-amber-200 bg-amber-50/80 dark:bg-amber-950/20"
+                  : "border-emerald-200 bg-emerald-50/80 dark:bg-emerald-950/20"
+              )}
+            >
+              <div
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-xl text-white shrink-0",
+                  balanceDue > 0 ? "bg-amber-500" : "bg-emerald-500"
+                )}
+              >
+                {balanceDue > 0 ? <AlertCircle className="size-5" /> : <CheckCircle2 className="size-5" />}
+              </div>
+              <div className="flex-1">
+                <p className={cn("text-sm font-bold", balanceDue > 0 ? "text-amber-900 dark:text-amber-100" : "text-emerald-900 dark:text-emerald-100")}>
+                  {balanceDue > 0 ? "Partial Payment — Balance Pending" : "Paid in Full"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Total ₹{Number(invoice.totalAmount || 0).toFixed(2)} · Paid ₹{Number(totalPaid).toFixed(2)}
+                  {balanceDue > 0 && <> · Due ₹{Number(balanceDue).toFixed(2)}</>}
+                </p>
+              </div>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "font-mono text-[10px] shrink-0",
+                  invoice.billType === "GST" ? "bg-blue-500/10 text-blue-700 border-blue-200" : "bg-muted text-muted-foreground"
+                )}
+              >
+                {invoice.billType || "Non-GST"}
+              </Badge>
+            </div>
+
             {/* Sale Information Card (Exact Recreation of Screenshot 2) */}
             <div className="rounded-2xl border border-border/90 bg-muted/20 p-5 space-y-4 shadow-2xs">
-              <h3 className="text-sm font-bold text-foreground">Sale Information</h3>
+              <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <ShieldCheck className="size-4 text-primary" /> Sale Information
+              </h3>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-3 gap-x-4 text-xs">
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Date:</span>
+                  <span className="text-muted-foreground flex items-center gap-1 text-[11px]"><Calendar className="size-3" /> Date:</span>
                   <strong className="text-foreground">{formatDisplayDate(invoice.date) || invoice.date || new Date().toISOString().slice(0, 10)}</strong>
                 </div>
 
@@ -145,32 +187,32 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
                 </div>
 
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Branch:</span>
+                  <span className="text-muted-foreground flex items-center gap-1 text-[11px]"><Building className="size-3" /> Branch:</span>
                   <strong className="text-foreground">{invoice.branch || "perfect society"}</strong>
                 </div>
 
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Bill Type:</span>
+                  <span className="text-muted-foreground flex items-center gap-1 text-[11px]"><CreditCard className="size-3" /> Bill Type:</span>
                   <strong className="text-foreground">{invoice.billType || "Non-GST"}</strong>
                 </div>
 
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Next Visit Date:</span>
+                  <span className="text-muted-foreground flex items-center gap-1 text-[11px]"><Calendar className="size-3" /> Next Visit Date:</span>
                   <strong className="text-foreground">{formatDisplayDate(invoice.nextVisitDate) || invoice.nextVisitDate || "Not scheduled"}</strong>
                 </div>
 
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Next Vaccine Date:</span>
+                  <span className="text-muted-foreground flex items-center gap-1 text-[11px]"><Calendar className="size-3" /> Next Vaccine Date:</span>
                   <strong className="text-foreground">{formatDisplayDate(invoice.nextVaccineDate) || invoice.nextVaccineDate || "Not scheduled"}</strong>
                 </div>
 
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Next Deworming Date:</span>
+                  <span className="text-muted-foreground flex items-center gap-1 text-[11px]"><Calendar className="size-3" /> Next Deworming Date:</span>
                   <strong className="text-foreground">{formatDisplayDate(invoice.nextDewormingDate) || invoice.nextDewormingDate || "Not scheduled"}</strong>
                 </div>
 
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Pet Name:</span>
+                  <span className="text-muted-foreground flex items-center gap-1 text-[11px]"><Dog className="size-3" /> Pet Name:</span>
                   <strong className="text-foreground capitalize flex items-center gap-1.5">
                     {invoice.petName}
                     <Badge variant="outline" className="font-mono text-[10px] py-0 bg-primary/10 text-primary border-primary/20">
@@ -180,7 +222,7 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
                 </div>
 
                 <div className="sm:col-span-2">
-                  <span className="text-muted-foreground block text-[11px]">Owner Name:</span>
+                  <span className="text-muted-foreground flex items-center gap-1 text-[11px]"><User className="size-3" /> Owner Name:</span>
                   <strong className="text-foreground capitalize">{invoice.ownerName}</strong>
                   {invoice.ownerPhone && (
                     <span className="text-muted-foreground font-mono ml-2">({invoice.ownerPhone})</span>
@@ -248,7 +290,9 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
               <div className="rounded-2xl border border-border bg-card p-4 space-y-3 shadow-2xs flex flex-col justify-between">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between border-b border-border pb-2">
-                    <h4 className="text-xs font-bold text-foreground">Payment History</h4>
+                    <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <CreditCard className="size-3.5 text-primary" /> Payment History
+                    </h4>
                     {balanceDue > 0 && (
                       <Button
                         size="sm"
@@ -322,7 +366,9 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
 
               {/* Payment Summary Card */}
               <div className="rounded-2xl border border-border bg-card p-4 space-y-2.5 shadow-2xs">
-                <h4 className="text-xs font-bold text-foreground border-b border-border pb-2">Payment Summary</h4>
+                <h4 className="text-xs font-bold text-foreground border-b border-border pb-2 flex items-center gap-1.5">
+                  <ShieldCheck className="size-3.5 text-primary" /> Payment Summary
+                </h4>
 
                 <div className="space-y-1.5 text-xs">
                   <div className="flex items-center justify-between">
@@ -373,7 +419,7 @@ export function InvoiceDetailModal({ open, onClose, invoice, onUpdated, onDelete
                 onClick={() => setShowPrintModal(true)}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 px-4 gap-1.5 shadow-xs"
               >
-                <Download className="size-3.5" /> Download PDF / Print
+                <Download className="size-3.5" /> <Printer className="size-3.5" /> Download PDF / Print
               </Button>
 
               {/* Blue Edit button */}

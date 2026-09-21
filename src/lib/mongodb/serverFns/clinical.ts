@@ -79,6 +79,13 @@ const PrescriptionLineZ = z.object({
   gstRate: z.number().min(0).max(100).default(0),
   gstApplicable: z.boolean().optional(),
   lineTotal: z.number().min(0),
+  // Provenance tags — savePrescriptionSectionFn's per-section save uses these to find and
+  // replace a section's previously-saved lines. Without them (they were missing from this
+  // schema), Zod silently stripped both fields from every wholesale save, so the section-save
+  // filter could never match the old rows and just kept appending duplicates on top of them.
+  sourceType: z.string().optional(),
+  sourceId: z.string().optional(),
+  rxSection: z.string().optional(),
 });
 
 const SavePrescriptionInputZ = z.object({
@@ -565,6 +572,9 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
       case "SYMPTOMS": {
         const text = String(data.payload?.text || "").trim();
         visit.prescriptionData.symptomsText = text;
+        if (data.payload?.tags && Array.isArray(data.payload.tags)) {
+          visit.prescriptionData.symptomTags = data.payload.tags;
+        }
         if (!visit.vitals) {
           visit.vitals = {};
         }

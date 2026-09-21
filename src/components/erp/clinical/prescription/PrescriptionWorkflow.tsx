@@ -63,6 +63,10 @@ export interface PrescriptionWorkflowProps {
   onJumpSectionsChange?: (sections: SectionJumpItem[]) => void;
   onVisitUpdated?: (updatedVisit: any) => void;
   onPrescriptionDataChange?: (rxData: IPrescriptionData) => void;
+  /** Fires true right before the background section-save queue starts (on Proceed to
+   *  Billing) and false once every section has settled — lets the parent block Finalize
+   *  until the visit document actually has all sections' data, not just what synced first. */
+  onBackgroundSyncStateChange?: (syncing: boolean) => void;
 }
 
 const CLINICAL_FINDINGS_OPTIONS = [
@@ -81,6 +85,32 @@ const CLINICAL_FINDINGS_OPTIONS = [
   "Anorexia / Loss of Appetite",
   "Otitis / Ear Discharge",
   "Coughing / Sneezing",
+  "Other",
+];
+
+const DEFAULT_SYMPTOMS_OPTIONS = [
+  "Hairfall",
+  "Rashes on Skin",
+  "Blood in Urine",
+  "Lump on Body / Growth",
+  "Itching",
+  "Limping",
+  "Constipation",
+  "Urine Incontinence",
+  "Vomiting",
+  "Listlessness",
+  "Dehydration",
+  "Fever / Pyrexia",
+  "Anorexia / Loss of Appetite",
+  "Otitis / Ear Discharge",
+  "Coughing / Sneezing",
+  "Diarrhea",
+  "Eye Discharge / Redness",
+  "Shivering / Tremors",
+  "Blood in Stool",
+  "Difficulty Breathing",
+  "Excessive Thirst",
+  "Weight Loss",
   "Other",
 ];
 
@@ -131,8 +161,15 @@ function serializeSectionState(sectionKey: string, data: any): string {
       })),
     });
   }
-  if (sectionKey === "HISTORY" || sectionKey === "SYMPTOMS") {
+  if (sectionKey === "HISTORY") {
     return JSON.stringify({ text: String(data?.text ?? data ?? "").trim() });
+  }
+  if (sectionKey === "SYMPTOMS") {
+    const text = String(data?.text ?? data?.symptomsText ?? "").trim();
+    const tags = Array.isArray(data?.tags ?? data?.symptomTags)
+      ? [...(data?.tags ?? data?.symptomTags)].sort()
+      : [];
+    return JSON.stringify({ text, tags });
   }
   if (sectionKey === "FINDINGS") {
     return JSON.stringify({
@@ -166,6 +203,7 @@ export function PrescriptionWorkflow({
   onJumpSectionsChange,
   onVisitUpdated,
   onPrescriptionDataChange,
+  onBackgroundSyncStateChange,
 }: PrescriptionWorkflowProps) {
   const initialRx: IPrescriptionData = prescriptionData || visit?.prescriptionData || {};
 
@@ -202,11 +240,22 @@ export function PrescriptionWorkflow({
     initialRx.previousHistory ?? visit?.clinicalNotes ?? ""
   );
   const [showEarlierHistory, setShowEarlierHistory] = useState<boolean>(false);
+  const historyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Section 3: Symptoms (blank default — never pre-fill from OPD complaint)
+  // Section 3: Symptoms
   const [symptomsText, setSymptomsText] = useState<string>(
     initialRx.symptomsText ?? ""
   );
+  const [symptomTags, setSymptomTags] = useState<string[]>(
+    initialRx.symptomTags || []
+  );
+  const [symptomSearchQuery, setSymptomSearchQuery] = useState("");
+  const [symptomsDropdownOpen, setSymptomsDropdownOpen] = useState(false);
+  const [symptomsActiveIndex, setSymptomsActiveIndex] = useState<number>(-1);
+  const [customSymptomsList, setCustomSymptomsList] = useState<string[]>([]);
+  const symptomsDropdownRef = useRef<HTMLDivElement>(null);
+  const symptomsSearchInputRef = useRef<HTMLInputElement>(null);
+  const symptomsTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Section 4: Clinical Findings
   const [clinicalFindings, setClinicalFindings] = useState<string[]>(
@@ -217,6 +266,10 @@ export function PrescriptionWorkflow({
   );
   const [findingSearchQuery, setFindingSearchQuery] = useState("");
   const [findingsDropdownOpen, setFindingsDropdownOpen] = useState(false);
+  const [findingsActiveIndex, setFindingsActiveIndex] = useState<number>(-1);
+  const [customFindingsList, setCustomFindingsList] = useState<string[]>([]);
+  const findingsDropdownRef = useRef<HTMLDivElement>(null);
+  const findingsSearchInputRef = useRef<HTMLInputElement>(null);
 
   // Sync state whenever visit or prescriptionData changes from server/parent
   useEffect(() => {
@@ -232,6 +285,9 @@ export function PrescriptionWorkflow({
     if (rx.symptomsText !== undefined) {
       // Only set if explicitly saved for this prescription — never fall back to OPD complaint
       if (rx.symptomsText) setSymptomsText(rx.symptomsText);
+    }
+    if (rx.symptomTags && Array.isArray(rx.symptomTags) && rx.symptomTags.length > 0) {
+      setSymptomTags(rx.symptomTags);
     }
     if (rx.clinicalFindings && rx.clinicalFindings.length > 0) {
       setClinicalFindings(rx.clinicalFindings);
@@ -471,7 +527,10 @@ export function PrescriptionWorkflow({
   // ── Snapshots for Dirty Detection ─────────────────────────────────────────
   const [lastSaved, setLastSaved] = useState<Record<string, string>>(() => ({
     HISTORY: serializeSectionState("HISTORY", { text: initialRx.previousHistory ?? visit?.clinicalNotes ?? "" }),
-    SYMPTOMS: serializeSectionState("SYMPTOMS", { text: initialRx.symptomsText ?? "" }),
+    SYMPTOMS: serializeSectionState("SYMPTOMS", {
+      text: initialRx.symptomsText ?? "",
+      tags: initialRx.symptomTags ?? [],
+    }),
     FINDINGS: serializeSectionState("FINDINGS", {
       findings: initialRx.clinicalFindings || [],
       other: initialRx.clinicalFindingsOther || "",
@@ -503,8 +562,12 @@ export function PrescriptionWorkflow({
     [previousHistory, lastSaved]
   );
   const isSymptomsDirty = useMemo(
-    () => serializeSectionState("SYMPTOMS", { text: symptomsText }) !== lastSaved["SYMPTOMS"],
-    [symptomsText, lastSaved]
+    () =>
+      serializeSectionState("SYMPTOMS", {
+        text: symptomsText,
+        tags: symptomTags,
+      }) !== lastSaved["SYMPTOMS"],
+    [symptomsText, symptomTags, lastSaved]
   );
   const isFindingsDirty = useMemo(
     () =>
@@ -668,7 +731,10 @@ export function PrescriptionWorkflow({
   const handleSaveHistory = () =>
     executeSaveSection("HISTORY", { text: previousHistory.trim() });
   const handleSaveSymptoms = () =>
-    executeSaveSection("SYMPTOMS", { text: symptomsText.trim() });
+    executeSaveSection("SYMPTOMS", {
+      text: symptomsText.trim(),
+      tags: symptomTags,
+    });
   const handleSaveFindings = () =>
     executeSaveSection("FINDINGS", {
       findings: clinicalFindings,
@@ -914,6 +980,7 @@ export function PrescriptionWorkflow({
       bodyTemperature: displayTemp,
       previousHistory,
       symptomsText,
+      symptomTags,
       clinicalFindings,
       clinicalFindingsOther,
       immediateMedicines: immediateMedicines as any,
@@ -963,17 +1030,22 @@ export function PrescriptionWorkflow({
         if (isPrescribedFoodDirty) saveHandlers.push(handleSavePrescribedFood);
         if (isAccessoryDirty) saveHandlers.push(handleSaveAccessories);
 
+        onBackgroundSyncStateChange?.(true);
         (async () => {
           const failed: unknown[] = [];
-          for (const save of saveHandlers) {
-            try {
-              await save();
-            } catch (err) {
-              failed.push(err);
+          try {
+            for (const save of saveHandlers) {
+              try {
+                await save();
+              } catch (err) {
+                failed.push(err);
+              }
             }
-          }
-          if (failed.length > 0) {
-            console.warn("Background auto-save on proceed to billing had issues:", failed);
+            if (failed.length > 0) {
+              console.warn("Background auto-save on proceed to billing had issues:", failed);
+            }
+          } finally {
+            onBackgroundSyncStateChange?.(false);
           }
         })();
       }
@@ -985,21 +1057,273 @@ export function PrescriptionWorkflow({
     }
   };
 
-  // Findings handler
-  const handleToggleFinding = (finding: string) => {
-    if (clinicalFindings.includes(finding)) {
-      setClinicalFindings(clinicalFindings.filter((f) => f !== finding));
-      if (finding === "Other") setClinicalFindingsOther("");
+  // Click-outside listener for Symptoms and Findings dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        symptomsDropdownRef.current &&
+        !symptomsDropdownRef.current.contains(event.target as Node)
+      ) {
+        setSymptomsDropdownOpen(false);
+      }
+      if (
+        findingsDropdownRef.current &&
+        !findingsDropdownRef.current.contains(event.target as Node)
+      ) {
+        setFindingsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // Quick navigation helper: smoothly scroll to section and focus its primary input
+  const focusAndScrollToSection = (sectionId: string, preferredSelector?: string) => {
+    const target = document.getElementById(sectionId);
+    if (!target) return;
+
+    const scrollParent = target.closest(".overflow-y-auto");
+    if (scrollParent) {
+      const parentRect = scrollParent.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const offset = 24;
+      const targetScrollTop = scrollParent.scrollTop + (targetRect.top - parentRect.top) - offset;
+      scrollParent.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: "smooth",
+      });
     } else {
-      setClinicalFindings([...clinicalFindings, finding]);
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    setTimeout(() => {
+      let inputEl: HTMLElement | null = null;
+      if (preferredSelector) {
+        inputEl = target.querySelector(preferredSelector) as HTMLElement | null;
+      }
+      if (!inputEl) {
+        inputEl = target.querySelector(
+          "input:not([type=hidden]):not([disabled]), textarea:not([disabled])"
+        ) as HTMLElement | null;
+      }
+      if (inputEl && typeof inputEl.focus === "function") {
+        inputEl.focus();
+        if (sectionId === "sec-symptoms" && inputEl === symptomsSearchInputRef.current) {
+          setSymptomsDropdownOpen(true);
+        }
+        if (sectionId === "sec-findings" && inputEl === findingsSearchInputRef.current) {
+          setFindingsDropdownOpen(true);
+        }
+      }
+    }, 120);
+  };
+
+  // ── Symptoms handlers & options ──────────────────────────────────────────
+  const allSymptomOptions = useMemo(() => {
+    const combined = [...DEFAULT_SYMPTOMS_OPTIONS];
+    for (const c of customSymptomsList) {
+      if (!combined.includes(c)) combined.unshift(c);
+    }
+    for (const t of symptomTags) {
+      if (!combined.includes(t)) combined.unshift(t);
+    }
+    return combined;
+  }, [customSymptomsList, symptomTags]);
+
+  const filteredSymptomOptions = useMemo(() => {
+    if (!symptomSearchQuery.trim()) return allSymptomOptions;
+    const q = symptomSearchQuery.toLowerCase();
+    return allSymptomOptions.filter((opt) => opt.toLowerCase().includes(q));
+  }, [allSymptomOptions, symptomSearchQuery]);
+
+  const handleToggleSymptom = (symptom: string) => {
+    let nextTags: string[];
+    if (symptomTags.includes(symptom)) {
+      nextTags = symptomTags.filter((s) => s !== symptom);
+    } else {
+      nextTags = [...symptomTags, symptom];
+    }
+    setSymptomTags(nextTags);
+
+    let nextText = symptomsText;
+    if (!nextText.trim()) {
+      nextText = nextTags.join(", ");
+      setSymptomsText(nextText);
+    }
+
+    onPrescriptionDataChange?.({
+      ...initialRx,
+      symptomsText: nextText,
+      symptomTags: nextTags,
+    });
+  };
+
+  const handleAddCustomSymptom = (customVal: string) => {
+    const trimmed = customVal.trim();
+    if (!trimmed) return;
+    let nextTags = symptomTags;
+    if (!symptomTags.includes(trimmed)) {
+      nextTags = [...symptomTags, trimmed];
+      setSymptomTags(nextTags);
+
+      let nextText = symptomsText;
+      if (!nextText.trim()) {
+        nextText = nextTags.join(", ");
+        setSymptomsText(nextText);
+      } else if (!nextText.toLowerCase().includes(trimmed.toLowerCase())) {
+        nextText = `${nextText}, ${trimmed}`;
+        setSymptomsText(nextText);
+      }
+
+      onPrescriptionDataChange?.({
+        ...initialRx,
+        symptomsText: nextText,
+        symptomTags: nextTags,
+      });
+    }
+    if (!customSymptomsList.includes(trimmed)) {
+      setCustomSymptomsList((prev) => [...prev, trimmed]);
+    }
+    setSymptomSearchQuery("");
+  };
+
+  const handleSymptomsSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const total = filteredSymptomOptions.length;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSymptomsDropdownOpen(true);
+      setSymptomsActiveIndex((prev) => (total === 0 ? -1 : (prev + 1) % total));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSymptomsDropdownOpen(true);
+      setSymptomsActiveIndex((prev) => (total === 0 ? -1 : prev <= 0 ? total - 1 : prev - 1));
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setSymptomsDropdownOpen(false);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (symptomsDropdownOpen && symptomsActiveIndex >= 0 && symptomsActiveIndex < total) {
+        handleToggleSymptom(filteredSymptomOptions[symptomsActiveIndex]);
+        return;
+      }
+      if (symptomSearchQuery.trim()) {
+        const exact = filteredSymptomOptions.find(
+          (o) => o.toLowerCase() === symptomSearchQuery.trim().toLowerCase()
+        );
+        if (exact) {
+          handleToggleSymptom(exact);
+        } else {
+          handleAddCustomSymptom(symptomSearchQuery.trim());
+        }
+        return;
+      }
+      // Empty search query on Enter: save & advance
+      setSymptomsDropdownOpen(false);
+      if (isSymptomsDirty) void handleSaveSymptoms();
+      focusAndScrollToSection("sec-findings", "input");
     }
   };
 
+  // ── Findings handlers & options ──────────────────────────────────────────
+  const allFindingOptions = useMemo(() => {
+    const combined = [...CLINICAL_FINDINGS_OPTIONS];
+    for (const c of customFindingsList) {
+      if (!combined.includes(c)) combined.unshift(c);
+    }
+    for (const f of clinicalFindings) {
+      if (!combined.includes(f)) combined.unshift(f);
+    }
+    return combined;
+  }, [customFindingsList, clinicalFindings]);
+
   const filteredFindingOptions = useMemo(() => {
-    if (!findingSearchQuery.trim()) return CLINICAL_FINDINGS_OPTIONS;
+    if (!findingSearchQuery.trim()) return allFindingOptions;
     const q = findingSearchQuery.toLowerCase();
-    return CLINICAL_FINDINGS_OPTIONS.filter((opt) => opt.toLowerCase().includes(q));
-  }, [findingSearchQuery]);
+    return allFindingOptions.filter((opt) => opt.toLowerCase().includes(q));
+  }, [allFindingOptions, findingSearchQuery]);
+
+  const handleToggleFinding = (finding: string) => {
+    let nextFindings: string[];
+    if (clinicalFindings.includes(finding)) {
+      nextFindings = clinicalFindings.filter((f) => f !== finding);
+      if (finding === "Other") setClinicalFindingsOther("");
+    } else {
+      nextFindings = [...clinicalFindings, finding];
+    }
+    setClinicalFindings(nextFindings);
+    onPrescriptionDataChange?.({
+      ...initialRx,
+      clinicalFindings: nextFindings,
+    });
+  };
+
+  const handleAddCustomFinding = (customVal: string) => {
+    const trimmed = customVal.trim();
+    if (!trimmed) return;
+    if (!clinicalFindings.includes(trimmed)) {
+      const nextFindings = [...clinicalFindings, trimmed];
+      setClinicalFindings(nextFindings);
+      onPrescriptionDataChange?.({
+        ...initialRx,
+        clinicalFindings: nextFindings,
+      });
+    }
+    if (!customFindingsList.includes(trimmed)) {
+      setCustomFindingsList((prev) => [...prev, trimmed]);
+    }
+    setFindingSearchQuery("");
+  };
+
+  const handleFindingsSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const total = filteredFindingOptions.length;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setFindingsDropdownOpen(true);
+      setFindingsActiveIndex((prev) => (total === 0 ? -1 : (prev + 1) % total));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setFindingsDropdownOpen(true);
+      setFindingsActiveIndex((prev) => (total === 0 ? -1 : prev <= 0 ? total - 1 : prev - 1));
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setFindingsDropdownOpen(false);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (findingsDropdownOpen && findingsActiveIndex >= 0 && findingsActiveIndex < total) {
+        handleToggleFinding(filteredFindingOptions[findingsActiveIndex]);
+        return;
+      }
+      if (findingSearchQuery.trim()) {
+        const exact = filteredFindingOptions.find(
+          (o) => o.toLowerCase() === findingSearchQuery.trim().toLowerCase()
+        );
+        if (exact) {
+          handleToggleFinding(exact);
+        } else {
+          handleAddCustomFinding(findingSearchQuery.trim());
+        }
+        return;
+      }
+      // Empty search query on Enter: save & advance to Treatment
+      setFindingsDropdownOpen(false);
+      if (isFindingsDirty) void handleSaveFindings();
+      focusAndScrollToSection("sec-treatment", "input");
+    }
+  };
 
   return (
     <div className="space-y-6 pb-6">
@@ -1092,23 +1416,40 @@ export function PrescriptionWorkflow({
             saveLabel="Save History ✓"
           >
             <div className="space-y-3">
-              <Textarea
-                value={previousHistory}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setPreviousHistory(val);
-                  onPrescriptionDataChange?.({
-                    ...initialRx,
-                    previousHistory: val,
-                  });
-                }}
-                onBlur={() => {
-                  if (isHistoryDirty) void handleSaveHistory();
-                }}
-                placeholder="Enter previous medical history / clinical background for this visit..."
-                rows={3}
-                className="text-xs resize-y bg-background"
-              />
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span />
+                  <span className="text-[10px] text-muted-foreground">
+                    Press <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono text-[9px] font-semibold text-foreground">Enter ↵</kbd> to save &amp; advance · <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono text-[9px] font-semibold text-foreground">Shift+Enter</kbd> for newline
+                  </span>
+                </div>
+                <Textarea
+                  ref={historyTextareaRef}
+                  value={previousHistory}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setPreviousHistory(val);
+                    onPrescriptionDataChange?.({
+                      ...initialRx,
+                      previousHistory: val,
+                      symptomTags,
+                    });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (isHistoryDirty) void handleSaveHistory();
+                      focusAndScrollToSection("sec-symptoms", "input");
+                    }
+                  }}
+                  onBlur={() => {
+                    if (isHistoryDirty) void handleSaveHistory();
+                  }}
+                  placeholder="Enter previous medical history / clinical background for this visit..."
+                  rows={3}
+                  className="text-xs resize-y bg-background"
+                />
+              </div>
 
               {/* Collapsed Earlier History from prior visits (§2.1, §8) */}
               {pastVisits.length > 0 && (
@@ -1157,23 +1498,146 @@ export function PrescriptionWorkflow({
             onSave={handleSaveSymptoms}
             saveLabel="Save Symptoms ✓"
           >
-            <Textarea
-              value={symptomsText}
-              onChange={(e) => {
-                const val = e.target.value;
-                setSymptomsText(val);
-                onPrescriptionDataChange?.({
-                  ...initialRx,
-                  symptomsText: val,
-                });
-              }}
-              onBlur={() => {
-                if (isSymptomsDirty) void handleSaveSymptoms();
-              }}
-              placeholder="Enter presenting symptoms (e.g. Vomiting and loss of appetite since yesterday)..."
-              rows={3}
-              className="text-xs resize-y bg-background"
-            />
+            <div className="space-y-3">
+              {/* Selected Symptoms Chips */}
+              {symptomTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-muted/30 border border-border/60">
+                  {symptomTags.map((symptom) => (
+                    <span
+                      key={symptom}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-primary/10 text-primary border border-primary/20"
+                    >
+                      <span>{symptom}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSymptom(symptom)}
+                        className="hover:text-destructive hover:bg-destructive/10 rounded p-0.5 transition-colors"
+                        title="Remove symptom"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Searchable & Keyboard Navigable Dropdown */}
+              <div className="relative" ref={symptomsDropdownRef}>
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3 size-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    ref={symptomsSearchInputRef}
+                    type="text"
+                    value={symptomSearchQuery}
+                    onChange={(e) => {
+                      setSymptomSearchQuery(e.target.value);
+                      setSymptomsDropdownOpen(true);
+                      setSymptomsActiveIndex(0);
+                    }}
+                    onFocus={() => setSymptomsDropdownOpen(true)}
+                    onKeyDown={handleSymptomsSearchKeyDown}
+                    placeholder="Search or pick symptoms (Press Enter to select / advance)..."
+                    className="pl-8 text-xs h-9 bg-background"
+                  />
+                </div>
+
+                {symptomsDropdownOpen && (
+                  <div className="absolute z-40 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg animate-in fade-in-50">
+                    {symptomSearchQuery.trim() &&
+                      !filteredSymptomOptions.some(
+                        (o) => o.toLowerCase() === symptomSearchQuery.trim().toLowerCase()
+                      ) && (
+                        <div className="p-1 border-b border-border/50 mb-1">
+                          <button
+                            type="button"
+                            onClick={() => handleAddCustomSymptom(symptomSearchQuery.trim())}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-colors text-left"
+                          >
+                            <Plus className="size-3.5 shrink-0" />
+                            <span>Add &ldquo;{symptomSearchQuery.trim()}&rdquo; as custom symptom</span>
+                          </button>
+                        </div>
+                      )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 p-1">
+                      {filteredSymptomOptions.map((option, idx) => {
+                        const isSelected = symptomTags.includes(option);
+                        const isHighlighted = idx === symptomsActiveIndex;
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => handleToggleSymptom(option)}
+                            onMouseEnter={() => setSymptomsActiveIndex(idx)}
+                            className={cn(
+                              "w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors text-left",
+                              isSelected
+                                ? "bg-primary text-primary-foreground font-bold"
+                                : isHighlighted
+                                ? "bg-muted font-medium text-foreground ring-1 ring-primary/40"
+                                : "hover:bg-muted text-foreground"
+                            )}
+                          >
+                            <span>{option}</span>
+                            {isSelected && <CheckCircle2 className="size-3.5 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="p-1.5 border-t border-border/40 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="text-[10px]">Use ↑↓ to navigate · Enter to select · Enter again to advance</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSymptomsDropdownOpen(false)}
+                        className="h-6 text-[11px] px-2"
+                      >
+                        Done
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Symptoms Narrative Notes Textarea */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[11px] font-semibold text-muted-foreground">
+                    Additional Notes / Duration / Clinical Narrative
+                  </Label>
+                  <span className="text-[10px] text-muted-foreground">
+                    Press <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono text-[9px] font-semibold text-foreground">Enter ↵</kbd> to save &amp; advance · <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono text-[9px] font-semibold text-foreground">Shift+Enter</kbd> for newline
+                  </span>
+                </div>
+                <Textarea
+                  ref={symptomsTextareaRef}
+                  value={symptomsText}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSymptomsText(val);
+                    onPrescriptionDataChange?.({
+                      ...initialRx,
+                      symptomsText: val,
+                      symptomTags,
+                    });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (isSymptomsDirty) void handleSaveSymptoms();
+                      focusAndScrollToSection("sec-findings", "input");
+                    }
+                  }}
+                  onBlur={() => {
+                    if (isSymptomsDirty) void handleSaveSymptoms();
+                  }}
+                  placeholder="Enter presenting symptoms notes (e.g. Vomiting and loss of appetite since yesterday)..."
+                  rows={2}
+                  className="text-xs resize-y bg-background"
+                />
+              </div>
+            </div>
           </SectionCard>
 
           {/* 4. Clinical Findings (§8, Phase 5) */}
@@ -1211,36 +1675,59 @@ export function PrescriptionWorkflow({
               )}
 
               {/* Searchable Dropdown */}
-              <div className="relative">
+              <div className="relative" ref={findingsDropdownRef}>
                 <div className="relative flex items-center">
                   <Search className="absolute left-3 size-3.5 text-muted-foreground pointer-events-none" />
                   <Input
+                    ref={findingsSearchInputRef}
                     type="text"
                     value={findingSearchQuery}
                     onChange={(e) => {
                       setFindingSearchQuery(e.target.value);
                       setFindingsDropdownOpen(true);
+                      setFindingsActiveIndex(0);
                     }}
                     onFocus={() => setFindingsDropdownOpen(true)}
-                    placeholder="Search or pick clinical findings..."
+                    onKeyDown={handleFindingsSearchKeyDown}
+                    placeholder="Search or pick clinical findings (Press Enter to select / advance)..."
                     className="pl-8 text-xs h-9 bg-background"
                   />
                 </div>
 
                 {findingsDropdownOpen && (
-                  <div className="absolute z-40 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+                  <div className="absolute z-40 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg animate-in fade-in-50">
+                    {findingSearchQuery.trim() &&
+                      !filteredFindingOptions.some(
+                        (o) => o.toLowerCase() === findingSearchQuery.trim().toLowerCase()
+                      ) && (
+                        <div className="p-1 border-b border-border/50 mb-1">
+                          <button
+                            type="button"
+                            onClick={() => handleAddCustomFinding(findingSearchQuery.trim())}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-colors text-left"
+                          >
+                            <Plus className="size-3.5 shrink-0" />
+                            <span>Add &ldquo;{findingSearchQuery.trim()}&rdquo; as custom finding</span>
+                          </button>
+                        </div>
+                      )}
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 p-1">
-                      {filteredFindingOptions.map((option) => {
+                      {filteredFindingOptions.map((option, idx) => {
                         const isSelected = clinicalFindings.includes(option);
+                        const isHighlighted = idx === findingsActiveIndex;
                         return (
                           <button
                             key={option}
                             type="button"
                             onClick={() => handleToggleFinding(option)}
+                            onMouseEnter={() => setFindingsActiveIndex(idx)}
                             className={cn(
                               "w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors text-left",
                               isSelected
                                 ? "bg-primary text-primary-foreground font-bold"
+                                : isHighlighted
+                                ? "bg-muted font-medium text-foreground ring-1 ring-primary/40"
                                 : "hover:bg-muted text-foreground"
                             )}
                           >
@@ -1250,7 +1737,8 @@ export function PrescriptionWorkflow({
                         );
                       })}
                     </div>
-                    <div className="p-1.5 border-t border-border/40 text-right">
+                    <div className="p-1.5 border-t border-border/40 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="text-[10px]">Use ↑↓ to navigate · Enter to select · Enter again to advance</span>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1275,7 +1763,14 @@ export function PrescriptionWorkflow({
                     type="text"
                     value={clinicalFindingsOther}
                     onChange={(e) => setClinicalFindingsOther(e.target.value)}
-                    placeholder="Describe clinical finding in detail..."
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (isFindingsDirty) void handleSaveFindings();
+                        focusAndScrollToSection("sec-treatment", "input");
+                      }
+                    }}
+                    placeholder="Describe clinical finding in detail (Press Enter to advance)..."
                     className="text-xs h-8 bg-background border-amber-500/40"
                   />
                 </div>

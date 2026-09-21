@@ -87,7 +87,7 @@ export function RetailReceiptModal({ open, onClose, sale }: Props) {
           </div>
 
           <div className="text-center text-[10px] text-slate-400 pt-2 border-t border-dashed border-slate-200">
-            Thank you for visiting Harmony Pet Hospital! 🐶🐱
+            Thank you for visiting Real Care Small Animal Clinic! 🐶🐱
           </div>
         </div>
       </DialogContent>

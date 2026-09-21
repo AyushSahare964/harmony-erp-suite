@@ -52,8 +52,8 @@ function AuthPage() {
     email: "",
     password: "",
     phone: "",
-    clinicName: "Harmony Pet Hospital",
-    branch: "Central Hospital · Koramangala",
+    clinicName: "Real Care Small Animal Clinic",
+    branch: "Nagpur Main Clinic",
     roleId: "admin",
     licenseNumber: "",
     department: "Clinical Care",
@@ -424,7 +424,7 @@ function AuthPage() {
                         type="text"
                         value={regData.clinicName}
                         onChange={(e) => setRegData({ ...regData, clinicName: e.target.value })}
-                        placeholder="Harmony Pet Hospital"
+                        placeholder="Real Care Small Animal Clinic"
                         className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-xs outline-none focus:border-primary"
                       />
                     </div>

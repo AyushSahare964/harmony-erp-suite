@@ -96,8 +96,13 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       .then((docs) => setDoctorsList(docs || []))
       .catch((e) => console.warn("Could not load doctors list:", e));
   }, []);
-  const getDoctorTitle = (doctorName: string | undefined) =>
-    doctorsList.find((d) => d.name === doctorName)?.specialty || "Chief Veterinary Physician & Surgeon";
+  const getDoctorTitle = (doctorName: string | undefined) => {
+    const doc = doctorsList.find((d) => d.name === doctorName || d.name === `Dr. ${doctorName}`);
+    if (doc?.specialty && doc.specialty !== "Administration" && doc.specialty !== "Admin") {
+      return doc.specialty;
+    }
+    return "Chief Veterinary Physician & Surgeon";
+  };
 
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
   const [petDetails, setPetDetails] = useState<any>(null);
@@ -196,6 +201,10 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const [amountReceived, setAmountReceived] = useState<number | "">("");
   const [hasManuallyEditedAmount, setHasManuallyEditedAmount] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  // True while PrescriptionWorkflow's background section-save queue (triggered by Proceed to
+  // Billing) is still running — Finalize must wait for this, otherwise it can settle the bill
+  // against a visit document that's still missing whichever section saved last.
+  const [isSyncingPrescription, setIsSyncingPrescription] = useState(false);
 
   // Print Dialog States
   const [showRxPrint, setShowRxPrint] = useState(false);
@@ -1325,6 +1334,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
               doctorName={activeDoctorName}
               onJumpSectionsChange={setRxJumpSections}
               onPrescriptionDataChange={(newRx) => setPrescriptionData(newRx)}
+              onBackgroundSyncStateChange={setIsSyncingPrescription}
               onVisitUpdated={(updated) => {
                 setActiveVisit(updated);
                 if (updated.prescriptionData) {
@@ -1708,7 +1718,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
                   <Button
                     onClick={handleFinalize}
-                    disabled={isFinalizing || Boolean(paymentValidationError)}
+                    disabled={isFinalizing || isSyncingPrescription || Boolean(paymentValidationError)}
                     className={cn(
                       "w-full font-bold transition-all shadow-sm",
                       paymentStatus === "Full"
@@ -1720,6 +1730,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   >
                     {isFinalizing ? (
                       "Processing & Syncing..."
+                    ) : isSyncingPrescription ? (
+                      "Syncing prescription…"
                     ) : paymentStatus === "Full" ? (
                       `Finalize & Collect Full ₹${numericAmountReceived} ✓`
                     ) : paymentStatus === "Partial" ? (
@@ -1829,254 +1841,389 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   {/* Prescription Paper Container */}
                   <div
                     id="prescription-preview-card"
-                    className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-6 shadow-md space-y-5 text-xs font-sans"
+                    className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-6 shadow-md text-xs font-sans"
+                    style={{ backgroundColor: "#ffffff", color: "#0f172a", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
                   >
-                    {/* Clinic Header */}
-                    <div className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between">
-                      <div className="flex items-start gap-2.5">
-                        <img src="/clinic-logo.png" alt="Clinic Logo" style={{ height: 32, width: "auto" }} />
-                        <div>
-                          <h2 className="text-base font-black tracking-tight text-blue-900 uppercase">Real Care Small Animal Clinic</h2>
-                          <p className="text-[11px] text-slate-600 mt-0.5">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
-                          <p className="text-[11px] text-slate-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
+                    {/* Top Medical Document Content Body */}
+                    <div className="prescription-content-body space-y-5" style={{ flex: "1 0 auto" }}>
+                      {/* Clinic Header */}
+                      <div
+                        className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between"
+                        style={{ borderBottom: "2px solid #0f172a", paddingBottom: "14px", display: "flex", flexWrap: "wrap", rowGap: "10px", justifyContent: "space-between", alignItems: "flex-start" }}
+                      >
+                        <div className="flex items-center gap-2" style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 260px", minWidth: "260px" }}>
+                          <img
+                            src="/clinic-logo.png"
+                            alt="Clinic Logo"
+                            className="h-8 w-auto object-contain shrink-0"
+                            style={{ maxHeight: 32, width: "auto", flexShrink: 0 }}
+                          />
+                          <div className="leading-tight" style={{ minWidth: "215px", flex: "1 1 auto" }}>
+                            <h2
+                              className="text-sm font-black tracking-tight uppercase"
+                              style={{ fontSize: "15px", fontWeight: 900, color: "#1e3a8a", letterSpacing: "-0.01em", margin: 0 }}
+                            >
+                              Real Care Small Animal Clinic
+                            </h2>
+                            <p className="text-[11px] text-slate-600 mt-1" style={{ color: "#475569", margin: "3px 0 0 0", fontSize: "11px" }}>
+                              Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009
+                            </p>
+                            <p className="text-[11px] text-slate-600" style={{ color: "#475569", margin: "1px 0 0 0", fontSize: "11px" }}>
+                              Phone: +91 712 2548899 · Reg: MH/VET/2019/8821
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right text-[11px] space-y-0.5 shrink-0 min-w-[130px]" style={{ textAlign: "right", minWidth: "130px", marginLeft: "auto" }}>
+                          <p className="font-bold text-sm" style={{ fontSize: "13px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>
+                            {finalizedVisit.doctorName || activeDoctorName || "Dr. Makarand Dixit"}
+                          </p>
+                          <p className="text-slate-600 text-xs" style={{ color: "#475569", fontSize: "11px", margin: "2px 0 0 0" }}>
+                            {getDoctorTitle(finalizedVisit.doctorName || activeDoctorName)}
+                          </p>
+                          <p className="text-slate-500 font-mono text-[11px]" style={{ color: "#64748b", fontSize: "11px", margin: "2px 0 0 0" }}>
+                            Date: {formatDisplayDate(finalizedVisit.date) || finalizedVisit.date || new Date().toISOString().slice(0, 10)}
+                          </p>
                         </div>
                       </div>
-                      <div className="text-right text-[11px] space-y-0.5">
-                        <p className="font-bold text-xs text-blue-900">{finalizedVisit.doctorName || activeDoctorName}</p>
-                        <p className="text-slate-500 text-[10px]">{getDoctorTitle(finalizedVisit.doctorName || activeDoctorName)}</p>
-                        <p className="text-slate-500 font-mono text-[10px]">Date: {formatDisplayDate(finalizedVisit.date) || finalizedVisit.date || new Date().toISOString().slice(0, 10)}</p>
-                      </div>
-                    </div>
 
-                    {/* Patient Details Snapshot */}
-                    <div className="rounded-xl border border-slate-200 p-3 text-[11px] grid grid-cols-3 gap-2 bg-slate-50">
-                      <div>
-                        <p><span className="text-slate-500">Pet:</span> <strong className="text-blue-900 text-xs">{finalizedVisit.petName}</strong></p>
-                        <p><span className="text-slate-500">Breed:</span> {finalizedVisit.species} · {finalizedVisit.breed}</p>
-                        <p><span className="text-slate-500">UID:</span> <strong className="font-mono">{finalizedVisit.petId}</strong></p>
+                      {/* Patient Details Snapshot Box */}
+                      <div
+                        className="rounded-2xl border border-blue-200 p-4 text-xs grid grid-cols-3 gap-3 bg-[#f8faff]"
+                        style={{
+                          backgroundColor: "#f8faff",
+                          border: "1.5px solid #bfdbfe",
+                          borderRadius: "16px",
+                          padding: "14px 18px",
+                          display: "grid",
+                          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                          gap: "12px",
+                        }}
+                      >
+                        <div className="space-y-1.5" style={{ lineHeight: "1.5" }}>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>Pet:</span> <strong style={{ color: "#1e3a8a", fontSize: "13px", fontWeight: 700 }}>{finalizedVisit.petName}</strong></p>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>Breed:</span> <span style={{ color: "#334155", fontWeight: 500 }}>{finalizedVisit.species} · {finalizedVisit.breed}</span></p>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>UID:</span> <strong style={{ color: "#0f172a", fontFamily: "monospace", fontWeight: 700 }}>{finalizedVisit.petId}</strong></p>
+                        </div>
+                        <div className="space-y-1.5" style={{ lineHeight: "1.5" }}>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>Owner:</span> <strong style={{ color: "#0f172a", fontWeight: 700 }}>{finalizedVisit.ownerName}</strong></p>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>Phone:</span> <span style={{ color: "#334155", fontWeight: 500 }}>{finalizedVisit.ownerPhone || "N/A"}</span></p>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>Weight:</span> <strong style={{ color: "#0f172a", fontFamily: "monospace", fontWeight: 700 }}>{finalizedVisit.prescriptionData?.weight ? `${finalizedVisit.prescriptionData.weight} ${finalizedVisit.prescriptionData.weightUnit || "kg"}` : (finalizedVisit.vitals?.weight ? `${finalizedVisit.vitals.weight} ${finalizedVisit.vitals.weightUnit || "kg"}` : (finalizedVisit.vitals?.weightKg ? `${finalizedVisit.vitals.weightKg} kg` : "—"))}</strong></p>
+                        </div>
+                        <div className="space-y-1.5" style={{ lineHeight: "1.5" }}>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>Rx No:</span> <strong style={{ color: "#1e3a8a", fontFamily: "monospace", fontSize: "13px", fontWeight: 700 }}>{finalizedVisit.prescriptionNo}</strong></p>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>Visit No:</span> <span style={{ color: "#334155", fontFamily: "monospace", fontWeight: 500 }}>{finalizedVisit.visitId}</span></p>
+                          <p style={{ margin: 0 }}><span style={{ color: "#64748b", fontWeight: 500 }}>Temp:</span> <strong style={{ color: "#0f172a", fontFamily: "monospace", fontWeight: 700 }}>{finalizedVisit.prescriptionData?.bodyTemperature ? `${finalizedVisit.prescriptionData.bodyTemperature} ${finalizedVisit.prescriptionData.temperatureUnit || "°C"}` : (finalizedVisit.vitals?.temp ? `${finalizedVisit.vitals.temp} ${finalizedVisit.vitals.tempUnit || "°C"}` : (finalizedVisit.vitals?.tempC ? `${finalizedVisit.vitals.tempC} °C` : "—"))}</strong></p>
+                        </div>
                       </div>
-                      <div>
-                        <p><span className="text-slate-500">Owner:</span> <strong>{finalizedVisit.ownerName}</strong></p>
-                        <p><span className="text-slate-500">Phone:</span> {finalizedVisit.ownerPhone}</p>
-                        <p><span className="text-slate-500">Weight:</span> <strong className="font-mono">{finalizedVisit.prescriptionData?.weight ? `${finalizedVisit.prescriptionData.weight} ${finalizedVisit.prescriptionData.weightUnit || "kg"}` : (finalizedVisit.vitals?.weight ? `${finalizedVisit.vitals.weight} ${finalizedVisit.vitals.weightUnit || "kg"}` : (finalizedVisit.vitals?.weightKg ? `${finalizedVisit.vitals.weightKg} kg` : "—"))}</strong></p>
-                      </div>
-                      <div>
-                        <p><span className="text-slate-500">Rx No:</span> <strong className="font-mono text-blue-900">{finalizedVisit.prescriptionNo}</strong></p>
-                        <p><span className="text-slate-500">Visit No:</span> <span className="font-mono">{finalizedVisit.visitId}</span></p>
-                        <p><span className="text-slate-500">Temp:</span> <strong className="font-mono">{finalizedVisit.prescriptionData?.bodyTemperature ? `${finalizedVisit.prescriptionData.bodyTemperature} ${finalizedVisit.prescriptionData.temperatureUnit || "°C"}` : (finalizedVisit.vitals?.temp ? `${finalizedVisit.vitals.temp} ${finalizedVisit.vitals.tempUnit || "°C"}` : (finalizedVisit.vitals?.tempC ? `${finalizedVisit.vitals.tempC} °C` : "—"))}</strong></p>
-                      </div>
-                    </div>
 
-                    {/* Diagnosis, Symptoms & Findings */}
-                    <div className="space-y-1.5">
-                      {finalizedVisit.prescriptionData?.symptomsText && (
-                        <p className="text-[11px] text-slate-700">
-                          <strong className="text-slate-500">Symptoms:</strong> {finalizedVisit.prescriptionData.symptomsText}
-                        </p>
+                      {/* Diagnosis, Symptoms & Findings */}
+                        {finalizedVisit.prescriptionData?.symptomTags && finalizedVisit.prescriptionData.symptomTags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5" style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "4px" }}>
+                            {finalizedVisit.prescriptionData.symptomTags.map((st: string, i: number) => (
+                              <span
+                                key={i}
+                                className="text-[11px] bg-rose-50 text-rose-900 border border-rose-200 px-2 py-0.5 rounded font-semibold"
+                                style={{ backgroundColor: "#fff1f2", borderColor: "#fecdd3", color: "#9f1239", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600 }}
+                              >
+                                • {st}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {finalizedVisit.prescriptionData?.symptomsText && (
+                          <p className="text-xs text-slate-700" style={{ margin: "0 0 4px 0", color: "#334155" }}>
+                            <strong style={{ color: "#64748b" }}>Symptoms:</strong> {finalizedVisit.prescriptionData.symptomsText}
+                          </p>
+                        )}
+                        {finalizedVisit.prescriptionData?.clinicalFindings && finalizedVisit.prescriptionData.clinicalFindings.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5" style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "6px" }}>
+                            {finalizedVisit.prescriptionData.clinicalFindings.map((cf: string, i: number) => (
+                              <span
+                                key={i}
+                                className="text-[11px] bg-blue-50 text-blue-900 border border-blue-200 px-2 py-0.5 rounded font-semibold"
+                                style={{ backgroundColor: "#eff6ff", borderColor: "#bfdbfe", color: "#1e3a8a", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600 }}
+                              >
+                                ✓ {cf}
+                              </span>
+                            ))}
+                            {finalizedVisit.prescriptionData.clinicalFindingsOther && (
+                              <span
+                                className="text-[11px] bg-slate-100 text-slate-700 border border-slate-300 px-2 py-0.5 rounded font-medium italic"
+                                style={{ backgroundColor: "#f1f5f9", borderColor: "#cbd5e1", color: "#334155", padding: "2px 8px", borderRadius: "4px", fontSize: "11px" }}
+                              >
+                                Other: {finalizedVisit.prescriptionData.clinicalFindingsOther}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <h5
+                          className="text-[11px] font-bold uppercase tracking-wider text-slate-500"
+                          style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.05em", color: "#64748b", margin: 0, textTransform: "uppercase" }}
+                        >
+                          CLINICAL DIAGNOSIS
+                        </h5>
+                        <div style={{ display: "flex", alignItems: "stretch", gap: "10px", marginTop: "4px" }}>
+                          <div style={{ width: "4px", minHeight: "22px", backgroundColor: "#2563eb", borderRadius: "2px", flexShrink: 0 }}></div>
+                          <p style={{ margin: 0, fontSize: "14px", fontWeight: 700, color: "#0f172a", lineHeight: "1.4", alignSelf: "center" }}>
+                            {finalizedVisit.diagnosis || "Clinical Examination Completed"}
+                          </p>
+                        </div>
+                        {finalizedVisit.clinicalNotes && (
+                          <p className="text-xs text-slate-600 italic pl-3 mt-0.5" style={{ color: "#475569", fontStyle: "italic", paddingLeft: "14px", margin: "2px 0 0 0", fontSize: "11px" }}>
+                            Notes: {finalizedVisit.clinicalNotes}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Immediate Medicines (Administered in Hospital) */}
+                      {finalizedVisit.prescriptionData?.immediateMedicines && finalizedVisit.prescriptionData.immediateMedicines.length > 0 && (
+                        <div className="space-y-1.5" style={{ marginTop: "14px" }}>
+                          <p className="text-[11px] font-bold text-amber-900 uppercase tracking-wider" style={{ color: "#78350f", fontWeight: 700, fontSize: "11px" }}>
+                            Immediate Medicines (Hospital Administered)
+                          </p>
+                          <table className="w-full text-xs border border-amber-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #fde68a" }}>
+                            <thead>
+                              <tr className="bg-amber-50 text-amber-950 font-bold" style={{ backgroundColor: "#fffbeb", color: "#451a03", fontWeight: 700 }}>
+                                <th style={{ padding: "8px 10px", textAlign: "left" }}>Medicine</th>
+                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Dose</th>
+                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Route</th>
+                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {finalizedVisit.prescriptionData.immediateMedicines.map((im: any, idx: number) => (
+                                <tr key={idx} style={{ borderBottom: "1px solid #fef3c7" }}>
+                                  <td style={{ padding: "8px 10px", fontWeight: 600, color: "#0f172a" }}>{im.medicineName}</td>
+                                  <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{im.dose} {im.unit}</td>
+                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>{im.route}</td>
+                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>{im.time || "Immediate"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       )}
-                      {finalizedVisit.prescriptionData?.clinicalFindings && finalizedVisit.prescriptionData.clinicalFindings.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {finalizedVisit.prescriptionData.clinicalFindings.map((cf: string, i: number) => (
-                            <span key={i} className="text-[10px] bg-blue-50 text-blue-900 border border-blue-200 px-1.5 py-0.5 rounded font-medium">✓ {cf}</span>
+
+                      {/* Prescribed Medications Table */}
+                      <div className="space-y-2" style={{ marginTop: "16px" }}>
+                        <div className="flex items-center gap-2 font-bold text-blue-900 text-sm pb-1" style={{ display: "flex", alignItems: "center", gap: "8px", color: "#1e3a8a", paddingBottom: "4px" }}>
+                          {/* Vector SVG Rx Glyph - 100% Reliable, Prevents Emoji Replacement */}
+                          <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="#1d4ed8"
+                            strokeWidth="2.75"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            style={{ display: "inline-block", flexShrink: 0 }}
+                          >
+                            <path d="M5 4h6.5a4 4 0 0 1 0 8H5z" />
+                            <path d="M5 12v8" />
+                            <line x1="11.5" y1="12" x2="19" y2="20" />
+                            <line x1="13.5" y1="18.5" x2="18.5" y2="13.5" />
+                          </svg>
+                          <span className="text-sm font-bold tracking-wide" style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>Prescribed Medications</span>
+                        </div>
+
+                        {finalizedVisit.prescriptionData?.prescribedMedicines && finalizedVisit.prescriptionData.prescribedMedicines.length > 0 ? (
+                          <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
+                            <thead>
+                              <tr className="bg-blue-50/70 border-b border-slate-200 text-left font-bold text-blue-950" style={{ backgroundColor: "#eff6ff", borderBottom: "1.5px solid #cbd5e1", color: "#1e3a8a", fontWeight: 700 }}>
+                                <th style={{ padding: "10px 12px" }}>Medicine</th>
+                                <th style={{ padding: "10px 12px", textAlign: "center" }}>Dose</th>
+                                <th style={{ padding: "10px 12px", textAlign: "center" }}>Frequency</th>
+                                <th style={{ padding: "10px 12px", textAlign: "center" }}>Duration</th>
+                                <th style={{ padding: "10px 12px", textAlign: "center" }}>Route</th>
+                                <th style={{ padding: "10px 12px" }}>Timing</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {finalizedVisit.prescriptionData.prescribedMedicines.map((m: any, idx: number) => (
+                                <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                  <td style={{ padding: "10px 12px", fontWeight: 700, color: "#0f172a" }}>
+                                    {m.medicineName}
+                                    {m.note && <span style={{ display: "block", fontSize: "10px", color: "#64748b", fontWeight: 400, fontStyle: "italic" }}>{m.note}</span>}
+                                  </td>
+                                  <td style={{ padding: "10px 12px", textAlign: "center", fontFamily: "monospace", fontWeight: 600 }}>{m.dose} {m.unit}</td>
+                                  <td style={{ padding: "10px 12px", textAlign: "center", fontWeight: 600, color: "#1e3a8a" }}>{m.frequency}</td>
+                                  <td style={{ padding: "10px 12px", textAlign: "center", fontWeight: 500 }}>{m.duration}</td>
+                                  <td style={{ padding: "10px 12px", textAlign: "center" }}>{m.route || "Oral"}</td>
+                                  <td style={{ padding: "10px 12px", color: "#334155" }}>{m.time || "After Food"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
+                            <thead>
+                              <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700" style={{ backgroundColor: "#f1f5f9", borderBottom: "1.5px solid #cbd5e1", color: "#334155", fontWeight: 700 }}>
+                                <th style={{ padding: "10px 12px", width: "36px", textAlign: "center" }}>#</th>
+                                <th style={{ padding: "10px 12px" }}>Medicine / Formulation</th>
+                                <th style={{ padding: "10px 12px", textAlign: "center", width: "60px" }}>Qty</th>
+                                <th style={{ padding: "10px 12px" }}>Dosage / Instructions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(finalizedVisit.items || []).filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine").length === 0 ? (
+                                <tr>
+                                  <td colSpan={4} style={{ padding: "24px 16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic", fontSize: "12px" }}>
+                                    No pharmacy medications required. Symptomatic monitoring advised.
+                                  </td>
+                                </tr>
+                              ) : (
+                                (finalizedVisit.items || [])
+                                  .filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine")
+                                  .map((m: any, idx: number) => (
+                                    <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                      <td style={{ padding: "10px 12px", textAlign: "center", color: "#64748b", fontWeight: 600 }}>{idx + 1}</td>
+                                      <td style={{ padding: "10px 12px", fontWeight: 700, color: "#0f172a" }}>{m.name}</td>
+                                      <td style={{ padding: "10px 12px", textAlign: "center", fontWeight: 700, color: "#0f172a" }}>{m.quantity}</td>
+                                      <td style={{ padding: "10px 12px", color: "#334155" }}>{m.dosageInstructions || "As directed by physician"}</td>
+                                    </tr>
+                                  ))
+                              )}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+
+                      {/* Injectables (Hospital) */}
+                      {finalizedVisit.prescriptionData?.injectables && finalizedVisit.prescriptionData.injectables.length > 0 && (
+                        <div className="space-y-1.5" style={{ marginTop: "14px" }}>
+                          <p className="text-[11px] font-bold text-purple-900 uppercase tracking-wider" style={{ color: "#581c87", fontWeight: 700, fontSize: "11px" }}>
+                            Injectables (Hospital Given)
+                          </p>
+                          <table className="w-full text-xs border border-purple-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #e9d5ff" }}>
+                            <thead>
+                              <tr className="bg-purple-50 text-purple-950 font-bold" style={{ backgroundColor: "#faf5ff", color: "#3b0764", fontWeight: 700 }}>
+                                <th style={{ padding: "8px 10px", textAlign: "left" }}>Drug</th>
+                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Dose</th>
+                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Route</th>
+                                <th style={{ padding: "8px 10px", textAlign: "center" }}>Time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {finalizedVisit.prescriptionData.injectables.map((inj: any, idx: number) => (
+                                <tr key={idx} style={{ borderBottom: "1px solid #f3e8ff" }}>
+                                  <td style={{ padding: "8px 10px", fontWeight: 600, color: "#0f172a" }}>{inj.drugName}</td>
+                                  <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{inj.dose} {inj.unit}</td>
+                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>{inj.route}</td>
+                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>{inj.time || "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Diet & Care Recommendations */}
+                      {(finalizedVisit.prescriptionData?.prescribedDiet?.length > 0 || finalizedVisit.prescriptionData?.foodItems?.length > 0 || finalizedVisit.prescriptionData?.accessories?.length > 0) && (
+                        <div className="rounded-xl border border-slate-200 p-3.5 bg-amber-50/20 text-xs space-y-1.5" style={{ border: "1px solid #cbd5e1", borderRadius: "12px", padding: "14px", backgroundColor: "#fffbeb", marginTop: "14px" }}>
+                          <span className="font-bold text-amber-900 block uppercase" style={{ color: "#78350f", fontWeight: 700, fontSize: "11px" }}>Dietary &amp; Care Recommendations:</span>
+                          {finalizedVisit.prescriptionData?.prescribedDiet?.map((d: any, di: number) => (
+                            <p key={di} style={{ color: "#334155", margin: "2px 0" }}>• Diet: <strong style={{ color: "#0f172a" }}>{d.foodName}</strong> {d.specialInstructions && `(${d.specialInstructions})`}</p>
                           ))}
-                          {finalizedVisit.prescriptionData.clinicalFindingsOther && (
-                            <span className="text-[10px] bg-slate-100 text-slate-700 border border-slate-300 px-1.5 py-0.5 rounded font-medium italic">Other: {finalizedVisit.prescriptionData.clinicalFindingsOther}</span>
+                          {[
+                            ...(finalizedVisit.prescriptionData?.foodItems || []).map((f: any) => `${f.foodName} (Qty: ${f.quantity})`),
+                            ...(finalizedVisit.prescriptionData?.accessories || []).map((a: any) => `${a.accessoryName} (Qty: ${a.quantity})`),
+                          ].length > 0 && (
+                            <p style={{ color: "#475569", margin: "2px 0" }}>• Dispensed: {[...(finalizedVisit.prescriptionData?.foodItems || []).map((f: any) => `${f.foodName} (x${f.quantity})`), ...(finalizedVisit.prescriptionData?.accessories || []).map((a: any) => `${a.accessoryName} (x${a.quantity})`)].join(", ")}</p>
                           )}
                         </div>
                       )}
-                      <h5 className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Clinical Diagnosis</h5>
-                      <p className="text-xs font-semibold text-slate-900 border-l-2 border-blue-600 pl-2 py-0.5">
-                        {finalizedVisit.diagnosis || "General Clinical Health Review"}
-                      </p>
-                      {finalizedVisit.clinicalNotes && (
-                        <p className="text-[11px] text-slate-600 italic pl-2 mt-0.5">
-                          Notes: {finalizedVisit.clinicalNotes}
-                        </p>
-                      )}
-                    </div>
 
-                    {/* Immediate Medicines (Administered in Hospital) */}
-                    {finalizedVisit.prescriptionData?.immediateMedicines && finalizedVisit.prescriptionData.immediateMedicines.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">Immediate Medicines (Hospital Administered)</p>
-                        <table className="w-full text-[10px] border border-amber-200">
-                          <thead>
-                            <tr className="bg-amber-50 text-amber-950 font-bold">
-                              <th className="p-1 text-left">Medicine</th>
-                              <th className="p-1 text-center">Dose</th>
-                              <th className="p-1 text-center">Route</th>
-                              <th className="p-1 text-center">Time</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-amber-100">
-                            {finalizedVisit.prescriptionData.immediateMedicines.map((im: any, idx: number) => (
-                              <tr key={idx}>
-                                <td className="p-1 font-semibold text-slate-900">{im.medicineName}</td>
-                                <td className="p-1 text-center font-mono">{im.dose} {im.unit}</td>
-                                <td className="p-1 text-center">{im.route}</td>
-                                <td className="p-1 text-center">{im.time || "Immediate"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-
-                    {/* Prescribed Medications Table */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-1 font-bold text-blue-900 text-xs">
-                        <span className="text-sm font-serif">℞</span> Prescribed Medications
-                      </div>
-
-                      {finalizedVisit.prescriptionData?.prescribedMedicines && finalizedVisit.prescriptionData.prescribedMedicines.length > 0 ? (
-                        <table className="w-full text-[10px] border border-slate-200">
-                          <thead>
-                            <tr className="bg-blue-50/70 border-b border-slate-200 text-left font-bold text-blue-950">
-                              <th className="p-1.5">Medicine</th>
-                              <th className="p-1.5 text-center">Dose</th>
-                              <th className="p-1.5 text-center">Frequency</th>
-                              <th className="p-1.5 text-center">Duration</th>
-                              <th className="p-1.5 text-center">Route</th>
-                              <th className="p-1.5">Timing</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {finalizedVisit.prescriptionData.prescribedMedicines.map((m: any, idx: number) => (
-                              <tr key={idx}>
-                                <td className="p-1.5 font-bold text-slate-900">
-                                  {m.medicineName}
-                                  {m.note && <span className="block text-[9px] text-slate-500 font-normal italic">{m.note}</span>}
-                                </td>
-                                <td className="p-1.5 text-center font-mono font-semibold">{m.dose} {m.unit}</td>
-                                <td className="p-1.5 text-center font-semibold text-blue-900">{m.frequency}</td>
-                                <td className="p-1.5 text-center font-medium">{m.duration}</td>
-                                <td className="p-1.5 text-center">{m.route || "Oral"}</td>
-                                <td className="p-1.5 text-slate-700">{m.time || "After Food"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <table className="w-full text-[11px] border border-slate-200">
-                          <thead>
-                            <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700">
-                              <th className="p-1.5 w-6">#</th>
-                              <th className="p-1.5">Medicine / Formulation</th>
-                              <th className="p-1.5 text-center w-12">Qty</th>
-                              <th className="p-1.5">Dosage / Instructions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {(finalizedVisit.items || []).filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine").length === 0 ? (
-                              <tr>
-                                <td colSpan={4} className="p-3 text-center text-slate-400 italic">
-                                  No pharmacy medications required. Symptomatic monitoring advised.
-                                </td>
-                              </tr>
-                            ) : (
-                              (finalizedVisit.items || [])
-                                .filter((i: any) => i.lineType === "Pharmacy" || i.lineType === "Vaccine")
-                                .map((m: any, idx: number) => (
-                                  <tr key={idx}>
-                                    <td className="p-1.5 text-slate-400">{idx + 1}</td>
-                                    <td className="p-1.5 font-bold text-slate-900">{m.name}</td>
-                                    <td className="p-1.5 text-center font-medium">{m.quantity}</td>
-                                    <td className="p-1.5 text-slate-700">{m.dosageInstructions || "As directed by physician"}</td>
-                                  </tr>
-                                ))
-                            )}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-
-                    {/* Injectables (Hospital) */}
-                    {finalizedVisit.prescriptionData?.injectables && finalizedVisit.prescriptionData.injectables.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-purple-900 uppercase tracking-wider">Injectables (Hospital Given)</p>
-                        <table className="w-full text-[10px] border border-purple-200">
-                          <thead>
-                            <tr className="bg-purple-50 text-purple-950 font-bold">
-                              <th className="p-1 text-left">Drug</th>
-                              <th className="p-1 text-center">Dose</th>
-                              <th className="p-1 text-center">Route</th>
-                              <th className="p-1 text-center">Time</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-purple-100">
-                            {finalizedVisit.prescriptionData.injectables.map((inj: any, idx: number) => (
-                              <tr key={idx}>
-                                <td className="p-1 font-semibold text-slate-900">{inj.drugName}</td>
-                                <td className="p-1 text-center font-mono">{inj.dose} {inj.unit}</td>
-                                <td className="p-1 text-center">{inj.route}</td>
-                                <td className="p-1 text-center">{inj.time || "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-
-                    {/* Diet & Care Recommendations */}
-                    {(finalizedVisit.prescriptionData?.prescribedDiet?.length > 0 || finalizedVisit.prescriptionData?.foodItems?.length > 0 || finalizedVisit.prescriptionData?.accessories?.length > 0) && (
-                      <div className="rounded-lg border border-slate-200 p-2 bg-amber-50/20 text-[10px] space-y-1">
-                        <span className="font-bold text-amber-900 block uppercase">Dietary &amp; Care Recommendations:</span>
-                        {finalizedVisit.prescriptionData?.prescribedDiet?.map((d: any, di: number) => (
-                          <p key={di} className="text-slate-700">• Diet: <strong className="text-slate-900">{d.foodName}</strong> {d.specialInstructions && `(${d.specialInstructions})`}</p>
-                        ))}
-                        {[
-                          ...(finalizedVisit.prescriptionData?.foodItems || []).map((f: any) => `${f.foodName} (Qty: ${f.quantity})`),
-                          ...(finalizedVisit.prescriptionData?.accessories || []).map((a: any) => `${a.accessoryName} (Qty: ${a.quantity})`),
-                        ].length > 0 && (
-                          <p className="text-slate-600">• Dispensed: {[...(finalizedVisit.prescriptionData?.foodItems || []).map((f: any) => `${f.foodName} (x${f.quantity})`), ...(finalizedVisit.prescriptionData?.accessories || []).map((a: any) => `${a.accessoryName} (x${a.quantity})`)].join(", ")}</p>
+                      {/* Follow-up Routine Care Box */}
+                      <div
+                        className="rounded-2xl border border-dashed border-blue-300 p-4 text-xs grid grid-cols-3 gap-3 bg-[#f8faff]"
+                        style={{
+                          backgroundColor: "#f8faff",
+                          border: "1.5px dashed #93c5fd",
+                          borderRadius: "16px",
+                          padding: "16px 20px",
+                          display: "grid",
+                          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                          gap: "14px",
+                          marginTop: "16px",
+                        }}
+                      >
+                        <div>
+                          <span className="text-slate-600 block text-[11px] font-medium" style={{ color: "#64748b", fontSize: "11px", fontWeight: 500 }}>Follow-up Visit:</span>
+                          <p className="font-bold text-slate-900 text-sm mt-0.5" style={{ color: "#0f172a", fontSize: "13px", fontWeight: 700, margin: "2px 0 0 0" }}>
+                            {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextTreatmentDate || finalizedVisit.nextVisitDate) ||
+                              finalizedVisit.prescriptionData?.followUp?.nextTreatmentDate ||
+                              finalizedVisit.nextVisitDate ||
+                              "On distress / As needed"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-slate-600 block text-[11px] font-medium" style={{ color: "#64748b", fontSize: "11px", fontWeight: 500 }}>Vaccination Due:</span>
+                          <p className="font-bold text-slate-900 text-sm mt-0.5" style={{ color: "#0f172a", fontSize: "13px", fontWeight: 700, margin: "2px 0 0 0" }}>
+                            {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextVaccineDate || finalizedVisit.nextVaccineDate) ||
+                              finalizedVisit.prescriptionData?.followUp?.nextVaccineDate ||
+                              finalizedVisit.nextVaccineDate ||
+                              "Per annual schedule"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-slate-600 block text-[11px] font-medium" style={{ color: "#64748b", fontSize: "11px", fontWeight: 500 }}>Deworming Due:</span>
+                          <p className="font-bold text-slate-900 text-sm mt-0.5" style={{ color: "#0f172a", fontSize: "13px", fontWeight: 700, margin: "2px 0 0 0" }}>
+                            {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextDewormingDate || finalizedVisit.nextDewormingDate) ||
+                              finalizedVisit.prescriptionData?.followUp?.nextDewormingDate ||
+                              finalizedVisit.nextDewormingDate ||
+                              "Quarterly"}
+                          </p>
+                        </div>
+                        {finalizedVisit.prescriptionData?.followUp?.instructions && (
+                          <div className="col-span-3 pt-2 border-t border-blue-200 mt-1" style={{ gridColumn: "span 3 / span 3", borderTop: "1px solid #bfdbfe", paddingTop: "8px", marginTop: "4px" }}>
+                            <span className="text-slate-700 font-semibold text-xs" style={{ color: "#334155", fontWeight: 600, fontSize: "11px" }}>Special Instructions:</span>
+                            <p className="text-slate-800 italic mt-0.5" style={{ color: "#1e293b", fontStyle: "italic", margin: "2px 0 0 0" }}>{finalizedVisit.prescriptionData.followUp.instructions}</p>
+                          </div>
                         )}
                       </div>
-                    )}
-
-                    {/* Follow-up Reminders */}
-                    <div className="rounded-xl border border-dashed border-blue-200 p-2.5 text-[11px] grid grid-cols-3 gap-1.5 bg-blue-50/40">
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">Follow-up Visit:</span>
-                        <p className="font-bold text-slate-900">
-                          {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextTreatmentDate || finalizedVisit.nextVisitDate) ||
-                            finalizedVisit.prescriptionData?.followUp?.nextTreatmentDate ||
-                            finalizedVisit.nextVisitDate ||
-                            "On distress / As needed"}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">Vaccination Due:</span>
-                        <p className="font-bold text-slate-900">
-                          {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextVaccineDate || finalizedVisit.nextVaccineDate) ||
-                            finalizedVisit.prescriptionData?.followUp?.nextVaccineDate ||
-                            finalizedVisit.nextVaccineDate ||
-                            "Per annual schedule"}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">Deworming Due:</span>
-                        <p className="font-bold text-slate-900">
-                          {formatDisplayDate(finalizedVisit.prescriptionData?.followUp?.nextDewormingDate || finalizedVisit.nextDewormingDate) ||
-                            finalizedVisit.prescriptionData?.followUp?.nextDewormingDate ||
-                            finalizedVisit.nextDewormingDate ||
-                            "Quarterly"}
-                        </p>
-                      </div>
-                      {finalizedVisit.prescriptionData?.followUp?.instructions && (
-                        <div className="col-span-3 pt-1 border-t border-blue-200/50 mt-1">
-                          <span className="text-slate-600 font-semibold text-[10px]">Special Instructions:</span>
-                          <p className="text-slate-800 italic mt-0.5">{finalizedVisit.prescriptionData.followUp.instructions}</p>
-                        </div>
-                      )}
                     </div>
 
-                    {/* Footer Signature */}
-                    <div className="pt-4 flex items-end justify-between text-[10px] border-t border-slate-100">
-                      <p className="text-slate-400 italic">Administer medicines strictly as prescribed.</p>
-                      <div className="text-center">
-                        <span className="font-serif italic text-slate-400 block pb-1">Digitally Signed</span>
-                        <strong className="text-slate-800 text-[11px] block">{finalizedVisit.doctorName || activeDoctorName}</strong>
-                        <span className="text-slate-500 text-[9px] block">Registered Veterinary Practitioner</span>
+                    {/* Pinned Bottom Section: Doctor Signature & Verification Footer */}
+                    <div className="prescription-footer-pinned" style={{ marginTop: "auto", paddingTop: "24px" }}>
+                      {/* Footer Signature Block */}
+                      <div
+                        className="flex items-end justify-between text-xs border-t border-slate-200 pt-6"
+                        style={{ borderTop: "1px solid #cbd5e1", paddingTop: "20px", display: "flex", flexWrap: "wrap", rowGap: "14px", justifyContent: "space-between", alignItems: "flex-end" }}
+                      >
+                        <div className="space-y-1" style={{ flex: "1 1 200px", minWidth: "200px" }}>
+                          <p className="text-slate-700 italic font-semibold" style={{ color: "#334155", fontStyle: "italic", fontWeight: 600, margin: "0 0 2px 0" }}>Administer medicines strictly as prescribed.</p>
+                          <p className="text-[11px] text-slate-500" style={{ color: "#64748b", fontSize: "11px", margin: 0 }}>Store temperature-sensitive medications in cool and dry place.</p>
+                        </div>
+                        <div className="text-center min-w-[210px]" style={{ textAlign: "center", minWidth: "210px", marginLeft: "auto" }}>
+                          <div className="text-slate-500 font-serif italic text-xs pb-1" style={{ fontFamily: "Georgia, serif", fontStyle: "italic", color: "#64748b", fontSize: "11px", paddingBottom: "2px" }}>
+                            Digitally Signed
+                          </div>
+                          <div className="w-full border-t border-slate-400 my-1" style={{ width: "100%", borderTop: "1px solid #94a3b8", margin: "4px 0 6px 0" }}></div>
+                          <div className="font-bold text-slate-900 text-sm" style={{ fontWeight: 700, color: "#0f172a", fontSize: "13px" }}>
+                            {finalizedVisit.doctorName || activeDoctorName || "Dr. Makarand Dixit"}
+                          </div>
+                          <div className="text-slate-600 text-xs" style={{ color: "#475569", fontSize: "11px" }}>
+                            Registered Veterinary Practitioner
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono" style={{ color: "#64748b", fontSize: "10px", fontFamily: "monospace" }}>
+                            Reg No: MH/VET/2019/8821
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bottom Verification & Timestamp Footer */}
+                      <div
+                        className="mt-4 border-t border-dashed border-slate-300 flex items-center justify-between text-[10px] text-slate-600 font-mono pt-3"
+                        style={{ borderTop: "1px dashed #cbd5e1", marginTop: "14px", paddingTop: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", fontFamily: "monospace", color: "#64748b" }}
+                      >
+                        <div className="flex items-center gap-1.5" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span className="inline-block size-2 rounded-full bg-emerald-600" style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#059669" }}></span>
+                          <span className="font-semibold text-slate-700" style={{ fontWeight: 600, color: "#334155" }}>Real Care Small Animal Clinic · VetOS Clinical Console</span>
+                        </div>
+                        <div>
+                          <span>Generated: <strong style={{ color: "#0f172a" }}>{new Date().toLocaleDateString("en-GB")} at {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })} IST</strong></span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2113,157 +2260,175 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   {/* Invoice Paper Container */}
                   <div
                     id="invoice-preview-card"
-                    className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-6 shadow-md space-y-5 text-xs font-sans"
+                    className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-6 shadow-md text-xs font-sans"
+                    style={{ backgroundColor: "#ffffff", color: "#0f172a", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
                   >
-                    {/* Header */}
-                    <div className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between">
-                      <div className="flex items-start gap-2.5">
-                        <img src="/clinic-logo.png" alt="Clinic Logo" style={{ height: 32, width: "auto" }} />
-                        <div>
-                          <h2 className="text-base font-black tracking-tight text-slate-900 uppercase">Real Care Small Animal Clinic</h2>
-                          <p className="text-[11px] text-slate-600">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
-                          <p className="text-[11px] text-slate-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
-                          {finalizedVisit.billType === "GST" && (
-                            <p className="text-[11px] font-mono font-bold text-slate-800">GSTIN: 27AABCV1234F1Z5</p>
-                          )}
-                          <p className="text-[11px] text-slate-600">Branch: {finalizedVisit.branch || "Central Avenue, Nagpur"}</p>
-                        </div>
-                      </div>
-                      <div className="text-right text-[11px] space-y-1">
-                        <span className="inline-block bg-slate-900 text-white font-bold px-2 py-0.5 rounded text-[9px] uppercase tracking-wider">
-                          {finalizedVisit.billType === "GST" ? "TAX INVOICE" : "BILL OF SUPPLY"}
-                        </span>
-                        <p className="font-mono font-bold text-xs text-slate-900">{finalizedVisit.invoiceNo}</p>
-                        <p className="text-slate-500 font-mono text-[10px]">Date: {formatDisplayDate(finalizedVisit.date) || finalizedVisit.date || new Date().toISOString().slice(0, 10)}</p>
-                      </div>
-                    </div>
-
-                    {/* Billed To / Patient Info */}
-                    <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 p-3 text-[11px] bg-slate-50">
-                      <div>
-                        <p className="text-slate-500 font-bold uppercase text-[9px]">Billed To (Client)</p>
-                        <p className="font-bold text-xs text-slate-900">{finalizedVisit.ownerName}</p>
-                        <p className="text-slate-600">Phone: {finalizedVisit.ownerPhone}</p>
-                        <p className="text-slate-600">Owner ID: <span className="font-mono">{finalizedVisit.ownerId}</span></p>
-                      </div>
-                      <div>
-                        <p className="text-slate-500 font-bold uppercase text-[9px]">Patient Details</p>
-                        <p className="font-bold text-xs text-slate-900">{finalizedVisit.petName}</p>
-                        <p className="text-slate-600">{finalizedVisit.species} · {finalizedVisit.breed}</p>
-                        <p className="text-slate-600">Patient UID: <span className="font-mono">{finalizedVisit.petId}</span></p>
-                      </div>
-                    </div>
-
-                    {/* Itemized Table */}
-                    <table className="w-full text-[11px] border border-slate-200">
-                      <thead>
-                        <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700">
-                          <th className="p-1.5 w-6">#</th>
-                          <th className="p-1.5">Description / Category</th>
-                          <th className="p-1.5 text-center w-10">Qty</th>
-                          <th className="p-1.5 text-right w-16">Rate (₹)</th>
-                          <th className="p-1.5 text-center w-12">Disc (%)</th>
-                          {finalizedVisit.billType === "GST" && <th className="p-1.5 text-center w-12">GST</th>}
-                          <th className="p-1.5 text-right w-16">Amount (₹)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {(finalizedVisit.items || []).map((item: any, idx: number) => {
-                          const gross = item.quantity * item.unitPrice;
-                          const disc = (gross * (item.discountPercent || 0)) / 100;
-                          const lineNet = gross - disc;
-                          return (
-                            <tr key={idx}>
-                              <td className="p-1.5 text-slate-400">{idx + 1}</td>
-                              <td className="p-1.5">
-                                <p className="font-semibold text-slate-900">{item.name}</p>
-                                <span className="text-[9px] text-slate-500">{item.lineType}</span>
-                              </td>
-                              <td className="p-1.5 text-center font-medium">{item.quantity}</td>
-                              <td className="p-1.5 text-right font-mono">{item.unitPrice.toFixed(2)}</td>
-                              <td className="p-1.5 text-center font-mono">{item.discountPercent || 0}%</td>
-                              {finalizedVisit.billType === "GST" && <td className="p-1.5 text-center font-mono">{item.gstRate || 0}%</td>}
-                              <td className="p-1.5 text-right font-bold font-mono">{lineNet.toFixed(2)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-
-                    {/* Financial Summary & Split Settlement */}
-                    <div className="flex justify-between items-start pt-1 gap-3">
-                      {/* Left: Payment Mode Details */}
-                      <div className="rounded-xl border border-slate-200 p-2.5 text-[11px] flex-1 space-y-1 bg-slate-50">
-                        <p className="font-bold text-slate-700 uppercase text-[9px]">Payment Summary</p>
-                        <div className="flex justify-between text-slate-800">
-                          <span>Paid via {finalizedVisit.paymentMode || "UPI"}:</span>
-                          <span className="font-bold font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toFixed(2)}</span>
-                        </div>
-                        {finalizedVisit.paymentStatus === "Partial" && (finalizedVisit.pendingAmount || 0) > 0 && (
-                          <div className="flex justify-between text-amber-700 font-semibold">
-                            <span>Balance Due:</span>
-                            <span className="font-mono">₹{finalizedVisit.pendingAmount.toFixed(2)}</span>
+                    {/* Top Document Body */}
+                    <div className="invoice-content-body space-y-5" style={{ flex: "1 0 auto" }}>
+                      {/* Header */}
+                      <div className="border-b-2 border-slate-900 pb-3.5 flex items-start justify-between" style={{ borderBottom: "2px solid #0f172a", paddingBottom: "14px", flexWrap: "wrap", rowGap: "10px", display: "flex", alignItems: "flex-start" }}>
+                        <div className="flex items-center gap-2" style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 260px", minWidth: "260px" }}>
+                          <img src="/clinic-logo.png" alt="Clinic Logo" className="h-8 w-auto object-contain shrink-0" style={{ maxHeight: 32, width: "auto" }} />
+                          <div className="leading-tight" style={{ minWidth: "215px", flex: "1 1 auto" }}>
+                            <h2 className="text-sm font-black tracking-tight uppercase" style={{ fontSize: "15px", fontWeight: 900, color: "#0f172a" }}>Real Care Small Animal Clinic</h2>
+                            <p className="text-[11px] text-slate-600 mt-0.5">Plot 42, Central Avenue, Near Medical Square, Nagpur - 440009</p>
+                            <p className="text-[11px] text-slate-600">Phone: +91 712 2548899 · Reg: MH/VET/2019/8821</p>
+                            {finalizedVisit.billType === "GST" && (
+                              <p className="text-[11px] font-mono font-bold text-slate-800">GSTIN: 27AABCV1234F1Z5</p>
+                            )}
+                            <p className="text-[11px] text-slate-600">Branch: {finalizedVisit.branch || "Central Avenue, Nagpur"}</p>
                           </div>
-                        )}
-                        <div
-                          className={cn(
-                            "flex justify-between font-bold pt-1 border-t border-slate-200",
-                            finalizedVisit.paymentStatus === "Partial" ? "text-amber-700" : "text-emerald-700"
-                          )}
-                        >
-                          <span>Payment Status:</span>
-                          <span>
-                            {finalizedVisit.paymentStatus === "Partial"
-                              ? `PARTIAL PAYMENT ⚠`
-                              : "PAID IN FULL ✓"}
+                        </div>
+                        <div className="text-right text-[11px] space-y-1 shrink-0 min-w-[130px]" style={{ marginLeft: "auto" }}>
+                          <span className="inline-block bg-slate-900 text-white font-bold px-2 py-0.5 rounded text-[9px] uppercase tracking-wider">
+                            {finalizedVisit.billType === "GST" ? "TAX INVOICE" : "BILL OF SUPPLY"}
                           </span>
+                          <p className="font-mono font-bold text-xs text-slate-900">{finalizedVisit.invoiceNo}</p>
+                          <p className="text-slate-500 font-mono text-[10px]">Date: {formatDisplayDate(finalizedVisit.date) || finalizedVisit.date || new Date().toISOString().slice(0, 10)}</p>
                         </div>
                       </div>
 
-                      {/* Right: Calculations */}
-                      <div className="w-52 space-y-1 text-[11px] text-right">
-                        <div className="flex justify-between text-slate-600">
-                          <span>Subtotal:</span>
-                          <span className="font-mono">₹{(finalizedVisit.subtotal || 0).toFixed(2)}</span>
+                      {/* Billed To / Patient Info */}
+                      <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 p-3.5 text-xs bg-slate-50" style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "14px" }}>
+                        <div>
+                          <p className="text-slate-500 font-bold uppercase text-[9px] tracking-wider">Billed To (Client)</p>
+                          <p className="font-bold text-sm text-slate-900 mt-0.5">{finalizedVisit.ownerName}</p>
+                          <p className="text-slate-600 mt-0.5">Phone: <span className="font-medium text-slate-800">{finalizedVisit.ownerPhone}</span></p>
+                          <p className="text-slate-500 text-[11px]">Owner ID: <span className="font-mono">{finalizedVisit.ownerId}</span></p>
                         </div>
-                        {finalizedVisit.billType === "GST" && (
-                          <div className="flex justify-between text-slate-600">
-                            <span>GST Amount:</span>
-                            <span className="font-mono">+₹{(finalizedVisit.gstAmount || 0).toFixed(2)}</span>
-                          </div>
-                        )}
-                        {finalizedVisit.roundOff !== 0 && (
-                          <div className="flex justify-between text-slate-600">
-                            <span>Round-off:</span>
-                            <span className="font-mono">{finalizedVisit.roundOff >= 0 ? `+₹${finalizedVisit.roundOff.toFixed(2)}` : `-₹${Math.abs(finalizedVisit.roundOff).toFixed(2)}`}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between font-black text-sm pt-1.5 border-t-2 border-slate-900 text-slate-900">
-                          <span>Total Amount:</span>
-                          <span className="font-mono text-base text-primary">₹{(finalizedVisit.totalAmount || 0).toLocaleString("en-IN")}</span>
-                        </div>
-                        <div className="flex justify-between text-[10px] font-semibold text-slate-600">
-                          <span>Amount Received:</span>
-                          <span className="font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toLocaleString("en-IN")}</span>
+                        <div>
+                          <p className="text-slate-500 font-bold uppercase text-[9px] tracking-wider">Patient Details</p>
+                          <p className="font-bold text-sm text-slate-900 mt-0.5">{finalizedVisit.petName}</p>
+                          <p className="text-slate-600 mt-0.5">{finalizedVisit.species} · {finalizedVisit.breed}</p>
+                          <p className="text-slate-500 text-[11px]">Patient UID: <span className="font-mono font-bold text-slate-800">{finalizedVisit.petId}</span></p>
                         </div>
                       </div>
+
+                      {/* Itemized Table */}
+                      <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
+                        <thead>
+                          <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700" style={{ backgroundColor: "#f1f5f9", borderBottom: "1.5px solid #cbd5e1", color: "#334155", fontWeight: 700 }}>
+                            <th style={{ padding: "8px 10px", width: "32px" }}>#</th>
+                            <th style={{ padding: "8px 10px" }}>Description / Category</th>
+                            <th style={{ padding: "8px 10px", textAlign: "center", width: "48px" }}>Qty</th>
+                            <th style={{ padding: "8px 10px", textAlign: "right", width: "72px" }}>Rate (₹)</th>
+                            <th style={{ padding: "8px 10px", textAlign: "center", width: "56px" }}>Disc (%)</th>
+                            {finalizedVisit.billType === "GST" && <th style={{ padding: "8px 10px", textAlign: "center", width: "52px" }}>GST</th>}
+                            <th style={{ padding: "8px 10px", textAlign: "right", width: "80px" }}>Amount (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(finalizedVisit.items || []).map((item: any, idx: number) => {
+                            const gross = item.quantity * item.unitPrice;
+                            const disc = (gross * (item.discountPercent || 0)) / 100;
+                            const lineNet = gross - disc;
+                            return (
+                              <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                <td style={{ padding: "8px 10px", color: "#94a3b8" }}>{idx + 1}</td>
+                                <td style={{ padding: "8px 10px" }}>
+                                  <p style={{ fontWeight: 600, color: "#0f172a", margin: 0 }}>{item.name}</p>
+                                  <span style={{ fontSize: "10px", color: "#64748b" }}>{item.lineType}</span>
+                                </td>
+                                <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>{item.quantity}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "monospace" }}>{item.unitPrice.toFixed(2)}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{item.discountPercent || 0}%</td>
+                                {finalizedVisit.billType === "GST" && <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{item.gstRate || 0}%</td>}
+                                <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, fontFamily: "monospace" }}>{lineNet.toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
 
-                    {/* Footer Terms */}
-                    <div className="pt-3 border-t border-slate-100 flex justify-between items-end text-[9px] text-slate-400">
-                      <div>
-                        <p>• Goods once sold are not returnable after cold chain break.</p>
-                        <p>• Computer-generated sales invoice and receipt.</p>
+                    {/* Pinned Bottom Section: Financials, Terms & Signature */}
+                    <div className="invoice-footer-pinned" style={{ marginTop: "auto", paddingTop: "20px" }}>
+                      {/* Financial Summary & Split Settlement */}
+                      <div className="flex justify-between items-start pt-1 gap-3">
+                        {/* Left: Payment Mode Details */}
+                        <div className="rounded-xl border border-slate-200 p-3 text-xs flex-1 space-y-1.5 bg-slate-50" style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "12px 14px" }}>
+                          <p className="font-bold text-slate-700 uppercase text-[10px] tracking-wider">Payment Summary</p>
+                          <div className="flex justify-between text-slate-800">
+                            <span>Paid via {finalizedVisit.paymentMode || "UPI"}:</span>
+                            <span className="font-bold font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toFixed(2)}</span>
+                          </div>
+                          {finalizedVisit.paymentStatus === "Partial" && (finalizedVisit.pendingAmount || 0) > 0 && (
+                            <div className="flex justify-between text-amber-700 font-semibold">
+                              <span>Balance Due:</span>
+                              <span className="font-mono">₹{finalizedVisit.pendingAmount.toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div
+                            className={cn(
+                              "flex justify-between font-bold pt-1.5 border-t border-slate-200",
+                              finalizedVisit.paymentStatus === "Partial" ? "text-amber-700" : "text-emerald-700"
+                            )}
+                          >
+                            <span>Payment Status:</span>
+                            <span>
+                              {finalizedVisit.paymentStatus === "Partial"
+                                ? `PARTIAL PAYMENT ⚠`
+                                : "PAID IN FULL ✓"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Right: Calculations */}
+                        <div className="w-56 space-y-1 text-xs text-right">
+                          <div className="flex justify-between text-slate-600">
+                            <span>Subtotal:</span>
+                            <span className="font-mono">₹{(finalizedVisit.subtotal || 0).toFixed(2)}</span>
+                          </div>
+                          {finalizedVisit.billType === "GST" && (
+                            <div className="flex justify-between text-slate-600">
+                              <span>GST Amount:</span>
+                              <span className="font-mono">+₹{(finalizedVisit.gstAmount || 0).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {finalizedVisit.roundOff !== 0 && (
+                            <div className="flex justify-between text-slate-600">
+                              <span>Round-off:</span>
+                              <span className="font-mono">{finalizedVisit.roundOff >= 0 ? `+₹${finalizedVisit.roundOff.toFixed(2)}` : `-₹${Math.abs(finalizedVisit.roundOff).toFixed(2)}`}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between font-black text-sm pt-2 border-t-2 border-slate-900 text-slate-900" style={{ borderTop: "2px solid #0f172a" }}>
+                            <span>Total Amount:</span>
+                            <span className="font-mono text-base text-primary">₹{(finalizedVisit.totalAmount || 0).toLocaleString("en-IN")}</span>
+                          </div>
+                          <div className="flex justify-between text-[11px] font-semibold text-slate-600">
+                            <span>Amount Received:</span>
+                            <span className="font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toLocaleString("en-IN")}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-slate-700">For Real Care Small Animal Clinic</p>
-                        <p className="pt-4 text-slate-400">Authorized Signatory</p>
+
+                      {/* Footer Terms */}
+                      <div className="pt-4 border-t border-slate-200 flex justify-between items-end text-[10px] text-slate-500 mt-4" style={{ borderTop: "1px solid #cbd5e1", flexWrap: "wrap", rowGap: "12px" }}>
+                        <div style={{ flex: "1 1 200px", minWidth: "200px" }}>
+                          <p style={{ margin: "0 0 2px 0" }}>• Goods once sold are not returnable after cold chain break.</p>
+                          <p style={{ margin: 0 }}>• Computer-generated sales invoice and official receipt.</p>
+                        </div>
+                        <div className="text-center min-w-[180px]" style={{ marginLeft: "auto" }}>
+                          <p className="font-bold text-slate-700" style={{ margin: "0 0 4px 0" }}>For Real Care Small Animal Clinic</p>
+                          <div className="w-full border-b border-slate-300 pb-5 pt-1"></div>
+                          <p className="text-slate-400 pt-1 text-[10px]" style={{ margin: "4px 0 0 0" }}>Authorized Signatory</p>
+                        </div>
+                      </div>
+
+                      {/* Bottom Verification & Timestamp Footer */}
+                      <div className="pt-3 border-t border-dashed border-slate-200 flex items-center justify-between text-[10px] text-slate-500 font-mono mt-3" style={{ borderTop: "1px dashed #cbd5e1" }}>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block size-1.5 rounded-full bg-emerald-500" style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#10b981" }}></span>
+                          <span>Real Care VetOS · Electronically Generated Tax Invoice</span>
+                        </div>
+                        <div>
+                          <span>Generated: {new Date().toLocaleDateString("en-GB")} at {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })} IST</span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
           )}
         </div>
 

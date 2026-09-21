@@ -207,6 +207,7 @@ const InventoryItemInputZ = z.object({
 });
 
 const StockBatchInputZ = z.object({
+  itemId:           z.string(),
   itemCode:         z.string(),
   itemName:         z.string(),
   batchNo:          z.string().min(1, "Batch number is required"),
@@ -479,10 +480,10 @@ export const addStockFn = createServerFn({ method: "POST" })
       totalValue,
     });
 
-    // Update lastPurchaseRate on the item
+    // Update lastPurchaseRate and currentStock on the item
     await InventoryItem.findOneAndUpdate(
       { itemCode: data.itemCode },
-      { lastPurchaseRate: data.purchasePricePerUnit }
+      { lastPurchaseRate: data.purchasePricePerUnit, $inc: { currentStock: data.acceptedQty } }
     );
 
     // Record ledger entry in ErpRow
@@ -523,6 +524,13 @@ export const adjustStockFn = createServerFn({ method: "POST" })
       : Math.max(0, batch.qty - data.adjustedQty);
 
     await StockBatch.findOneAndUpdate({ batchCode: data.batchId }, { qty: newQty });
+
+    // Keep InventoryItem.currentStock in sync with the batch-level adjustment
+    const stockDelta = isIn ? data.adjustedQty : -data.adjustedQty;
+    await InventoryItem.findOneAndUpdate(
+      { itemCode: data.itemCode },
+      { $inc: { currentStock: stockDelta } }
+    );
 
     const adjRef = data.referenceNo || (await nextSeq("stock_adjustment", "ADJ", 4));
 

@@ -66,14 +66,6 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const MONTHLY_REGISTRATION_DATA = [
-  { name: "Mar", value: 0 },
-  { name: "Apr", value: 0 },
-  { name: "May", value: 0 },
-  { name: "Jun", value: 0 },
-  { name: "Jul", value: 0 },
-  { name: "Aug", value: 0 },
-];
 
 export function PetOwnerCrmHub() {
   const [activeTab, setActiveTab] = useState<"pets" | "owners">("pets");
@@ -148,10 +140,34 @@ export function PetOwnerCrmHub() {
   const totalPets = pets.length;
   const totalOwners = owners.length;
   const vaccDueCount = pets.filter((p) => p.status === "Vaccination due").length;
+  // Build registration chart from actual pet createdAt dates (last 6 months)
+  const monthlyChartData = useMemo(() => {
+    const now = new Date();
+    const months: { name: string; value: number; year: number; month: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({
+        name: d.toLocaleString("default", { month: "short" }),
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        value: 0,
+      });
+    }
+    for (const pet of pets) {
+      const raw = pet.createdAt || pet._id?.toString();
+      if (!raw) continue;
+      const d = new Date(raw);
+      if (isNaN(d.getTime())) continue;
+      const bucket = months.find((m) => m.year === d.getFullYear() && m.month === d.getMonth());
+      if (bucket) bucket.value += 1;
+    }
+    return months.map(({ name, value }) => ({ name, value }));
+  }, [pets]);
+
   const avgMonthlyRegistrations = useMemo(() => {
-    const sum = MONTHLY_REGISTRATION_DATA.reduce((acc, curr) => acc + (curr.value || 0), 0);
-    return MONTHLY_REGISTRATION_DATA.length > 0 ? Math.round(sum / MONTHLY_REGISTRATION_DATA.length) : 0;
-  }, []);
+    const sum = monthlyChartData.reduce((acc, curr) => acc + (curr.value || 0), 0);
+    return monthlyChartData.length > 0 ? Math.round(sum / monthlyChartData.length) : 0;
+  }, [monthlyChartData]);
 
   // Filtered Pets list
   const filteredPets = useMemo(() => {
@@ -378,7 +394,7 @@ export function PetOwnerCrmHub() {
 
           <div className="h-[210px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={MONTHLY_REGISTRATION_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <BarChart data={monthlyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis
                   dataKey="name"
@@ -389,6 +405,7 @@ export function PetOwnerCrmHub() {
                 <YAxis
                   tickLine={false}
                   axisLine={false}
+                  allowDecimals={false}
                   tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
                 />
                 <Tooltip

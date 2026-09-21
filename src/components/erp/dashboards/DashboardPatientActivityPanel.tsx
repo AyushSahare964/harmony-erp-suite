@@ -251,19 +251,23 @@ export function DashboardPatientActivityPanel({
 
       {/* ── CRITICAL ALERTS CARD (admin only — shown when inventoryAlerts prop passed) ── */}
       {inventoryAlerts && (
-        <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-border/70 bg-gradient-to-r from-destructive/5 to-amber-500/5">
+        <div className="rounded-2xl border border-destructive/30 bg-gradient-to-br from-card via-card to-destructive/5 shadow-xs overflow-hidden transition-all hover:shadow-md hover:border-destructive/40">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border/70 bg-gradient-to-r from-destructive/10 via-destructive/5 to-transparent">
+            <span className="relative flex size-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+              <span className="relative inline-flex rounded-full size-2 bg-destructive" />
+            </span>
             <AlertTriangle className="size-3.5 text-destructive" />
             <span className="text-xs font-bold text-foreground uppercase tracking-wider">Critical Alerts</span>
             {(inventoryAlerts.outOfStock.length + inventoryAlerts.lowStock.length + inventoryAlerts.expiringSoon.length) > 0 && (
-              <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold">
+              <span className="ml-auto flex h-5 min-w-[20px] px-1.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-black shadow-xs animate-pulse">
                 {inventoryAlerts.outOfStock.length + inventoryAlerts.lowStock.length + inventoryAlerts.expiringSoon.length}
               </span>
             )}
           </div>
           <div className="divide-y divide-border/50">
             {inventoryAlerts.outOfStock.length > 0 && (
-              <div className="flex items-start gap-3 px-4 py-2.5">
+              <div className="flex items-start gap-3 px-4 py-2.5 hover:bg-destructive/5 transition-colors">
                 <Package className="size-3.5 text-destructive mt-0.5 shrink-0" />
                 <div className="text-xs">
                   <p className="font-semibold text-destructive">{inventoryAlerts.outOfStock.length} item{inventoryAlerts.outOfStock.length > 1 ? "s" : ""} out of stock</p>
@@ -272,7 +276,7 @@ export function DashboardPatientActivityPanel({
               </div>
             )}
             {inventoryAlerts.lowStock.length > 0 && (
-              <div className="flex items-start gap-3 px-4 py-2.5">
+              <div className="flex items-start gap-3 px-4 py-2.5 hover:bg-amber-500/5 transition-colors">
                 <AlertTriangle className="size-3.5 text-amber-600 mt-0.5 shrink-0" />
                 <div className="text-xs">
                   <p className="font-semibold text-amber-700 dark:text-amber-400">{inventoryAlerts.lowStock.length} item{inventoryAlerts.lowStock.length > 1 ? "s" : ""} below reorder level</p>
@@ -281,7 +285,7 @@ export function DashboardPatientActivityPanel({
               </div>
             )}
             {inventoryAlerts.expiringSoon.length > 0 && (
-              <div className="flex items-start gap-3 px-4 py-2.5">
+              <div className="flex items-start gap-3 px-4 py-2.5 hover:bg-orange-500/5 transition-colors">
                 <Pill className="size-3.5 text-orange-500 mt-0.5 shrink-0" />
                 <div className="text-xs">
                   <p className="font-semibold text-orange-600">{inventoryAlerts.expiringSoon.length} medicine{inventoryAlerts.expiringSoon.length > 1 ? "s" : ""} expiring within 30 days</p>
@@ -300,24 +304,38 @@ export function DashboardPatientActivityPanel({
       )}
 
       {/* ── CARD 1: LIVE CLINIC ACTIVITY MATRIX & STREAM ───────────────────────── */}
-      <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/70 bg-gradient-to-r from-muted/30 via-muted/10 to-primary/5">
+      <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden transition-all hover:shadow-md hover:border-border/90">
+        {/* Header with animated ECG Heartbeat waveform */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/70 bg-gradient-to-r from-muted/40 via-card to-primary/5">
           <div className="flex items-center gap-2">
             <span className="relative flex size-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full size-2.5 bg-emerald-500"></span>
+              <span className="relative inline-flex rounded-full size-2.5 bg-emerald-500 ring-2 ring-emerald-500/20"></span>
             </span>
             <span className="text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
-              <Activity className="size-3.5 text-primary" /> Live Clinic Pulse
+              <Activity className="size-3.5 text-primary animate-pulse" /> Live Clinic Pulse
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          {/* Realtime ECG Heartbeat Waveform */}
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center text-emerald-500/70" title="Live Heartbeat telemetry">
+              <svg className="h-4 w-20 overflow-visible" viewBox="0 0 80 16" fill="none">
+                <path
+                  d="M0 8 L18 8 L24 2 L30 14 L36 5 L40 10 L44 8 L80 8"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="animate-pulse"
+                />
+              </svg>
+            </div>
+
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground hover:rotate-90 transition-transform duration-300"
               onClick={() => void loadPatients()}
               title="Refresh Clinic Pulse"
             >
@@ -326,27 +344,27 @@ export function DashboardPatientActivityPanel({
           </div>
         </div>
 
-        {/* Dynamic KPI Mini-Grid */}
+        {/* Dynamic KPI Mini-Grid with Interactive Hover Elevation */}
         <div className="grid grid-cols-4 divide-x divide-border/60 border-b border-border/60 bg-muted/15 p-2 text-center">
-          <div className="px-1 py-1">
+          <div className="px-1 py-1.5 rounded-lg transition-all hover:bg-card hover:shadow-xs cursor-default">
             <p className="text-[10px] text-muted-foreground font-semibold truncate">Active Queue</p>
-            <p className="text-base font-extrabold text-foreground font-mono">{metrics.inQueue}</p>
+            <p className="text-base font-extrabold text-foreground font-mono transition-transform hover:scale-110">{metrics.inQueue}</p>
           </div>
-          <div className="px-1 py-1">
+          <div className="px-1 py-1.5 rounded-lg transition-all hover:bg-blue-500/5 hover:shadow-xs cursor-default">
             <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold truncate">Consulting</p>
-            <p className="text-base font-extrabold text-blue-600 dark:text-blue-400 font-mono">
+            <p className="text-base font-extrabold text-blue-600 dark:text-blue-400 font-mono transition-transform hover:scale-110">
               {metrics.inConsultation}
             </p>
           </div>
-          <div className="px-1 py-1">
+          <div className="px-1 py-1.5 rounded-lg transition-all hover:bg-emerald-500/5 hover:shadow-xs cursor-default">
             <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold truncate">Settled</p>
-            <p className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
+            <p className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 font-mono transition-transform hover:scale-110">
               {metrics.settled}
             </p>
           </div>
-          <div className="px-1 py-1">
+          <div className="px-1 py-1.5 rounded-lg transition-all hover:bg-card hover:shadow-xs cursor-default">
             <p className="text-[10px] text-muted-foreground font-semibold truncate">Total Records</p>
-            <p className="text-base font-extrabold text-foreground font-mono">{metrics.totalVisits}</p>
+            <p className="text-base font-extrabold text-foreground font-mono transition-transform hover:scale-110">{metrics.totalVisits}</p>
           </div>
         </div>
 

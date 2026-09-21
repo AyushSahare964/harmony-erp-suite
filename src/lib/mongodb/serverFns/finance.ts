@@ -611,3 +611,136 @@ export const getFinancialKpisFn = createServerFn({ method: "GET" })
     };
   });
 
+// ─── getPaymentAnalyticsFn ────────────────────────────────────────────────────
+// All clinic collections (visit finalize, invoice payment, partial payment) post a
+// FinanceTransaction{type:"payment", paymentType:"Receive"} — see finalizeVisitAndBillFn,
+// recordInvoicePaymentFn, recordPartialPaymentFn. That's the single real source of truth here.
+
+import { ClinicalVisit } from "@/lib/mongodb/models/ClinicalVisit";
+
+export interface PaymentAnalyticsData {
+  methodBreakdown: { name: string; value: number }[];
+  dailyTrend: { day: string; collected: number; outstanding: number }[];
+  monthlyTrend: { name: string; value: number }[];
+  ageing: { owner: string; invoice: string; dept: string; amount: number; daysOverdue: number; status: string }[];
+  kpis: {
+    totalCollectedMTD: number;
+    totalCollectedTrendPct: number;
+    outstanding: number;
+    outstandingOverdueCount: number;
+    avgBillMTD: number;
+    avgBillTrendPct: number;
+    digitalSharePct: number;
+    digitalShareTrendPct: number;
+  };
+}
+
+function pctChange(curr: number, prev: number): number {
+  if (prev === 0) return curr > 0 ? 100 : 0;
+  return Math.round(((curr - prev) / prev) * 1000) / 10;
+}
+
+export const getPaymentAnalyticsFn = createServerFn({ method: "GET" })
+  .handler(async (): Promise<PaymentAnalyticsData> => {
+    await connectDB();
+    const today = todayIST();
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const prevMonthDate = new Date(today);
+    prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
+    const prevMonthStart = `${prevMonthDate.toISOString().slice(0, 7)}-01`;
+
+    const receipts = await FinanceTransaction.find({
+      type: "payment",
+      "data.paymentType": "Receive",
+    }).sort({ "data.paymentDate": 1 }).lean();
+
+    const rows = receipts.map((r) => r.data as { modeOfPayment: string; paidAmount: number; paymentDate: string });
+
+    // Method breakdown (all-time)
+    const methodTotals = new Map<string, number>();
+    for (const r of rows) {
+      methodTotals.set(r.modeOfPayment, (methodTotals.get(r.modeOfPayment) || 0) + (r.paidAmount || 0));
+    }
+    const methodBreakdown = [...methodTotals.entries()].map(([name, value]) => ({ name, value }));
+
+    // Daily trend (last 7 days): collected = receipts that day, outstanding = billed-but-unpaid that day
+    const visits = await ClinicalVisit.find({}).select("date totalAmount balanceDue amountPaid ownerName invoiceNo status items").lean();
+
+    const dailyTrend: { day: string; collected: number; outstanding: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      const collected = rows.filter((r) => r.paymentDate === iso).reduce((s, r) => s + (r.paidAmount || 0), 0);
+      const outstanding = visits.filter((v) => v.date === iso).reduce((s, v) => s + (v.balanceDue || 0), 0);
+      dailyTrend.push({ day: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }), collected, outstanding });
+    }
+
+    // Monthly trend (last 6 months)
+    const monthlyTrend: { name: string; value: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(today);
+      d.setMonth(d.getMonth() - i);
+      const monthKey = d.toISOString().slice(0, 7);
+      const value = rows.filter((r) => r.paymentDate.slice(0, 7) === monthKey).reduce((s, r) => s + (r.paidAmount || 0), 0);
+      monthlyTrend.push({ name: d.toLocaleDateString("en-US", { month: "short" }), value });
+    }
+
+    // Receivables ageing
+    const todayMs = new Date(today).getTime();
+    const ageing = visits
+      .filter((v) => (v.balanceDue || 0) > 0)
+      .map((v) => {
+        const daysOverdue = Math.max(0, Math.floor((todayMs - new Date(v.date).getTime()) / 86400000));
+        return {
+          owner: v.ownerName,
+          invoice: v.invoiceNo,
+          dept: v.items?.[0]?.lineType || "General",
+          amount: v.balanceDue || 0,
+          daysOverdue,
+          status: (v.amountPaid || 0) > 0 ? "Partial" : "Overdue",
+        };
+      })
+      .sort((a, b) => b.daysOverdue - a.daysOverdue)
+      .slice(0, 10);
+
+    // KPIs
+    const mtdRows = rows.filter((r) => r.paymentDate >= monthStart && r.paymentDate <= today);
+    const prevMtdRows = rows.filter((r) => r.paymentDate >= prevMonthStart && r.paymentDate < monthStart);
+    const totalCollectedMTD = mtdRows.reduce((s, r) => s + (r.paidAmount || 0), 0);
+    const prevCollected = prevMtdRows.reduce((s, r) => s + (r.paidAmount || 0), 0);
+
+    const outstandingVisits = visits.filter((v) => (v.balanceDue || 0) > 0);
+    const outstanding = outstandingVisits.reduce((s, v) => s + (v.balanceDue || 0), 0);
+    const outstandingOverdueCount = outstandingVisits.filter(
+      (v) => Math.floor((todayMs - new Date(v.date).getTime()) / 86400000) > 0
+    ).length;
+
+    const mtdVisits = visits.filter((v) => v.date >= monthStart && v.date <= today);
+    const prevMtdVisits = visits.filter((v) => v.date >= prevMonthStart && v.date < monthStart);
+    const avgBillMTD = mtdVisits.length ? mtdVisits.reduce((s, v) => s + (v.totalAmount || 0), 0) / mtdVisits.length : 0;
+    const avgBillPrev = prevMtdVisits.length ? prevMtdVisits.reduce((s, v) => s + (v.totalAmount || 0), 0) / prevMtdVisits.length : 0;
+
+    const digitalMTD = mtdRows.filter((r) => r.modeOfPayment !== "Cash").reduce((s, r) => s + (r.paidAmount || 0), 0);
+    const digitalPrev = prevMtdRows.filter((r) => r.modeOfPayment !== "Cash").reduce((s, r) => s + (r.paidAmount || 0), 0);
+    const digitalSharePct = totalCollectedMTD ? Math.round((digitalMTD / totalCollectedMTD) * 1000) / 10 : 0;
+    const digitalSharePrevPct = prevCollected ? Math.round((digitalPrev / prevCollected) * 1000) / 10 : 0;
+
+    return {
+      methodBreakdown,
+      dailyTrend,
+      monthlyTrend,
+      ageing,
+      kpis: {
+        totalCollectedMTD,
+        totalCollectedTrendPct: pctChange(totalCollectedMTD, prevCollected),
+        outstanding,
+        outstandingOverdueCount,
+        avgBillMTD: Math.round(avgBillMTD),
+        avgBillTrendPct: pctChange(avgBillMTD, avgBillPrev),
+        digitalSharePct,
+        digitalShareTrendPct: Math.round((digitalSharePct - digitalSharePrevPct) * 10) / 10,
+      },
+    };
+  });
+

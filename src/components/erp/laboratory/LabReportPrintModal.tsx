@@ -1,10 +1,10 @@
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Printer, FlaskConical, FileCheck, CheckCircle2, ShieldCheck, Stethoscope } from "lucide-react";
-import { toast } from "sonner";
+import { Printer, Download, FlaskConical, FileCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
 
 interface Props {
   open: boolean;
@@ -17,8 +17,7 @@ export function LabReportPrintModal({ open, onClose, order, onEditResults }: Pro
   if (!order) return null;
 
   const handlePrint = () => {
-    toast.info("Opening system print dialog...");
-    window.print();
+    printOrSaveDocumentAsPdf("lab-report-printable-area", `LabReport_${order.order || order.orderId || "LAB"}`);
   };
 
   // Only display parameters that have an actual entered value (no dummy mock fallbacks)
@@ -66,6 +65,9 @@ export function LabReportPrintModal({ open, onClose, order, onEditResults }: Pro
                 <FileCheck className="size-3.5" /> Edit Results
               </Button>
             )}
+            <Button variant="outline" size="sm" onClick={handlePrint} className="h-8 text-xs gap-1.5">
+              <Download className="size-3.5" /> Download PDF
+            </Button>
             <Button size="sm" onClick={handlePrint} className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5">
               <Printer className="size-3.5" /> Print Official Report
             </Button>

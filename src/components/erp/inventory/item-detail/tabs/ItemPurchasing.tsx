@@ -1,21 +1,85 @@
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import type { Medicine } from "../../useInventoryStore";
+import { Plus } from "lucide-react";
+import { listSuppliersFn, type SupplierMasterRow } from "@/lib/mongodb/serverFns/masters";
+import { useInventory, type Medicine } from "../../useInventoryStore";
 
 interface Props { medicine: Medicine; }
 
-const SUPPLIERS = [
-  "MedVet Distributors",
-  "BioPharm",
-  "PetNutri",
-  "CareSupplies",
-  "PharmaCo",
-];
-
 export function ItemPurchasing({ medicine }: Props) {
+  const { addStock } = useInventory();
+  const [suppliers, setSuppliers] = useState<SupplierMasterRow[]>([]);
+  const [loadingSuppliers, setLoadingSuppliers] = useState(true);
+  const [selectedSupplier, setSelectedSupplier] = useState("");
+
+  useEffect(() => {
+    listSuppliersFn()
+      .then((rows) => {
+        setSuppliers(rows);
+        if (rows.length > 0) setSelectedSupplier(rows[0]!.name);
+      })
+      .catch((err) => {
+        console.error("[ItemPurchasing] Failed to load suppliers:", err);
+        toast.error("Could not load suppliers from Accounting.");
+      })
+      .finally(() => setLoadingSuppliers(false));
+  }, []);
+
+  // Inline "Record Purchase" form — reuses the same GRN flow ItemInventory.tsx's
+  // "Add Batch" uses, pre-filled with the supplier picked above.
+  const [showRecordPurchase, setShowRecordPurchase] = useState(false);
+  const [batchNo, setBatchNo] = useState("");
+  const [purchaseQty, setPurchaseQty] = useState("1");
+  const [purchasePrice, setPurchasePrice] = useState(String(medicine.defaultPurchasePrice || medicine.lastPurchaseRate || 0));
+  const [expiryDate, setExpiryDate] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleRecordPurchase = async () => {
+    if (!batchNo.trim()) {
+      toast.error("Please enter a Batch Number");
+      return;
+    }
+    if (!expiryDate) {
+      toast.error("Please select an Expiry Date");
+      return;
+    }
+    const qty = parseInt(purchaseQty, 10);
+    if (!qty || qty <= 0) {
+      toast.error("Quantity must be greater than 0");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await addStock({
+        itemCode: medicine.itemCode,
+        itemName: medicine.name,
+        batchNo: batchNo.trim(),
+        expiryDate,
+        receivedQty: qty,
+        acceptedQty: qty,
+        purchasePricePerUnit: parseFloat(purchasePrice) || 0,
+        receivedDate: new Date().toISOString().slice(0, 10),
+        supplierName: selectedSupplier || "",
+        actor: "Admin Operator",
+      });
+      toast.success(`Purchase recorded — batch ${batchNo} from ${selectedSupplier || "supplier"} (${qty} units).`);
+      setBatchNo("");
+      setExpiryDate("");
+      setShowRecordPurchase(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record purchase");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* ── Primary purchasing fields ──────────────────────────────────── */}
@@ -24,17 +88,12 @@ export function ItemPurchasing({ medicine }: Props) {
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground">Default Supplier</Label>
-            <Select defaultValue="MedVet Distributors">
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select value={selectedSupplier} onValueChange={setSelectedSupplier} disabled={loadingSuppliers || suppliers.length === 0}>
+              <SelectTrigger><SelectValue placeholder={loadingSuppliers ? "Loading…" : "No suppliers found"} /></SelectTrigger>
               <SelectContent>
-                {SUPPLIERS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                {suppliers.map((s) => <SelectItem key={s._id} value={s.name}>{s.name}</SelectItem>)}
               </SelectContent>
             </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground">Lead Time (days)</Label>
-            <Input type="number" defaultValue={3} min={0} />
           </div>
 
           <div className="space-y-1.5">
@@ -44,8 +103,8 @@ export function ItemPurchasing({ medicine }: Props) {
 
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground">Last Purchase Price (₹)</Label>
-            <Input type="number" defaultValue={medicine.defaultSalePrice * 0.65} readOnly className="bg-muted/20" />
-            <p className="text-[11px] text-muted-foreground">Auto-updated from last Purchase Order.</p>
+            <Input type="number" value={medicine.lastPurchaseRate || 0} readOnly className="bg-muted/20" />
+            <p className="text-[11px] text-muted-foreground">Set automatically from the most recent recorded purchase.</p>
           </div>
 
           <div className="space-y-1.5">
@@ -57,49 +116,74 @@ export function ItemPurchasing({ medicine }: Props) {
               </SelectContent>
             </Select>
           </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground">Conversion Factor (Purchase → Stock UOM)</Label>
-            <Input type="number" defaultValue={1} min={0.001} step={0.001} />
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-3 pt-2">
-          <label className="flex items-center gap-2.5 text-sm">
-            <input type="checkbox" defaultChecked className="size-4 rounded accent-primary" />
-            Is Purchase Item
-          </label>
-          <label className="flex items-center gap-2.5 text-sm">
-            <input type="checkbox" className="size-4 rounded accent-primary" />
-            Is Customer Provided Item
-          </label>
         </div>
       </div>
 
-      {/* ── Supplier List ─────────────────────────────────────────────── */}
+      {/* ── Suppliers (from Accounting → Suppliers) ──────────────────────── */}
       <div>
-        <p className="section-label mb-3">Approved Suppliers</p>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="section-label">Suppliers</p>
+          <Button size="sm" onClick={() => setShowRecordPurchase((v) => !v)}>
+            <Plus className="mr-1.5 size-3.5" />{showRecordPurchase ? "Cancel" : "Record Purchase"}
+          </Button>
+        </div>
+
+        {showRecordPurchase && (
+          <div className="mb-4 rounded-xl border border-primary/30 bg-primary-soft/10 p-4 space-y-3">
+            <p className="text-xs font-semibold text-primary">
+              Record Purchase (GRN) from {selectedSupplier || "selected supplier"}
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+              <div className="space-y-1">
+                <Label className="text-xs">Batch Number *</Label>
+                <Input placeholder="e.g. BAT-2026-001" value={batchNo} onChange={(e) => setBatchNo(e.target.value)} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Quantity ({medicine.unit}) *</Label>
+                <Input type="number" min={1} value={purchaseQty} onChange={(e) => setPurchaseQty(e.target.value)} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Expiry Date *</Label>
+                <Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Purchase Price (₹)</Label>
+                <Input type="number" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} className="h-8 text-sm" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button size="sm" variant="ghost" onClick={() => setShowRecordPurchase(false)}>Cancel</Button>
+              <Button size="sm" disabled={submitting} onClick={handleRecordPurchase}>
+                {submitting ? "Recording..." : "Save Purchase"}
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30 text-left">
-                {["Supplier", "Supplier Part No.", "Lead Time (days)", "Last Price (₹)"].map((h) => (
+                {["Supplier", "Contact Person", "Phone", "Credit Days"].map((h) => (
                   <th key={h} className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {[
-                { supplier: "MedVet Distributors", partNo: "MVD-AMX250", lead: 3, price: medicine.defaultSalePrice * 0.65 },
-                { supplier: "BioPharm", partNo: "BP-AMOX-250", lead: 5, price: medicine.defaultSalePrice * 0.68 },
-              ].map((r, i) => (
-                <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-2.5 font-medium">{r.supplier}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-primary">{r.partNo}</td>
-                  <td className="px-4 py-2.5">{r.lead}</td>
-                  <td className="px-4 py-2.5 font-medium">₹{r.price.toFixed(2)}</td>
-                </tr>
-              ))}
+              {loadingSuppliers ? (
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-xs text-muted-foreground">Loading suppliers…</td></tr>
+              ) : suppliers.length === 0 ? (
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-xs text-muted-foreground">No suppliers found. Add one from Accounting → Supplier Bills.</td></tr>
+              ) : (
+                suppliers.map((s) => (
+                  <tr key={s._id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5 font-medium">{s.name}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{s.contactPerson || "—"}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">{s.phone || "—"}</td>
+                    <td className="px-4 py-2.5">{s.creditDays}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

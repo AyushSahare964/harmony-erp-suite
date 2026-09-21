@@ -253,17 +253,23 @@ export function CatalogueSearch({
               {debouncedQuery ? (
                 <>
                   <p>No {type} items found matching &ldquo;{debouncedQuery}&rdquo; in inventory.</p>
-                  <button
-                    type="button"
-                    onClick={handleAddCustom}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shadow-xs"
-                  >
-                    <Plus className="size-3.5" />
-                    Add &ldquo;{debouncedQuery}&rdquo; to prescription
-                  </button>
+                  {allowCustomAdd && (
+                    <button
+                      type="button"
+                      onClick={handleAddCustom}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shadow-xs"
+                    >
+                      <Plus className="size-3.5" />
+                      Add &ldquo;{debouncedQuery}&rdquo; to prescription
+                    </button>
+                  )}
                 </>
               ) : (
-                <p>No {type} items in inventory. Type a name to add custom {type}.</p>
+                <p>
+                  {allowCustomAdd
+                    ? `No ${type} items in inventory. Type a name to add custom ${type}.`
+                    : `No ${type} items in inventory. Stock must be added before it can be selected here.`}
+                </p>
               )}
             </div>
           ) : (
@@ -323,7 +329,7 @@ export function CatalogueSearch({
                   </button>
                 );
               })}
-              {debouncedQuery && !filteredResults.some((it) => (it.name || "").toLowerCase() === debouncedQuery.toLowerCase()) && (
+              {allowCustomAdd && debouncedQuery && !filteredResults.some((it) => (it.name || "").toLowerCase() === debouncedQuery.toLowerCase()) && (
                 <button
                   type="button"
                   onClick={handleAddCustom}

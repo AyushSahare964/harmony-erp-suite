@@ -20,6 +20,7 @@ import { DoctorDashboardView } from "@/components/erp/dashboards/DoctorDashboard
 import { ReceptionistDashboardView } from "@/components/erp/dashboards/ReceptionistDashboardView";
 import { AccountantDashboardView } from "@/components/erp/dashboards/AccountantDashboardView";
 import { AdminDashboardView } from "@/components/erp/dashboards/AdminDashboardView";
+import { RealCatJumpingWelcome } from "@/components/erp/dashboards/RealCatJumpingWelcome";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -137,41 +138,52 @@ function Dashboard() {
     <Shell title="Home Dashboard">
       <div className="mx-auto max-w-[1680px] space-y-7">
         {/* Top Header & Role Switcher */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-2 sm:pt-3 pb-1 border-b border-border/40">
           <motion.div
             key={roleId + "-header"}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
+            className="flex-1 min-w-[280px]"
           >
-            <div className="flex items-center gap-2">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
-                <Stethoscope className="size-4" />
-              </span>
-              <h1 className="page-title">Welcome, {role.person}</h1>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">{role.greeting}</p>
+            <RealCatJumpingWelcome
+              personName={currentUser?.fullName || role.person}
+              greetingSubtitle={role.greeting}
+              branchName="Nagpur · Real Care Small Animal Clinic"
+              onRefresh={loadVisits}
+            />
           </motion.div>
 
-          {/* Active Operator Scope Badge */}
-          <div className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-2 shadow-xs">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
-              {currentUser?.initials || role.initials}
-            </span>
+          {/* Active Operator Scope Badge with Interactive Elevation */}
+          <motion.div
+            whileHover={{ y: -2, scale: 1.01 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center gap-3 rounded-2xl border border-border/80 bg-card/90 backdrop-blur-xs px-4 py-2.5 shadow-xs hover:shadow-md hover:border-primary/40 transition-all cursor-default"
+          >
+            <div className="relative">
+              <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-tr from-primary to-blue-600 text-xs font-black text-primary-foreground shadow-xs">
+                {currentUser?.initials || role.initials}
+              </span>
+              {/* Online indicator dot */}
+              <span className="absolute -bottom-0.5 -right-0.5 flex size-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full size-2.5 bg-emerald-500 ring-2 ring-card" />
+              </span>
+            </div>
             <div className="text-left">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-navy dark:text-white leading-none">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-extrabold text-foreground leading-none">
                   {currentUser?.fullName || role.person}
                 </span>
-                <span className="inline-block rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold">
+                <span className="inline-block rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold">
                   {currentUser?.roleName?.split("/")[0] || role.name}
                 </span>
               </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5 font-medium">
+              <p className="text-[11px] text-muted-foreground mt-1 font-medium">
                 {role.scope} · {role.scopeCaption}
               </p>
             </div>
-          </div>
+          </motion.div>
         </div>
 
         {/* ── Dynamic Role-Specific Dashboard Views ──────────────────────────── */}

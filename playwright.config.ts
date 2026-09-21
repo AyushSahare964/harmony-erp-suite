@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
  * Playwright Test Configuration for Harmony ERP (VetOS)
  * Target live Vercel deployment by default, or localhost if specified.
  */
-const baseURL = process.env.BASE_URL || 'https://harmony-erp-suite-g28j.vercel.app';
+const baseURL = process.env.BASE_URL || 'http://localhost:8080';
 const isLocal = baseURL.includes('localhost') || baseURL.includes('127.0.0.1');
 
 export default defineConfig({
@@ -34,6 +34,8 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    /* Set SLOWMO=1000 (ms) to slow down actions so runs are watchable */
+    launchOptions: process.env.SLOWMO ? { slowMo: Number(process.env.SLOWMO) } : {},
   },
 
   /* Configure projects for major browsers */

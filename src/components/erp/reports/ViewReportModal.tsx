@@ -1,9 +1,13 @@
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Printer, FileText, Download, CheckCircle2, ShieldCheck, AlertTriangle } from "lucide-react";
-import { toast } from "sonner";
+import { Printer, FileText, Download, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
+import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
+import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
 
 interface Props {
   open: boolean;
@@ -14,24 +18,50 @@ interface Props {
 export function ViewReportModal({ open, onClose, report }: Props) {
   if (!report) return null;
 
+  // ── Doctor resolution (same pattern as PrescriptionPrintView) ───────────────
+  const [doctorsList, setDoctorsList] = useState<Array<{ id: string; name: string; specialty?: string }>>([]);
+  useEffect(() => {
+    listApprovedDoctorsFn()
+      .then((docs) => setDoctorsList(docs || []))
+      .catch((e) => console.warn("Could not load doctors list:", e));
+  }, []);
+
+  const resolvedDoctor = (() => {
+    const reportDoctor = report?.doctor;
+    const matched = reportDoctor
+      ? doctorsList.find((d) => d.name === reportDoctor || d.name === `Dr. ${reportDoctor}`)
+      : undefined;
+    if (matched) return matched;
+    const firstReal = doctorsList.find((d) => !d.id.startsWith("doc-"));
+    if (firstReal) return firstReal;
+    const configMatch = doctorsList.find((d) => d.name === CLINIC_CONFIG.doctorName);
+    if (configMatch) return configMatch;
+    return {
+      id: "config",
+      name: CLINIC_CONFIG.doctorName,
+      specialty: CLINIC_CONFIG.doctorDesignation,
+    };
+  })();
+
+  // ── Print / PDF ──────────────────────────────────────────────────────────────
   const handlePrint = () => {
-    toast.info("Opening report print dialog...");
-    window.print();
+    printOrSaveDocumentAsPdf(
+      "report-printable-area",
+      `Report_${(report.reportId || "RPT").replace(/[/\\]/g, "_")}`
+    );
   };
 
-  const parameters = report.parameters || [
-    { name: "Hemoglobin (Hb)", value: "14.8", unit: "g/dL", refInterval: "12.0 - 18.0", flag: "Normal" },
-    { name: "Packed Cell Volume (PCV)", value: "44.2", unit: "%", refInterval: "37.0 - 55.0", flag: "Normal" },
-    { name: "Total Leukocyte Count (TLC)", value: "11,500", unit: "/µL", refInterval: "6,000 - 17,000", flag: "Normal" },
-    { name: "Blood Urea Nitrogen (BUN)", value: "22.4", unit: "mg/dL", refInterval: "10.0 - 28.0", flag: "Normal" },
-    { name: "Serum Creatinine", value: "1.2", unit: "mg/dL", refInterval: "0.5 - 1.5", flag: "Normal" },
-    { name: "Alanine Aminotransferase (ALT)", value: "48", unit: "U/L", refInterval: "10 - 100", flag: "Normal" },
-  ];
+  // ── Parameters (lab mode) ────────────────────────────────────────────────────
+  const parameters = report.parameters || [];
+
+  // ── Formatted date ───────────────────────────────────────────────────────────
+  const reportDate = formatDisplayDate(report.date) || report.date || new Date().toISOString().slice(0, 10);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-3xl border-border bg-card shadow-2xl p-0 gap-0">
-        {/* Top Action Bar */}
+
+        {/* ── Top Action Bar ─────────────────────────────────────────────────── */}
         <div className="border-b border-border bg-muted/40 px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FileText className="size-4 text-primary" />
@@ -40,8 +70,20 @@ export function ViewReportModal({ open, onClose, report }: Props) {
             </span>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={handlePrint} className="h-8 text-xs bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-xs">
-              <Printer className="mr-1.5 size-3.5" /> Print Official Report
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrint}
+              className="h-8 text-xs gap-1"
+            >
+              <Download className="size-3.5" /> Download PDF
+            </Button>
+            <Button
+              size="sm"
+              onClick={handlePrint}
+              className="h-8 text-xs bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-xs gap-1"
+            >
+              <Printer className="size-3.5" /> Print Official Report
             </Button>
             <Button variant="outline" size="sm" onClick={onClose} className="h-8 text-xs">
               Close
@@ -49,59 +91,115 @@ export function ViewReportModal({ open, onClose, report }: Props) {
           </div>
         </div>
 
-        {/* Printable Official Medical Canvas */}
-        <div className="p-8 bg-white text-slate-900 font-sans space-y-6 text-xs">
+        {/* ── Printable Canvas ───────────────────────────────────────────────── */}
+        <div
+          id="report-printable-area"
+          className="p-8 bg-white text-slate-900 font-sans space-y-5 text-xs print:p-0"
+        >
           {/* Clinic Letterhead */}
-          <div className="border-b-2 border-primary pb-4 flex items-start justify-between">
-            <div>
-              <h2 className="text-lg font-black tracking-tight text-primary flex items-center gap-2">
-                <span>🐾</span> Harmony Pet Super-Specialty Hospital
-              </h2>
-              <p className="text-xs text-slate-500">Department of Diagnostic Pathology, Imaging &amp; Surgery</p>
-              <p className="text-[10px] text-slate-400">NABH Accredited Veterinary Facility · Bengaluru, KA</p>
+          <div className="border-b-2 border-blue-900 pb-4 flex items-start justify-between">
+            <div className="flex items-start gap-3">
+              <img
+                src={CLINIC_CONFIG.logoPath}
+                alt={CLINIC_CONFIG.fullName}
+                className="h-16 w-auto object-contain flex-shrink-0"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+              <div>
+                <h1 className="text-xl font-black tracking-tight text-blue-900 uppercase">
+                  {CLINIC_CONFIG.fullName}
+                </h1>
+                <p className="text-[11px] font-semibold text-blue-800">{CLINIC_CONFIG.subName}</p>
+                <p className="text-[11px] text-slate-600 mt-0.5">{CLINIC_CONFIG.addressLine2}</p>
+                <p className="text-[11px] text-slate-600">
+                  Phone: {CLINIC_CONFIG.phone} · {CLINIC_CONFIG.website}
+                </p>
+              </div>
             </div>
-            <div className="text-right">
-              <span className="bg-primary/10 text-primary border border-primary/20 font-mono text-xs font-bold px-2.5 py-1 rounded">
+            <div className="text-right space-y-1">
+              <span className="bg-primary/10 text-primary border border-primary/20 font-mono text-xs font-bold px-2.5 py-1 rounded block">
                 REPORT: {report.reportId}
               </span>
-              <p className="text-[10px] text-slate-400 mt-1.5">Date: {report.date || "2026-08-22"}</p>
+              <p className="text-[10px] text-slate-500 font-mono">Date: {reportDate}</p>
+              {report.category && (
+                <p className="text-[10px] font-semibold text-blue-800 uppercase tracking-wide">
+                  {report.category}
+                </p>
+              )}
             </div>
           </div>
 
           {/* Patient & Owner Bio Card */}
           <div className="grid grid-cols-2 gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50">
             <div className="space-y-1">
-              <p><span className="text-slate-500 font-semibold">Patient Name:</span> <strong className="text-slate-900 text-sm">{report.pet}</strong> ({report.petId || "PET-0001"})</p>
-              <p><span className="text-slate-500 font-semibold">Species / Breed:</span> {report.species || "Canine"} · {report.breed || "Mix"}</p>
-              <p><span className="text-slate-500 font-semibold">Age / Gender:</span> {report.age || "3.5 yrs"} · {report.gender || "Male Intact"}</p>
+              <p>
+                <span className="text-slate-500 font-semibold">Patient Name:</span>{" "}
+                <strong className="text-slate-900 text-sm">{report.pet || "—"}</strong>{" "}
+                {report.petId && (
+                  <span className="text-slate-500 font-mono text-[10px]">({report.petId})</span>
+                )}
+              </p>
+              <p>
+                <span className="text-slate-500 font-semibold">Species / Breed:</span>{" "}
+                {report.species || "Canine"} · {report.breed || "Mixed Breed"}
+              </p>
+              <p>
+                <span className="text-slate-500 font-semibold">Age / Gender:</span>{" "}
+                {report.age || "—"} · {report.gender || "—"}
+              </p>
             </div>
             <div className="space-y-1">
-              <p><span className="text-slate-500 font-semibold">Pet Parent:</span> <strong className="text-slate-900">{report.owner}</strong> ({report.ownerPhone || "N/A"})</p>
-              <p><span className="text-slate-500 font-semibold">Referring Clinician:</span> {report.doctor || "Dr. Rohit Sharma"}</p>
-              <p><span className="text-slate-500 font-semibold">Report Department:</span> <span className="font-semibold text-primary">{report.category}</span></p>
+              <p>
+                <span className="text-slate-500 font-semibold">Pet Parent:</span>{" "}
+                <strong className="text-slate-900">{report.owner || "—"}</strong>{" "}
+                {report.ownerPhone && (
+                  <span className="text-slate-500 font-mono text-[10px]">({report.ownerPhone})</span>
+                )}
+              </p>
+              <p>
+                <span className="text-slate-500 font-semibold">Referring Clinician:</span>{" "}
+                {resolvedDoctor.name}
+              </p>
+              <p>
+                <span className="text-slate-500 font-semibold">Report Department:</span>{" "}
+                <span className="font-semibold text-primary">{report.category || "General"}</span>
+              </p>
             </div>
           </div>
 
-          {/* Report Test Title & Sample Info */}
+          {/* Investigation / Procedure Title */}
           <div className="p-3 rounded-lg border border-slate-200 bg-slate-100/50 flex items-center justify-between">
             <div>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Investigation / Procedure</p>
-              <h4 className="text-sm font-bold text-slate-900">{report.title}</h4>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+                Investigation / Procedure
+              </p>
+              <h4 className="text-sm font-bold text-slate-900 mt-0.5">{report.title}</h4>
             </div>
-            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 text-xs font-bold gap-1">
-              <ShieldCheck className="size-3" /> {report.status || "Verified & Signed"}
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-xs font-bold gap-1",
+                report.status === "Verified & Signed" || report.status === "Completed"
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                  : report.status === "Pending"
+                  ? "bg-amber-50 text-amber-700 border-amber-300"
+                  : "bg-blue-50 text-blue-700 border-blue-300"
+              )}
+            >
+              <ShieldCheck className="size-3" />
+              {report.status || "Verified & Signed"}
             </Badge>
           </div>
 
-          {/* Parameters Table (for Lab / Diagnostic) or Clinical Narrative (for Surgical / Imaging) */}
-          {report.isNarrative ? (
+          {/* Content: Narrative or Lab Parameters */}
+          {report.isNarrative || report.narrative ? (
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
               <h5 className="font-bold text-slate-900">Findings &amp; Procedural Narrative</h5>
-              <p className="text-slate-700 leading-relaxed whitespace-pre-line">
-                {report.narrative || "Examination and procedure concluded uneventfully under general anaesthesia. Vital parameters remained stable throughout."}
+              <p className="text-slate-700 leading-relaxed whitespace-pre-line text-[11px]">
+                {report.narrative || "Examination and procedure concluded uneventfully. Vital parameters remained stable throughout."}
               </p>
             </div>
-          ) : (
+          ) : parameters.length > 0 ? (
             <div className="overflow-hidden rounded-xl border border-slate-200">
               <table className="w-full text-xs">
                 <thead>
@@ -124,10 +222,13 @@ export function ViewReportModal({ open, onClose, report }: Props) {
                         <span
                           className={cn(
                             "px-2 py-0.5 rounded text-[10px] font-bold font-mono",
-                            p.flag === "Normal" ? "bg-emerald-100 text-emerald-800" :
-                            p.flag === "High" ? "bg-amber-100 text-amber-800" :
-                            p.flag === "Low" ? "bg-blue-100 text-blue-800" :
-                            "bg-red-100 text-red-800"
+                            p.flag === "Normal"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : p.flag === "High"
+                              ? "bg-amber-100 text-amber-800"
+                              : p.flag === "Low"
+                              ? "bg-blue-100 text-blue-800"
+                              : "bg-red-100 text-red-800"
                           )}
                         >
                           {p.flag || "Normal"}
@@ -138,26 +239,40 @@ export function ViewReportModal({ open, onClose, report }: Props) {
                 </tbody>
               </table>
             </div>
+          ) : (
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 text-center text-slate-400 italic text-[11px]">
+              No parameters or narrative recorded for this report.
+            </div>
           )}
 
-          {/* Clinical Interpretation & Advice */}
-          <div className="p-3.5 rounded-xl border border-blue-200 bg-blue-50/60 space-y-1">
-            <p className="font-bold text-blue-900">Clinical Interpretation &amp; Diagnostic Impression:</p>
-            <p className="text-blue-800 leading-relaxed">
-              {report.impression || "All quantitative parameters within normal species reference limits. No acute inflammatory or biochemical abnormalities observed."}
-            </p>
-          </div>
+          {/* Clinical Interpretation */}
+          {report.impression && (
+            <div className="p-3.5 rounded-xl border border-blue-200 bg-blue-50/60 space-y-1">
+              <p className="font-bold text-blue-900 text-[11px] uppercase tracking-wider">
+                Clinical Interpretation &amp; Diagnostic Impression
+              </p>
+              <p className="text-blue-800 leading-relaxed text-[11px]">{report.impression}</p>
+            </div>
+          )}
 
           {/* Doctor Signature Block */}
-          <div className="pt-8 border-t border-slate-200 flex items-center justify-between">
-            <div className="text-[10px] text-slate-400">
-              <p>Electronically Verified on {report.date || "2026-08-22"} at 16:45 IST</p>
-              <p>Harmony Clinical OS · Cryptographically Signed</p>
+          <div className="pt-6 border-t border-slate-200 flex items-end justify-between text-[10px]">
+            <div className="text-slate-400 space-y-0.5">
+              <p>Electronically Verified on {reportDate} · {CLINIC_CONFIG.fullName}</p>
+              <p>{CLINIC_CONFIG.phone} · {CLINIC_CONFIG.website}</p>
+              {CLINIC_CONFIG.regNo && <p>Reg. No: {CLINIC_CONFIG.regNo}</p>}
             </div>
-            <div className="text-right">
-              <span className="font-serif italic text-sm text-slate-700 font-bold underline">Dr. Rohit Sharma</span>
-              <p className="font-bold text-slate-900 mt-1">{report.doctor || "Dr. Rohit Sharma (BVSc & AH, MVSc)"}</p>
-              <p className="text-[10px] text-slate-400">Consultant Veterinary Surgeon · Reg. No: KVC-7712</p>
+            <div className="text-center space-y-1">
+              <div className="w-44 border-b border-slate-400 pb-6 text-center text-slate-400 font-serif italic text-[10px]">
+                Digitally Signed
+              </div>
+              <p className="font-bold text-slate-800 text-[11px]">{resolvedDoctor.name}</p>
+              {resolvedDoctor.name === CLINIC_CONFIG.doctorName && (
+                <p className="text-slate-500 text-[9px]">{CLINIC_CONFIG.doctorQualifications}</p>
+              )}
+              <p className="text-slate-500 text-[9px]">
+                {resolvedDoctor.specialty || CLINIC_CONFIG.doctorDesignation}
+              </p>
             </div>
           </div>
         </div>

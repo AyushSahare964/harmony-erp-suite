@@ -371,7 +371,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             accent: "amber",
           },
           {
-            module: "billing",
+            module: "billing-suite",
             icon: "ShoppingCart",
             title: "Manual Product Billing",
             subtitle: "Bill a product directly without a prior encounter",
@@ -380,7 +380,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             badge: "11.4",
           },
           {
-            module: "billing",
+            module: "billing-suite",
             icon: "BarChart3",
             title: "Payment Analytics",
             subtitle: "Collection by method, trend and receivables ageing",
@@ -390,7 +390,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             badge: "11.6",
           },
           {
-            module: "billing",
+            module: "billing-suite",
             icon: "RefreshCw",
             title: "Subscription Billing",
             subtitle: "Membership plans, session packs and auto-renewals",
@@ -609,7 +609,7 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             badge: "17 open",
           },
           {
-            module: "billing",
+            module: "billing-suite",
             icon: "BarChart3",
             title: "Payment Analytics",
             subtitle: "Collection by method · Razorpay panel · Ageing",

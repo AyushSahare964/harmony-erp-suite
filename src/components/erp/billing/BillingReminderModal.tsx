@@ -23,55 +23,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { todayIST, formatDisplayDate } from "@/lib/utils/dateUtils";
+import {
+  listRemindersFn, createReminderFn, settleReminderFn, snoozeReminderFn, deleteReminderFn,
+  type BillingReminderRow,
+} from "@/lib/mongodb/serverFns/reminders";
 
-export interface BillingReminder {
-  id: string;
-  invoiceNo?: string | undefined;
-  petName: string;
-  ownerName: string;
-  ownerPhone: string;
-  dueAmount: number;
-  reminderType: "Payment Due" | "Post-Op Settlement" | "Vaccine Fee" | "Insurance Claim" | "Cheque Clearance";
-  scheduledDate: string;
-  channel: "WhatsApp" | "Call" | "SMS";
-  priority: "Normal" | "High" | "Urgent";
-  status: "Pending" | "Settled" | "Snoozed";
-  notes: string;
-  createdAt: string;
-}
-
-const DEFAULT_REMINDERS: BillingReminder[] = [
-  {
-    id: "rem_1",
-    invoiceNo: "INV-2026-0042",
-    petName: "Bruno",
-    ownerName: "Anil Deshmukh",
-    ownerPhone: "9823011223",
-    dueAmount: 1450,
-    reminderType: "Payment Due",
-    scheduledDate: todayIST(),
-    channel: "WhatsApp",
-    priority: "High",
-    status: "Pending",
-    notes: "Owner requested to collect pending blood test balance via UPI link today evening.",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "rem_2",
-    invoiceNo: "INV-2026-0038",
-    petName: "Simba",
-    ownerName: "Kavita Rao",
-    ownerPhone: "9731234567",
-    dueAmount: 3200,
-    reminderType: "Post-Op Settlement",
-    scheduledDate: todayIST(),
-    channel: "Call",
-    priority: "Urgent",
-    status: "Pending",
-    notes: "Post-surgery suture removal scheduled for today; collect remaining surgical charges.",
-    createdAt: new Date().toISOString(),
-  },
-];
+export type BillingReminder = BillingReminderRow & { id: string };
 
 interface BillingReminderModalProps {
   open: boolean;
@@ -80,16 +37,17 @@ interface BillingReminderModalProps {
 }
 
 export function BillingReminderModal({ open, onClose, invoices = [] }: BillingReminderModalProps) {
-  const [reminders, setReminders] = useState<BillingReminder[]>(() => {
-    if (typeof window === "undefined") return DEFAULT_REMINDERS;
-    try {
-      const saved = localStorage.getItem("vetos_billing_reminders");
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return DEFAULT_REMINDERS;
-  });
+  const [reminders, setReminders] = useState<BillingReminder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    listRemindersFn()
+      .then((rows) => setReminders(rows.map((r) => ({ ...r, id: r.reminderId }))))
+      .catch(() => toast.error("Could not load billing reminders"))
+      .finally(() => setLoading(false));
+  }, [open]);
 
   const [activeTab, setActiveTab] = useState<"list" | "create">("list");
   const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "settled">("all");
@@ -105,15 +63,6 @@ export function BillingReminderModal({ open, onClose, invoices = [] }: BillingRe
   const [channel, setChannel] = useState<BillingReminder["channel"]>("WhatsApp");
   const [priority, setPriority] = useState<BillingReminder["priority"]>("Normal");
   const [notes, setNotes] = useState("");
-
-  // Save reminders to localStorage whenever changed
-  useEffect(() => {
-    try {
-      localStorage.setItem("vetos_billing_reminders", JSON.stringify(reminders));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [reminders]);
 
   // When selecting an invoice, auto-fill details
   const handleInvoiceSelect = (invNo: string) => {
@@ -135,61 +84,77 @@ export function BillingReminderModal({ open, onClose, invoices = [] }: BillingRe
     setScheduledDate(d.toISOString().slice(0, 10));
   };
 
-  const handleCreateReminder = () => {
+  const handleCreateReminder = async () => {
     if (!ownerName && !petName) {
       toast.error("Please enter at least Pet Name or Owner Name.");
       return;
     }
 
-    const newRem: BillingReminder = {
-      id: `rem_${Date.now()}`,
-      invoiceNo: selectedInvoiceNo || undefined,
-      petName: petName || "Patient",
-      ownerName: ownerName || "Pet Parent",
-      ownerPhone: ownerPhone || "",
-      dueAmount: Number(dueAmount) || 0,
-      reminderType,
-      scheduledDate,
-      channel,
-      priority,
-      status: "Pending",
-      notes: notes || "Payment follow-up scheduled.",
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      const created = await createReminderFn({
+        data: {
+          invoiceNo: selectedInvoiceNo || undefined,
+          petName: petName || "Patient",
+          ownerName: ownerName || "Pet Parent",
+          ownerPhone: ownerPhone || "",
+          dueAmount: Number(dueAmount) || 0,
+          reminderType,
+          scheduledDate,
+          channel,
+          priority,
+          notes: notes || "Payment follow-up scheduled.",
+        },
+      });
 
-    setReminders((prev) => [newRem, ...prev]);
-    toast.success(`Billing reminder scheduled for ${scheduledDate}`);
-    setActiveTab("list");
+      setReminders((prev) => [{ ...created, id: created.reminderId }, ...prev]);
+      toast.success(`Billing reminder scheduled for ${scheduledDate}`);
+      setActiveTab("list");
 
-    // Reset form
-    setSelectedInvoiceNo("");
-    setPetName("");
-    setOwnerName("");
-    setOwnerPhone("");
-    setDueAmount(0);
-    setNotes("");
+      // Reset form
+      setSelectedInvoiceNo("");
+      setPetName("");
+      setOwnerName("");
+      setOwnerPhone("");
+      setDueAmount(0);
+      setNotes("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save reminder");
+    }
   };
 
-  const handleMarkSettled = (id: string) => {
-    setReminders((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: "Settled" as const } : r))
-    );
-    toast.success("Reminder marked as settled!");
+  const handleMarkSettled = async (id: string) => {
+    setReminders((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Settled" as const } : r)));
+    try {
+      await settleReminderFn({ data: { reminderId: id } });
+      toast.success("Reminder marked as settled!");
+    } catch {
+      toast.error("Could not update reminder");
+    }
   };
 
-  const handleSnooze = (id: string, days: number) => {
+  const handleSnooze = async (id: string, days: number) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
     const newDate = d.toISOString().slice(0, 10);
     setReminders((prev) =>
       prev.map((r) => (r.id === id ? { ...r, scheduledDate: newDate, status: "Pending" as const } : r))
     );
-    toast.success(`Reminder snoozed to ${formatDisplayDate(newDate)}`);
+    try {
+      await snoozeReminderFn({ data: { reminderId: id, newDate } });
+      toast.success(`Reminder snoozed to ${formatDisplayDate(newDate)}`);
+    } catch {
+      toast.error("Could not snooze reminder");
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     setReminders((prev) => prev.filter((r) => r.id !== id));
-    toast.success("Reminder removed.");
+    try {
+      await deleteReminderFn({ data: { reminderId: id } });
+      toast.success("Reminder removed.");
+    } catch {
+      toast.error("Could not delete reminder");
+    }
   };
 
   const handleSendWhatsApp = (rem: BillingReminder) => {
@@ -308,7 +273,9 @@ export function BillingReminderModal({ open, onClose, invoices = [] }: BillingRe
               </div>
 
               {/* Reminders List */}
-              {filteredReminders.length === 0 ? (
+              {loading ? (
+                <div className="py-12 text-center text-sm text-muted-foreground">Loading reminders…</div>
+              ) : filteredReminders.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border py-12 text-center text-muted-foreground space-y-2">
                   <Bell className="size-8 mx-auto text-muted-foreground/40" />
                   <p className="text-sm font-semibold text-foreground">No reminders in this view</p>

@@ -25,7 +25,7 @@ import { useErp } from "@/lib/erp/store";
 export const Route = createFileRoute("/pending-approval")({
   head: () => ({
     meta: [
-      { title: "Registration Pending Approval — Harmony Pet Hospital" },
+      { title: "Registration Pending Approval — Real Care Small Animal Clinic" },
       {
         name: "description",
         content: "Staff account authorization preview and clinic approval status.",

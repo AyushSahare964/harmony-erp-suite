@@ -40,6 +40,7 @@ import { useInventory } from "@/components/erp/inventory/useInventoryStore";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
+import { InvoicePrintView } from "@/components/erp/clinical/InvoicePrintView";
 
 interface InvoiceGridLine {
   id: string;
@@ -90,6 +91,10 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
     currentUser?.fullName || (currentUser?.roleId === "doctor" ? currentUser.fullName : role?.person || "Dr. Rohit Sharma");
 
   const { medicines } = useInventory();
+
+  // Set once "Save and Print" finishes — swaps this modal over to the real formatted
+  // InvoicePrintView instead of the previous raw window.print() of the unstyled form.
+  const [printableInvoice, setPrintableInvoice] = useState<any | null>(null);
 
   // ── 1. Invoice Header Information State ──
   const [invoiceType, setInvoiceType] = useState<"GST" | "NON_GST" | "BILL_OF_SUPPLY">("GST");
@@ -334,15 +339,19 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
       };
     }
 
+    // Bill of Supply is a real, distinct invoice type (GST-exempt / composition
+    // scheme) that must charge zero tax — collapsing it into "GST" here would
+    // silently charge tax on a document type the law says is untaxed.
+    const taxInvoiceType = invoiceType === "GST" ? "GST" : invoiceType;
     const docInput: TaxDocInput = {
       lines: lines.map((l) => ({
         quantity: l.quantity,
         rate: l.salePrice,
         discountType: "percentage",
         discountValue: l.discountPct,
-        gstRate: invoiceType === "NON_GST" ? 0 : l.gstRate,
+        gstRate: taxInvoiceType === "GST" ? l.gstRate : 0,
       })),
-      invoiceType: invoiceType === "NON_GST" ? "NON_GST" : "GST",
+      invoiceType: taxInvoiceType,
       branchStateCode: "27",
       placeOfSupply,
       shippingAmount: addShipping ? Math.max(0, shippingCost || 0) : 0,
@@ -532,7 +541,7 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
             discountValue: discPct,
             discountAmount: discAmt,
             taxableAmount: taxable,
-            gstRate: invoiceType === "NON_GST" ? 0 : Math.max(0, l.gstRate || 0),
+            gstRate: invoiceType === "GST" ? Math.max(0, l.gstRate || 0) : 0,
             lineTotal: l.amount,
           };
         }),
@@ -562,12 +571,15 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
         toast.success(`Invoice ${invoiceLabel} saved fully paid!`);
       }
 
-      if (andPrint) {
-        window.print();
-      }
-
       onInvoiceCreated?.(res);
-      onClose();
+
+      if (andPrint) {
+        // Show the real formatted invoice (same component finalized clinical visits use)
+        // instead of window.print()-ing the raw, unstyled entry form.
+        setPrintableInvoice(res);
+      } else {
+        onClose();
+      }
     } catch (err: any) {
       console.error("[NewSalesInvoiceModal] Save failed:", err);
       toast.error(err.message || "Failed to save invoice");
@@ -575,6 +587,19 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
       setSaving(false);
     }
   };
+
+  if (printableInvoice) {
+    return (
+      <InvoicePrintView
+        visit={printableInvoice}
+        open={true}
+        onClose={() => {
+          setPrintableInvoice(null);
+          onClose();
+        }}
+      />
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>

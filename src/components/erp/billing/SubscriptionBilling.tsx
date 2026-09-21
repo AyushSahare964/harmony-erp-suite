@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, RefreshCw, Clock, CheckCircle2, AlertCircle, XCircle,
@@ -17,39 +17,19 @@ import {
 import { StatusPill } from "@/components/erp/StatusPill";
 import { toast } from "sonner";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import {
+  createSubscriptionPlanFn, listSubscriptionPlansFn,
+  sellSubscriptionFn, listClientSubscriptionsFn,
+  cancelSubscriptionFn, renewSubscriptionFn,
+  type SubscriptionPlanRow, type ClientSubscriptionRow,
+} from "@/lib/mongodb/serverFns/subscriptions";
+import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 
 /* ─── Types ──────────────────────────────────────────────────────── */
-interface SubscriptionPlan {
-  id: string;
-  name: string;
-  price: number;
-  billingType: "recurring" | "session_pack";
-  frequency: "monthly" | "quarterly" | "annual" | null;
-  sessionCount: number | null;
-  validityDays: number | null;
-  category: string;
-}
-
-type SubscriptionStatus = "Active" | "Expiring" | "Expired" | "Cancelled";
-
-interface Subscription {
-  id: string;
-  planId: string;
-  planName: string;
-  petName: string;
-  ownerName: string;
-  status: SubscriptionStatus;
-  startDate: string;
-  endDate: string | null;
-  sessionsRemaining: number | null;
-  nextBillingDate: string | null;
-  totalPaid: number;
-}
-
-/* ─── Seed data ───────────────────────────────────────────────────── */
-const SEED_PLANS: SubscriptionPlan[] = [];
-const SEED_SUBSCRIPTIONS: Subscription[] = [];
-const PETS: Array<{ id: string; name: string; owner: string }> = [];
+type SubscriptionPlan = SubscriptionPlanRow & { id: string };
+type Subscription = ClientSubscriptionRow & { id: string };
+type SubscriptionStatus = Subscription["status"];
+interface PetOption { id: string; name: string; owner: string; ownerId: string }
 
 function money(v: number) {
   return `₹${v.toLocaleString("en-IN")}`;
@@ -69,42 +49,40 @@ function NewSubscriptionDialog({
   open,
   onClose,
   plans,
+  pets,
   onSave,
 }: {
   open: boolean;
   onClose: () => void;
   plans: SubscriptionPlan[];
+  pets: PetOption[];
   onSave: (sub: Subscription) => void;
 }) {
   const [planId, setPlanId] = useState(plans[0]?.id ?? "");
-  const [petId, setPetId] = useState(PETS[0]?.id ?? "PET-001");
+  const [petId, setPetId] = useState(pets[0]?.id ?? "");
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
 
   const plan = plans.find(p => p.id === planId);
-  const pet  = PETS.find(p => p.id === petId);
+  const pet  = pets.find(p => p.id === petId);
 
-  const submit = () => {
+  const submit = async () => {
     if (!plan || !pet) return;
-    const start = new Date(startDate);
-    const endMs = start.getTime() + (plan.validityDays ?? 30) * 86400000;
-    const endDate = formatDisplayDate(new Date(endMs));
-    const startLabel = formatDisplayDate(start);
-
-    const sub: Subscription = {
-      id: crypto.randomUUID(),
-      planId: plan.id,
-      planName: plan.name,
-      petName: pet.name,
-      ownerName: pet.owner,
-      status: "Active",
-      startDate: startLabel,
-      endDate,
-      sessionsRemaining: plan.sessionCount,
-      nextBillingDate: plan.billingType === "recurring" ? endDate : null,
-      totalPaid: plan.price,
-    };
-    onSave(sub);
-    onClose();
+    setSaving(true);
+    try {
+      const sub = await sellSubscriptionFn({
+        data: {
+          planId: plan.id, petId: pet.id, petName: pet.name,
+          ownerId: pet.ownerId, ownerName: pet.owner, startDate,
+        },
+      });
+      onSave({ ...sub, id: sub.subId });
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not sell subscription");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -172,7 +150,7 @@ function NewSubscriptionDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PETS.map((p) => (
+                {pets.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.name} — {p.owner}
                   </SelectItem>
@@ -189,8 +167,8 @@ function NewSubscriptionDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit}>
-            <BadgeCheck className="size-4" /> Sell Subscription
+          <Button onClick={submit} disabled={saving || !plan || !pet}>
+            <BadgeCheck className="size-4" /> {saving ? "Selling…" : "Sell Subscription"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -215,24 +193,31 @@ function NewPlanDialog({
   const [sessions, setSessions] = useState("");
   const [validity, setValidity] = useState("30");
   const [category, setCategory] = useState("Clinic");
+  const [saving, setSaving] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     if (!name || !price || !validity) {
       toast.error("Fill in all required fields");
       return;
     }
-    const plan: SubscriptionPlan = {
-      id: crypto.randomUUID(),
-      name, price: Number(price),
-      billingType,
-      frequency: billingType === "recurring" ? frequency : null,
-      sessionCount: billingType === "session_pack" ? Number(sessions) : null,
-      validityDays: Number(validity),
-      category,
-    };
-    onSave(plan);
-    toast.success(`Plan "${name}" created`);
-    onClose();
+    setSaving(true);
+    try {
+      const plan = await createSubscriptionPlanFn({
+        data: {
+          name, price: Number(price), billingType,
+          frequency: billingType === "recurring" ? frequency : null,
+          sessionCount: billingType === "session_pack" ? Number(sessions) : null,
+          validityDays: Number(validity), category,
+        },
+      });
+      onSave({ ...plan, id: plan.planId });
+      toast.success(`Plan "${name}" created`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not create plan");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -299,7 +284,9 @@ function NewPlanDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit}><Plus className="size-4" /> Create Plan</Button>
+          <Button onClick={submit} disabled={saving}>
+            <Plus className="size-4" /> {saving ? "Creating…" : "Create Plan"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -308,28 +295,44 @@ function NewPlanDialog({
 
 /* ─── Main ───────────────────────────────────────────────────────── */
 export function SubscriptionBilling() {
-  const [plans, setPlans]     = useState<SubscriptionPlan[]>(SEED_PLANS);
-  const [subs, setSubs]       = useState<Subscription[]>(SEED_SUBSCRIPTIONS);
+  const [plans, setPlans]     = useState<SubscriptionPlan[]>([]);
+  const [subs, setSubs]       = useState<Subscription[]>([]);
+  const [pets, setPets]       = useState<PetOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [sellOpen, setSellOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
 
-  const cancelSub = (id: string) => {
+  useEffect(() => {
+    Promise.all([listSubscriptionPlansFn(), listClientSubscriptionsFn(), listPetsWithOwnersFn()])
+      .then(([planRows, subRows, petRows]) => {
+        setPlans(planRows.map((p) => ({ ...p, id: p.planId })));
+        setSubs(subRows.map((s) => ({ ...s, id: s.subId })));
+        setPets((petRows as any[]).map((p) => ({
+          id: p.petId, name: p.name, owner: p.owner?.name ?? "Unknown Owner", ownerId: p.ownerId,
+        })));
+      })
+      .catch(() => toast.error("Could not load subscription data"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const cancelSub = async (id: string) => {
     setSubs(prev => prev.map(s => s.id === id ? { ...s, status: "Cancelled" as const } : s));
-    toast.success("Subscription cancelled");
+    try {
+      await cancelSubscriptionFn({ data: { subId: id } });
+      toast.success("Subscription cancelled");
+    } catch {
+      toast.error("Could not cancel subscription");
+    }
   };
 
-  const renewSub = (id: string) => {
-    setSubs(prev => prev.map(s => {
-      if (s.id !== id) return s;
-      const plan = plans.find(p => p.id === s.planId);
-      if (!plan) return s;
-      return {
-        ...s, status: "Active" as const,
-        totalPaid: s.totalPaid + plan.price,
-        nextBillingDate: "16/09/2026",
-      };
-    }));
-    toast.success("Subscription renewed — invoice generated");
+  const renewSub = async (id: string) => {
+    try {
+      const updated = await renewSubscriptionFn({ data: { subId: id } });
+      setSubs(prev => prev.map(s => s.id === id ? { ...updated, id: updated.subId } : s));
+      toast.success("Subscription renewed — invoice generated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not renew subscription");
+    }
   };
 
   const active   = subs.filter(s => s.status === "Active").length;
@@ -344,6 +347,10 @@ export function SubscriptionBilling() {
         : plan.price;
       return total + monthlyValue;
     }, 0);
+
+  if (loading) {
+    return <div className="py-12 text-center text-sm text-muted-foreground">Loading subscriptions…</div>;
+  }
 
   return (
     <motion.div
@@ -444,18 +451,18 @@ export function SubscriptionBilling() {
                     <td className="px-4 py-3 font-medium">{s.planName}</td>
                     <td className="px-4 py-3">{s.petName}</td>
                     <td className="px-4 py-3 text-muted-foreground">{s.ownerName}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{s.startDate}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{formatDisplayDate(s.startDate)}</td>
                     <td className="px-4 py-3">
                       {s.sessionsRemaining != null ? (
                         <span className={`font-semibold ${s.sessionsRemaining <= 2 ? "text-amber-500" : ""}`}>
                           {s.sessionsRemaining} sessions left
                         </span>
                       ) : (
-                        <span className="text-muted-foreground">{s.endDate}</span>
+                        <span className="text-muted-foreground">{formatDisplayDate(s.endDate)}</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {s.nextBillingDate ?? "—"}
+                      {s.nextBillingDate ? formatDisplayDate(s.nextBillingDate) : "—"}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
@@ -495,6 +502,7 @@ export function SubscriptionBilling() {
         open={sellOpen}
         onClose={() => setSellOpen(false)}
         plans={plans}
+        pets={pets}
         onSave={(sub) => { setSubs(prev => [sub, ...prev]); toast.success(`Subscription sold to ${sub.ownerName}`); }}
       />
       <NewPlanDialog

@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { loginAsAdmin } from './support/auth-helpers';
 
 test.describe.serial('End-to-End Workflow: Receptionist Intake to Doctor Patient Consultation', () => {
   const testPatient = {
-    petName: `Simba-${Date.now().toString().slice(-4)}`,
+    petName: `Simba-${(Date.now() + Math.floor(Math.random() * 1_000_000)).toString().slice(-4)}`,
     breed: 'Golden Retriever',
     ownerName: 'Rahul Sharma',
     ownerPhone: '9876543210',
@@ -14,11 +15,12 @@ test.describe.serial('End-to-End Workflow: Receptionist Intake to Doctor Patient
   test('Complete Flow: Admit walk-in patient, record diagnosis & consultation notes', async ({ page }) => {
     test.setTimeout(60000);
     // ── STEP 1: RECEPTIONIST ADMITS PATIENT ──
-    await page.goto('/');
-    await expect(page.getByText('VetOS ERP').first()).toBeVisible();
+    await loginAsAdmin(page);
+    await expect(page.getByText('Real Care Clinic').first()).toBeVisible();
 
-    // Click "Admit Patient (OPD)" button
-    const admitButton = page.getByRole('button', { name: /admit patient \(opd\)|admit patient/i });
+    // Click the OPD admit-patient-picker trigger (labeled "OPD Queue" / "Treat Patient" today,
+    // not "Admit Patient (OPD)" as before)
+    const admitButton = page.getByRole('button', { name: /opd queue|treat patient/i }).first();
     await expect(admitButton).toBeVisible();
     await admitButton.click();
 
@@ -83,7 +85,7 @@ test.describe.serial('End-to-End Workflow: Receptionist Intake to Doctor Patient
   });
 
   test('CRM Flow: Owner & Pet Registration Modal Verification', async ({ page }) => {
-    await page.goto('/');
+    await loginAsAdmin(page);
 
     const registerModalBtn = page.getByRole('button', { name: /register owner & pet|new patient/i });
     if (await registerModalBtn.isVisible()) {

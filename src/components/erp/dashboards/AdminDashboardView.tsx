@@ -28,6 +28,7 @@ import { KpiCard } from "@/components/erp/KpiCard";
 import { ModuleFlashcard } from "@/components/erp/Flashcard";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getStockStatus, isExpiringSoon } from "@/lib/inventory/stockStatus";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
 import { DashboardPatientActivityPanel } from "./DashboardPatientActivityPanel";
 import { listLabOrdersFn } from "@/lib/mongodb/serverFns/laboratory";
@@ -148,10 +149,9 @@ export function AdminDashboardView({
   const swimUpcoming = swimSessions.filter(s => s.status === "Booked").length;
   const swimActive = swimSessions.filter(s => s.status === "In Session").length;
 
-  const now = new Date(); const soon = new Date(now); soon.setDate(soon.getDate() + 30);
-  const lowStock = inventory.filter(i => i.currentStock <= i.reorderLevel && i.currentStock > 0);
-  const outOfStock = inventory.filter(i => i.currentStock === 0);
-  const expiringSoon = inventory.filter(i => { const exp = i.medicineDetails?.expiryDate; if (!exp) return false; const d = new Date(exp); return d >= now && d <= soon; });
+  const lowStock = inventory.filter(i => getStockStatus(i.currentStock, i.reorderLevel) === "Low");
+  const outOfStock = inventory.filter(i => getStockStatus(i.currentStock, i.reorderLevel) === "Out of Stock");
+  const expiringSoon = inventory.filter(i => i.medicineDetails?.expiryDate && isExpiringSoon(i.medicineDetails.expiryDate));
 
   const isCompleted = (v: any) =>
     v.status === "PAID" || v.status === "Settled" || v.status === "Paid" || v.status === "Completed" || v.status === "Partially Paid" ||
@@ -329,106 +329,220 @@ export function AdminDashboardView({
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         <div className="xl:col-span-8 space-y-6">
 
-          {/* Header */}
-          <div className="rounded-2xl border border-border/80 bg-gradient-to-r from-card via-card to-purple-500/8 p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="flex size-11 items-center justify-center rounded-xl bg-purple-600 text-white font-bold shadow-xs">
-                <ShieldCheck className="size-6" />
-              </span>
+          {/* Elevated Command Center Hero Banner */}
+          <div className="relative overflow-hidden rounded-2xl border border-purple-500/20 bg-gradient-to-r from-purple-500/10 via-card to-indigo-500/10 p-5 shadow-xs transition-all hover:shadow-md hover:border-purple-500/30 flex flex-wrap items-center justify-between gap-4">
+            {/* Ambient decorative lighting */}
+            <div className="absolute -top-12 -right-12 size-40 rounded-full bg-purple-500/10 blur-2xl pointer-events-none" />
+            <div className="absolute -bottom-12 -left-12 size-40 rounded-full bg-indigo-500/10 blur-2xl pointer-events-none" />
+
+            <div className="relative flex items-center gap-3.5">
+              <motion.span
+                whileHover={{ scale: 1.08, rotate: 5 }}
+                className="relative flex size-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-purple-600 via-purple-600 to-indigo-600 text-white font-bold shadow-md shadow-purple-500/20"
+              >
+                <ShieldCheck className="size-6.5" />
+                <span className="absolute -inset-1 rounded-2xl bg-purple-500/20 animate-pulse pointer-events-none" />
+              </motion.span>
               <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm sm:text-base font-bold text-foreground">Clinic Administrator & Owner Dashboard</h2>
-                  <span className="bg-purple-500/10 text-purple-700 dark:text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-purple-500/20">Full Access</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-extrabold text-foreground tracking-tight">
+                    Clinic Administrator & Owner Dashboard
+                  </h2>
+                  <span className="bg-purple-500/15 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-purple-500/25 shadow-2xs">
+                    Full Access
+                  </span>
+                  {waitingVisits.length > 0 && (
+                    <span className="bg-blue-500/15 text-blue-700 dark:text-blue-300 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-blue-500/25 flex items-center gap-1">
+                      <span className="size-1.5 rounded-full bg-blue-500 animate-ping" />
+                      {waitingVisits.length} Waiting
+                    </span>
+                  )}
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">Live overview of Clinical, Laboratory, Boarding, Swimming & Inventory operations.</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Live overview of Clinical, Laboratory, Boarding, Swimming & Inventory operations.
+                </p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" onClick={onOpenAdmitPicker} className="h-9 gap-1.5 text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs">
+
+            <div className="relative flex flex-wrap items-center gap-2.5">
+              <Button
+                size="sm"
+                onClick={onOpenAdmitPicker}
+                className="h-9 px-4 gap-2 text-xs font-bold bg-gradient-to-r from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90 text-primary-foreground shadow-xs hover:shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              >
                 <CalendarClock className="size-3.5" /> OPD Queue
               </Button>
-              <Button size="sm" variant="outline" onClick={onOpenRegisterModal} className="h-9 gap-1.5 text-xs font-semibold bg-card hover:bg-muted">
-                <Users className="size-3.5" /> Register Client
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onOpenRegisterModal}
+                className="h-9 px-4 gap-2 text-xs font-bold bg-card/90 hover:bg-muted border-border/90 hover:border-primary/40 shadow-xs hover:shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                <Users className="size-3.5 text-primary" /> Register Client
               </Button>
             </div>
           </div>
 
-          {/* Attention Today */}
+          {/* Attention Today with Interactive Hover Elevation */}
           <div className="space-y-3">
-            <div className="flex items-center gap-3"><h3 className="section-label">Attention Required Today</h3><span className="h-px flex-1 bg-border" /></div>
+            <div className="flex items-center gap-3">
+              <h3 className="section-label">Attention Required Today</h3>
+              <span className="h-px flex-1 bg-border" />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="rounded-xl border border-border bg-card p-4 shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="flex size-7 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600"><Calendar className="size-4" /></span>
-                    <p className="text-xs font-bold text-foreground">Appointments</p>
+              {/* Appointments Card */}
+              <div className="group rounded-2xl border border-border/80 bg-card p-4.5 shadow-xs hover:shadow-md hover:-translate-y-0.5 hover:border-primary/40 transition-all duration-200 flex flex-col justify-between space-y-3">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex size-8 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 border border-blue-500/20 group-hover:scale-105 transition-transform">
+                        <Calendar className="size-4" />
+                      </span>
+                      <p className="text-xs font-bold text-foreground">Appointments</p>
+                    </div>
+                    <span className="text-[11px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">
+                      {todayAppointments.length} today
+                    </span>
                   </div>
-                  <span className="text-[11px] font-semibold text-muted-foreground">{todayAppointments.length} today</span>
-                </div>
-                <div className="space-y-2 text-xs">
-                  {todayAppointments.slice(0, 3).map((a: any) => {
-                    const st = String(a.status || "").toLowerCase();
-                    const isDone = st === "completed";
-                    const isConsult = st === "in consultation";
-                    return (
-                      <div key={a.token || a.id || a.pet} className="flex items-center justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-foreground truncate">{a.pet || "Patient"} <span className="text-[10px] text-muted-foreground font-mono">({a.token})</span></p>
-                          <p className="text-[10px] text-muted-foreground truncate">{a.doctor || "General OPD"}</p>
+                  <div className="space-y-2 text-xs">
+                    {todayAppointments.slice(0, 3).map((a: any) => {
+                      const st = String(a.status || "").toLowerCase();
+                      const isDone = st === "completed";
+                      const isConsult = st === "in consultation";
+                      return (
+                        <div key={a.token || a.id || a.pet} className="flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-muted/30 transition-colors">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-foreground truncate">{a.pet || "Patient"} <span className="text-[10px] text-muted-foreground font-mono">({a.token})</span></p>
+                            <p className="text-[10px] text-muted-foreground truncate">{a.doctor || "General OPD"}</p>
+                          </div>
+                          <span className={cn(
+                            "text-[9px] font-bold px-1.5 py-0.5 rounded-full border whitespace-nowrap",
+                            isDone ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" :
+                            isConsult ? "bg-blue-500/10 text-blue-700 border-blue-500/20" :
+                            "bg-amber-500/10 text-amber-700 border-amber-500/20"
+                          )}>
+                            {isDone ? "Completed" : isConsult ? "In OPD" : (a.status || "Waiting")}
+                          </span>
                         </div>
-                        <span className={cn(
-                          "text-[9px] font-bold px-1.5 py-0.5 rounded-full border whitespace-nowrap",
-                          isDone ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" :
-                          isConsult ? "bg-blue-500/10 text-blue-700 border-blue-500/20" :
-                          "bg-amber-500/10 text-amber-700 border-amber-500/20"
-                        )}>
-                          {isDone ? "Completed" : isConsult ? "In OPD" : (a.status || "Waiting")}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {todayAppointments.length === 0 && <p className="text-[11px] italic text-muted-foreground">No appointments today</p>}
+                      );
+                    })}
+                    {todayAppointments.length === 0 && (
+                      <p className="text-[11px] italic text-muted-foreground py-2 text-center">No appointments today</p>
+                    )}
+                  </div>
                 </div>
-                <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => void navigate({ to: "/m/$moduleId", params: { moduleId: "appointments" } })}>View Queue</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-8 text-xs font-semibold hover:bg-primary/5 hover:text-primary hover:border-primary/40 transition-colors gap-1 group-hover:border-primary/30"
+                  onClick={() => void navigate({ to: "/m/$moduleId", params: { moduleId: "appointments" } })}
+                >
+                  <span>View Queue</span>
+                  <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+                </Button>
               </div>
 
-              <div className="rounded-xl border border-border bg-card p-4 shadow-xs space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex size-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600"><FlaskConical className="size-4" /></span>
-                  <p className="text-xs font-bold text-foreground">Patients to Review</p>
+              {/* Patients to Review Card */}
+              <div className="group rounded-2xl border border-border/80 bg-card p-4.5 shadow-xs hover:shadow-md hover:-translate-y-0.5 hover:border-amber-500/40 transition-all duration-200 flex flex-col justify-between space-y-3">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex size-8 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 border border-amber-500/20 group-hover:scale-105 transition-transform">
+                        <FlaskConical className="size-4" />
+                      </span>
+                      <p className="text-xs font-bold text-foreground">Patients to Review</p>
+                    </div>
+                    {labCritical > 0 && (
+                      <span className="flex size-2 rounded-full bg-destructive animate-ping" />
+                    )}
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between p-1 rounded-md hover:bg-destructive/5 transition-colors">
+                      <span className="text-destructive font-semibold">Critical / Abnormal</span>
+                      <span className={cn("font-mono font-bold px-1.5 py-0.5 rounded-md", labCritical > 0 ? "bg-destructive text-white" : "text-destructive")}>{labCritical}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-1 rounded-md hover:bg-muted/30 transition-colors">
+                      <span className="text-muted-foreground">Reports Ready</span>
+                      <span className="font-mono font-semibold">{labOrders.filter(o => o.status === "Completed").length}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-1 rounded-md hover:bg-muted/30 transition-colors">
+                      <span className="text-muted-foreground">Doctor Review Due</span>
+                      <span className="font-mono font-semibold">{labDoctorReview}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1.5 text-xs">
-                  <div className="flex items-center justify-between"><span className="text-destructive font-semibold">Critical / Abnormal</span><span className="font-mono font-bold text-destructive">{labCritical}</span></div>
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Reports Ready</span><span className="font-mono font-semibold">{labOrders.filter(o => o.status === "Completed").length}</span></div>
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Doctor Review Due</span><span className="font-mono font-semibold">{labDoctorReview}</span></div>
-                </div>
-                <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => void navigate({ to: "/m/$moduleId", params: { moduleId: "lab_orders" } })}>Review</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-8 text-xs font-semibold hover:bg-amber-500/5 hover:text-amber-700 dark:hover:text-amber-400 hover:border-amber-500/40 transition-colors gap-1 group-hover:border-amber-500/30"
+                  onClick={() => void navigate({ to: "/m/$moduleId", params: { moduleId: "lab_orders" } })}
+                >
+                  <span>Review</span>
+                  <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+                </Button>
               </div>
 
-              <div className="rounded-xl border border-border bg-card p-4 shadow-xs space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600"><Syringe className="size-4" /></span>
-                  <p className="text-xs font-bold text-foreground">Dues & Reminders</p>
+              {/* Dues & Reminders Card */}
+              <div className="group rounded-2xl border border-border/80 bg-card p-4.5 shadow-xs hover:shadow-md hover:-translate-y-0.5 hover:border-emerald-500/40 transition-all duration-200 flex flex-col justify-between space-y-3">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex size-8 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 group-hover:scale-105 transition-transform">
+                        <Syringe className="size-4" />
+                      </span>
+                      <p className="text-xs font-bold text-foreground">Dues & Reminders</p>
+                    </div>
+                    {expiringSoon.length > 0 && (
+                      <span className="text-[10px] font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20">
+                        {expiringSoon.length} alerts
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between p-1 rounded-md hover:bg-muted/30 transition-colors">
+                      <span className="text-muted-foreground">Vaccinations Due</span>
+                      <span className="font-mono font-semibold">{vaccineDue || "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-1 rounded-md hover:bg-muted/30 transition-colors">
+                      <span className="text-muted-foreground">Follow-ups Scheduled</span>
+                      <span className="font-mono font-semibold">{followupDue || "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-1 rounded-md hover:bg-amber-500/5 transition-colors">
+                      <span className="text-amber-600 font-semibold">Medicines Expiring</span>
+                      <span className="font-mono font-bold text-amber-600">{expiringSoon.length}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1.5 text-xs">
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Vaccinations Due</span><span className="font-mono font-semibold">{vaccineDue || "—"}</span></div>
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Follow-ups Scheduled</span><span className="font-mono font-semibold">{followupDue || "—"}</span></div>
-                  <div className="flex items-center justify-between"><span className="text-amber-600 font-semibold">Medicines Expiring</span><span className="font-mono font-semibold text-amber-600">{expiringSoon.length}</span></div>
-                </div>
-                <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => void navigate({ to: "/m/$moduleId", params: { moduleId: "inventory" } })}>View All</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-8 text-xs font-semibold hover:bg-emerald-500/5 hover:text-emerald-700 dark:hover:text-emerald-400 hover:border-emerald-500/40 transition-colors gap-1 group-hover:border-emerald-500/30"
+                  onClick={() => void navigate({ to: "/m/$moduleId", params: { moduleId: "inventory" } })}
+                >
+                  <span>View All</span>
+                  <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+                </Button>
               </div>
             </div>
           </div>
 
-          {/* Quick Actions */}
+          {/* Quick Actions with Interactive Hover */}
           <div className="space-y-3">
-            <div className="flex items-center gap-3"><h3 className="section-label">Quick Actions</h3><span className="h-px flex-1 bg-border" /></div>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <h3 className="section-label">Quick Actions</h3>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            <div className="flex flex-wrap gap-2.5">
               {[
                 { label: "New Patient", icon: <PlusCircle className="size-4" />, action: onOpenRegisterModal },
                 { label: "Treat Patient", icon: <Stethoscope className="size-4" />, action: onOpenAdmitPicker },
               ].map(q => (
-                <button key={q.label} type="button" onClick={q.action} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted hover:border-primary/40 transition-all shadow-xs cursor-pointer">
+                <button
+                  key={q.label}
+                  type="button"
+                  onClick={q.action}
+                  className="flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-primary/5 hover:border-primary/50 hover:scale-[1.03] active:scale-[0.97] transition-all shadow-xs cursor-pointer"
+                >
                   <span className="text-primary">{q.icon}</span>{q.label}
                 </button>
               ))}
@@ -439,7 +553,12 @@ export function AdminDashboardView({
                 { label: "Swimming", icon: <Waves className="size-4" />, module: "swimming" },
                 { label: "Inventory", icon: <Package className="size-4" />, module: "inventory" },
               ].map(q => (
-                <Link key={q.label} to="/m/$moduleId" params={{ moduleId: q.module }} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted hover:border-primary/40 transition-all shadow-xs">
+                <Link
+                  key={q.label}
+                  to="/m/$moduleId"
+                  params={{ moduleId: q.module }}
+                  className="flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-primary/5 hover:border-primary/50 hover:scale-[1.03] active:scale-[0.97] transition-all shadow-xs"
+                >
                   <span className="text-primary">{q.icon}</span>{q.label}
                 </Link>
               ))}
@@ -462,6 +581,7 @@ export function AdminDashboardView({
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-muted-foreground border-b border-border/50">
+                    <th className="pb-2 font-semibold pr-3 w-8 text-muted-foreground/70">#</th>
                     <th className="pb-2 font-semibold pr-3">Date</th>
                     <th className="pb-2 font-semibold pr-3">Patient</th>
                     <th className="pb-2 font-semibold pr-3">Doctor</th>
@@ -471,10 +591,11 @@ export function AdminDashboardView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
-                  {visits.slice(0, 10).map(v => {
+                  {visits.slice(0, 10).map((v, idx) => {
                     const sb = statusBadge(v);
                     return (
                       <tr key={v.visitId} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-2.5 pr-3 font-mono text-[11px] text-muted-foreground/60">{idx + 1}</td>
                         <td className="py-2.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{formatDisplayDate(v.date || v.createdAt) || "—"}</td>
                         <td className="py-2.5 pr-3"><p className="font-semibold text-foreground">{v.petName}</p><p className="text-[10px] text-muted-foreground">{v.ownerName}</p></td>
                         <td className="py-2.5 pr-3 max-w-[130px]"><p className="truncate text-foreground">{v.doctorName || "—"}</p></td>
@@ -492,7 +613,7 @@ export function AdminDashboardView({
                     );
                   })}
                   {visits.length === 0 && (
-                    <tr><td colSpan={6} className="py-8 text-center text-muted-foreground italic text-xs">No active visits today. Click "OPD Queue" to admit patients.</td></tr>
+                    <tr><td colSpan={7} className="py-8 text-center text-muted-foreground italic text-xs">No active visits today. Click "OPD Queue" to admit patients.</td></tr>
                   )}
                 </tbody>
               </table>
