@@ -1824,22 +1824,6 @@ export function ProductMasterWizardDialog({
                     onChange={(e) => updateField("minOrderQty", e.target.value)}
                   />
                 </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">General Ledger Purchase Account</Label>
-                  <Input
-                    value={form.purchaseAccount}
-                    onChange={(e) => updateField("purchaseAccount", e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Expense Account</Label>
-                  <Input
-                    value={form.expenseAccount}
-                    onChange={(e) => updateField("expenseAccount", e.target.value)}
-                  />
-                </div>
               </div>
             </div>
           )}
