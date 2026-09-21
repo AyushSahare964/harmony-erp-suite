@@ -5,14 +5,11 @@ import {
   LayoutDashboard,
   ListTree,
   HandCoins,
-  Landmark,
-  ReceiptText,
   ArrowLeft,
   FileSpreadsheet,
   Receipt,
   CreditCard,
   ShoppingBag,
-  PiggyBank,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Shell } from "@/components/erp/Shell";
@@ -20,25 +17,19 @@ import { Shell } from "@/components/erp/Shell";
 import { FinancialDashboard } from "./FinancialDashboard";
 import { ChartOfAccounts } from "./ChartOfAccounts";
 import { ReceivablesPayables } from "./ReceivablesPayables";
-import { BankingReconciliation } from "./BankingReconciliation";
-import { TaxationCompliance } from "./TaxationCompliance";
 import { FinancialReports } from "./FinancialReports";
 import { SupplierBillsTab } from "./SupplierBillsTab";
 import { PaymentOutTab } from "./PaymentOutTab";
 import { ExpensesTab } from "./ExpensesTab";
-import { BudgetingCostCenters } from "./BudgetingCostCenters";
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 type TabId =
   | "dashboard"
   | "coa"
-  | "ar"
-  | "banking"
-  | "tax"
+  | "ap"
   | "supplier-bills"
   | "payment-out"
   | "expenses"
-  | "budgeting"
   | "reports";
 
 interface TabDef {
@@ -51,14 +42,11 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: "dashboard",      label: "Financial Dashboard",       Icon: LayoutDashboard, badge: "18.1" },
   { id: "coa",            label: "Chart of Accounts & GL",   Icon: ListTree,        badge: "18.2" },
-  { id: "ar",             label: "Receivables & Payables",   Icon: HandCoins,       badge: "18.3" },
-  { id: "banking",        label: "Banking & Reconciliation",  Icon: Landmark,        badge: "18.4" },
-  { id: "tax",            label: "Taxation & Compliance",    Icon: ReceiptText,     badge: "18.5" },
-  { id: "supplier-bills", label: "Supplier Bills",           Icon: ShoppingBag,     badge: "18.6" },
-  { id: "payment-out",    label: "Payment Out",              Icon: CreditCard,      badge: "18.7" },
-  { id: "expenses",       label: "Expenses",                 Icon: Receipt,         badge: "18.8" },
-  { id: "budgeting",      label: "Budgeting & Cost Centers",  Icon: PiggyBank,       badge: "18.10" },
-  { id: "reports",        label: "Financial Statements",     Icon: FileSpreadsheet, badge: "18.9" },
+  { id: "ap",             label: "Accounts Payable (AP)",    Icon: HandCoins,       badge: "18.3" },
+  { id: "supplier-bills", label: "Supplier Bills",           Icon: ShoppingBag,     badge: "18.4" },
+  { id: "payment-out",    label: "Payment Out",              Icon: CreditCard,      badge: "18.5" },
+  { id: "expenses",       label: "Expenses",                 Icon: Receipt,         badge: "18.6" },
+  { id: "reports",        label: "Financial Statements",     Icon: FileSpreadsheet, badge: "18.7" },
 ];
 
 // ─── AccountingHub ────────────────────────────────────────────────────────────
@@ -98,7 +86,7 @@ export function AccountingHub() {
             <div>
               <h1 className="page-title">Accounting &amp; Finance</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Ledgers · Supplier Bills · Expenses · Payments · Bank Reconciliation · GST/TDS
+                Ledgers · Accounts Payable · Supplier Bills · Expenses · Payments · Financial Statements
               </p>
             </div>
           </div>
@@ -163,9 +151,7 @@ export function AccountingHub() {
           >
             {activeTab === "dashboard"      && <FinancialDashboard onGoToTab={goToTab} />}
             {activeTab === "coa"            && <ChartOfAccounts />}
-            {activeTab === "ar"             && <ReceivablesPayables />}
-            {activeTab === "banking"        && <BankingReconciliation />}
-            {activeTab === "tax"            && <TaxationCompliance />}
+            {activeTab === "ap"             && <ReceivablesPayables />}
             {activeTab === "supplier-bills" && <SupplierBillsTab onPayBill={handlePayBill} />}
             {activeTab === "payment-out"    && (
               <PaymentOutTab
@@ -175,7 +161,6 @@ export function AccountingHub() {
               />
             )}
             {activeTab === "expenses"       && <ExpensesTab />}
-            {activeTab === "budgeting"      && <BudgetingCostCenters />}
             {activeTab === "reports"        && <FinancialReports />}
           </motion.div>
         </AnimatePresence>

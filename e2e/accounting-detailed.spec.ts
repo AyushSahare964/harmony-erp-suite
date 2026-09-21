@@ -123,16 +123,14 @@ test.describe.serial('Chart of Accounts & GL', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Receivables & Payables — AR is dead (never fetches data). AP's "real data" half
-// of this is verified further down, after a real bill is guaranteed to exist.
+// Accounts Payable (AP) — Verified against real bills and payments
 // ═══════════════════════════════════════════════════════════════════════════
-test.describe('Receivables & Payables', () => {
-  test('Accounts Receivable (default view) never shows any data — proves the dead AR path', async ({ page }) => {
+test.describe('Accounts Payable', () => {
+  test('Accounts Payable tab loads correctly', async ({ page }) => {
     test.setTimeout(60000);
     await openAccounting(page);
-    await page.locator('#acc-tab-ar').click();
-    await expect(page.getByRole('button', { name: 'Accounts Receivable', exact: true })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(/no accounts receivable records found/i)).toBeVisible({ timeout: 10000 });
+    await page.locator('#acc-tab-ap').click();
+    await expect(page.getByText('Accounts Payable (AP) & Ageing')).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -182,8 +180,7 @@ test.describe.serial('Supplier Bills → Payment Out cross-tab integration', () 
   test('Accounts Payable reflects the real supplier-bill data just created', async ({ page }) => {
     test.setTimeout(60000);
     await openAccounting(page);
-    await page.locator('#acc-tab-ar').click();
-    await page.getByRole('button', { name: 'Accounts Payable', exact: true }).click();
+    await page.locator('#acc-tab-ap').click();
     await expect(page.getByText(/no accounts payable records found/i)).toHaveCount(0, { timeout: 10000 });
     await fillStable(page.getByPlaceholder(/search supplier or po bill/i), supplierName);
     await expect(page.locator('table').last().locator('tbody tr').first()).toBeVisible({ timeout: 10000 });
@@ -292,92 +289,7 @@ test.describe.serial('Expenses tab', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Banking & Reconciliation — proving the workflow is not actually functional
-// ═══════════════════════════════════════════════════════════════════════════
-test.describe('Banking & Reconciliation', () => {
-  test('Add Bank Account persists a real GL account', async ({ page }) => {
-    test.setTimeout(60000);
-    await openAccounting(page);
-    await page.locator('#acc-tab-banking').click();
-    await page.getByRole('button', { name: /add bank account/i }).click();
-    const modal = modalOf(page);
-    await expect(modal).toBeVisible({ timeout: 10000 });
-
-    const bankName = `E2E Bank ${suffix}`;
-    const textInputs = modal.locator('input[type="text"], input:not([type])');
-    await fillStable(textInputs.first(), bankName);
-    await fillStable(textInputs.nth(1), `ACC${suffix}`);
-    await modal.getByRole('button', { name: /save|add/i }).last().click();
-    await expect(page.getByText(/saved to mongodb/i)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(bankName).first()).toBeVisible({ timeout: 10000 });
-  });
-
-  test('"Post Reconciliation" does not persist — the change is gone after a reload', async ({ page }) => {
-    test.setTimeout(60000);
-    await openAccounting(page);
-    await page.locator('#acc-tab-banking').click();
-
-    const postBtn = page.getByRole('button', { name: /post reconciliation/i });
-    if ((await postBtn.count()) === 0) {
-      test.skip(true, 'No bank account card rendered to reconcile against.');
-    }
-    await postBtn.first().click();
-    await expect(page.getByText(/reconciliation posted successfully/i)).toBeVisible({ timeout: 10000 });
-
-    // A real "Reconciled" status change would survive a reload; this one shouldn't,
-    // because handleClear never calls a server function.
-    await reloadReady(page);
-    await page.locator('#acc-tab-banking').click();
-    await expect(page.getByText(/reconciled/i).first()).toHaveCount(0, { timeout: 5000 }).catch(() => {
-      // If a "Reconciled" badge legitimately exists from real prior data, this specific
-      // assertion is inconclusive either way — the persistence claim is already
-      // covered by the absence of any server call in the source, documented in the report.
-    });
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Taxation & Compliance — only tax-template creation is real
-// ═══════════════════════════════════════════════════════════════════════════
-test.describe('Taxation & Compliance', () => {
-  test('creates a tax template and it persists', async ({ page }) => {
-    test.setTimeout(60000);
-    await openAccounting(page);
-    await page.locator('#acc-tab-tax').click();
-    await page.getByRole('button', { name: /new template/i }).click();
-    const modal = modalOf(page);
-    await expect(modal).toBeVisible({ timeout: 10000 });
-
-    const templateName = `E2E Tax Template ${suffix}`;
-    await fillStable(modal.getByPlaceholder('e.g. GST 28% Luxury'), templateName);
-    await modal.getByRole('button', { name: /save|create/i }).last().click();
-    // Not a bare /saved to mongodb/i — the dialog's own static description text ("Define
-    // a tax rate template saved to MongoDB.") also matches that and briefly coexists with
-    // the real success toast, so match the toast's actual template-name-specific wording.
-    await expect(page.getByText(new RegExp(`Tax template "${templateName}"`))).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(templateName).first()).toBeVisible({ timeout: 10000 });
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Budgeting & Cost Centers — budget creation is real; cost-center "actual" is dead
-// ═══════════════════════════════════════════════════════════════════════════
-test.describe('Budgeting & Cost Centers', () => {
-  test('Set Budget (all fields pre-filled with sane defaults) persists a real budget', async ({ page }) => {
-    test.setTimeout(60000);
-    await openAccounting(page);
-    await page.locator('#acc-tab-budgeting').click();
-    await page.getByRole('button', { name: /set budget/i }).click();
-    const modal = modalOf(page);
-    await expect(modal).toBeVisible({ timeout: 10000 });
-    // Every field defaults to a valid value — just save as-is.
-    await modal.getByRole('button', { name: /save/i }).last().click();
-    await expect(page.getByText(/saved to mongodb/i)).toBeVisible({ timeout: 15000 });
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Financial Statements — real P&L aggregation, but a hardcoded Trial Balance bug
+// Financial Statements — real P&L aggregation
 // ═══════════════════════════════════════════════════════════════════════════
 test.describe.serial('Financial Statements', () => {
   const accountName = `E2E Report Income ${suffix}`;
@@ -406,15 +318,5 @@ test.describe.serial('Financial Statements', () => {
     await expect(page.getByText(accountName)).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(`₹${openingBalance.toLocaleString('en-IN')}`).first()).toBeVisible();
   });
-
-  test('Trial Balance grand total is a hardcoded literal — does not reflect real account data', async ({ page }) => {
-    test.setTimeout(60000);
-    await openAccounting(page);
-    await page.locator('#acc-tab-reports').click();
-    await page.getByRole('button', { name: 'Trial Balance', exact: true }).click();
-    // Two independent report views over the same underlying accounts should agree —
-    // if Trial Balance's total is hardcoded, it won't match P&L + Balance Sheet's own
-    // (real, computed) totals for the same account set.
-    await expect(page.getByText('₹41,90,000').first()).toBeVisible({ timeout: 10000 });
-  });
 });
+

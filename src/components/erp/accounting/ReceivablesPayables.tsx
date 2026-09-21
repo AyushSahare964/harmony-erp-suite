@@ -20,13 +20,8 @@ import {
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 type Bucket = "0–30" | "31–60" | "61–90" | "90+";
-type ARStatus = "Unpaid" | "Partially paid" | "Overdue";
 type APStatus = "Unpaid" | "Partially paid" | "Overdue";
 
-interface ARRow {
-  owner: string; invoice: string; date: string; due: string;
-  amount: number; outstanding: number; bucket: Bucket; status: ARStatus;
-}
 interface APRow {
   supplier: string; bill: string; date: string; due: string;
   amount: number; outstanding: number; bucket: Bucket; status: APStatus;
@@ -34,8 +29,6 @@ interface APRow {
 interface JETemplate { name: string; accounts: string; narration: string; }
 
 // ─── Initial Data ─────────────────────────────────────────────────────────────
-const INITIAL_AR: ARRow[] = [];
-
 const INITIAL_AP: APRow[] = [];
 
 const INITIAL_TEMPLATES: JETemplate[] = [
@@ -56,21 +49,19 @@ const BUCKET_COLORS: Record<Bucket, string> = {
   "90+": "bg-danger-soft text-destructive",
 };
 
-// ─── Payment Entry Dialog (MongoDB-backed) ──────────────────────────────────────
+// ─── Payment Entry Dialog (MongoDB-backed Supplier Payment) ────────────────────
 function PaymentEntryDialog({
   open,
   onClose,
-  partyType,
   onPaymentSaved,
 }: {
   open: boolean;
   onClose: () => void;
-  partyType: "Customer" | "Supplier";
   onPaymentSaved: () => void;
 }) {
   const [form, setForm] = useState({
     party: "",
-    invoice: "",
+    bill: "",
     amount: "",
     mode: "UPI",
     bank: "HDFC Current",
@@ -84,7 +75,7 @@ function PaymentEntryDialog({
 
   const submit = async () => {
     if (!form.party.trim() || !form.amount || Number(form.amount) <= 0) {
-      toast.error("Please fill Party Name and a valid Amount");
+      toast.error("Please fill Supplier Name and a valid Amount");
       return;
     }
     setSaving(true);
@@ -92,18 +83,18 @@ function PaymentEntryDialog({
       const paidAmt = Number(form.amount);
       const res = await createPaymentFn({
         data: {
-          paymentType: partyType === "Customer" ? "Receive" : "Pay",
+          paymentType: "Pay",
           paymentDate: form.date,
-          partyType: partyType,
+          partyType: "Supplier",
           partyName: form.party.trim(),
           modeOfPayment: form.mode,
           bankAccount: form.bank,
           referenceNo: form.ref || undefined,
           paidAmount: paidAmt,
           narration: form.narration || undefined,
-          references: form.invoice ? [
+          references: form.bill ? [
             {
-              invoiceNo: form.invoice,
+              invoiceNo: form.bill,
               invoiceDate: form.date,
               dueDate: form.date,
               invoiceAmount: paidAmt,
@@ -127,26 +118,26 @@ function PaymentEntryDialog({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New Payment Entry — {partyType}</DialogTitle>
+          <DialogTitle>New Payment Entry — Supplier</DialogTitle>
           <DialogDescription>
-            Record payment {partyType === "Customer" ? "received from" : "made to"} a {partyType.toLowerCase()}. Auto-generates unique sequence ID in MongoDB.
+            Record payment made to a supplier. Auto-generates unique sequence ID in MongoDB.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Party Type</Label>
-              <Input value={partyType} disabled className="bg-muted/40" />
+              <Input value="Supplier" disabled className="bg-muted/40" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">{partyType} Name *</Label>
-              <Input placeholder={partyType === "Customer" ? "e.g. Tariq Hussain" : "e.g. BioPharm"} value={form.party} onChange={(e) => handle("party", e.target.value)} />
+              <Label className="text-xs">Supplier Name *</Label>
+              <Input placeholder="e.g. BioPharm / Apex Med" value={form.party} onChange={(e) => handle("party", e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Reference {partyType === "Customer" ? "Invoice" : "Bill"}</Label>
-              <Input placeholder={partyType === "Customer" ? "INV-20483" : "PO-5501"} value={form.invoice} onChange={(e) => handle("invoice", e.target.value)} />
+              <Label className="text-xs">Reference PO Bill No.</Label>
+              <Input placeholder="PO-5501" value={form.bill} onChange={(e) => handle("bill", e.target.value)} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Payment Amount (₹) *</Label>
@@ -186,7 +177,7 @@ function PaymentEntryDialog({
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Narration / Notes</Label>
-            <Input placeholder="e.g. Full settlement against invoice" value={form.narration} onChange={(e) => handle("narration", e.target.value)} />
+            <Input placeholder="e.g. Full settlement against PO bill" value={form.narration} onChange={(e) => handle("narration", e.target.value)} />
           </div>
         </div>
         <DialogFooter>
@@ -197,91 +188,6 @@ function PaymentEntryDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ─── AR / AP Table ─────────────────────────────────────────────────────────────
-function ARTable({ data, onPayment }: { data: ARRow[]; onPayment: () => void }) {
-  const [search, setSearch] = useState("");
-  const [bucketFilter, setBucketFilter] = useState("all");
-  const filtered = useMemo(() =>
-    data.filter((r) => {
-      const matchS = !search || [r.owner, r.invoice].some((v) => v.toLowerCase().includes(search.toLowerCase()));
-      const matchB = bucketFilter === "all" || r.bucket === bucketFilter;
-      return matchS && matchB;
-    }),
-    [data, search, bucketFilter]
-  );
-  const total = data.reduce((s, r) => s + r.outstanding, 0);
-  const overdue = data.filter((r) => r.status === "Overdue").reduce((s, r) => s + r.outstanding, 0);
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: "Total Receivables", value: money(total), tone: "" },
-          { label: "Overdue (all buckets)", value: money(overdue), tone: "text-destructive" },
-          { label: "Avg. Collection Period", value: data.length > 0 ? "28 days" : "—", tone: "" },
-        ].map((k) => (
-          <div key={k.label} className="erp-card px-4 py-3">
-            <p className="section-label">{k.label}</p>
-            <p className={`mt-1 text-xl font-bold ${k.tone || "text-primary"}`}>{k.value}</p>
-          </div>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Search owner or invoice…" className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <Select value={bucketFilter} onValueChange={setBucketFilter}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="Ageing" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All buckets</SelectItem>
-            {["0–30", "31–60", "61–90", "90+"].map((b) => <SelectItem key={b} value={b}>{b} days</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Button size="sm" onClick={onPayment} className="bg-success text-success-foreground hover:bg-success/90">
-          <Plus className="mr-1.5 size-3.5" />Record Payment
-        </Button>
-      </div>
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/30 text-left">
-              {["Customer", "Invoice No.", "Invoice Date", "Due Date", "Invoice Amount", "Outstanding", "Ageing", "Status"].map((h) => (
-                <th key={h} className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                  No accounts receivable records found.
-                </td>
-              </tr>
-            ) : (
-              filtered.map((r, i) => (
-                <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-2.5 font-medium">{r.owner}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-primary">{r.invoice}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground">{r.date}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground">{r.due}</td>
-                  <td className="px-4 py-2.5 text-right">{money(r.amount)}</td>
-                  <td className="px-4 py-2.5 text-right font-medium text-destructive">{money(r.outstanding)}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${BUCKET_COLORS[r.bucket]}`}>
-                      {r.bucket}d
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5"><StatusPill value={r.status} /></td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
 }
 
@@ -373,7 +279,6 @@ import { listPurchaseBillsFn } from "@/lib/mongodb/serverFns/purchaseBills";
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export function ReceivablesPayables() {
-  const [view, setView] = useState<"ar" | "ap">("ar");
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [templates, setTemplates] = useState<JETemplate[]>(INITIAL_TEMPLATES);
@@ -440,33 +345,18 @@ export function ReceivablesPayables() {
 
   return (
     <div className="space-y-5">
-      {/* Toggle */}
-      <div className="flex items-center gap-3">
-        <div className="flex gap-1 rounded-xl border border-border bg-muted/40 p-1">
-          {[{ id: "ar", label: "Accounts Receivable" }, { id: "ap", label: "Accounts Payable" }].map((v) => (
-            <button
-              key={v.id}
-              onClick={() => setView(v.id as "ar" | "ap")}
-              className={`relative rounded-lg px-4 py-1.5 text-sm font-medium transition-all ${view === v.id ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              {view === v.id && <motion.div layoutId="arSegment" className="absolute inset-0 rounded-lg ring-1 ring-border" transition={{ type: "spring", stiffness: 400, damping: 30 }} />}
-              <span className="relative">{v.label}</span>
-            </button>
-          ))}
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="space-y-0.5">
+          <h3 className="text-base font-semibold text-foreground">Accounts Payable (AP) &amp; Ageing</h3>
+          <p className="text-xs text-muted-foreground">Real-time supplier liability tracking calculated from purchase bills and outgoing payments</p>
         </div>
-        <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${view === "ar" ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}>
-          {view === "ar" ? "Money owed to clinic" : "Money clinic owes"}
+        <span className="rounded-full px-2.5 py-1 text-xs font-bold bg-warning-soft text-warning">
+          Money clinic owes to suppliers
         </span>
       </div>
 
-      <AnimatePresence mode="wait">
-        <motion.div key={view} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }}>
-          {view === "ar"
-            ? <ARTable data={INITIAL_AR} onPayment={() => setPaymentOpen(true)} />
-            : <APTable data={apRows} onPayment={() => setPaymentOpen(true)} />
-          }
-        </motion.div>
-      </AnimatePresence>
+      <APTable data={apRows} onPayment={() => setPaymentOpen(true)} />
 
       {/* Recorded MongoDB Payments */}
       {payments.length > 0 && (
@@ -539,7 +429,6 @@ export function ReceivablesPayables() {
       <PaymentEntryDialog
         open={paymentOpen}
         onClose={() => setPaymentOpen(false)}
-        partyType={view === "ar" ? "Customer" : "Supplier"}
         onPaymentSaved={fetchPayments}
       />
 

@@ -8,15 +8,15 @@
 
 ---
 
-## Direct answer: which sections are NOT important in this system
+## Direct answer: which sections were NOT important in this system (NOW REMOVED)
 
-Ranked by how disconnected they are from real data, worst first:
+The following 5 sections were identified as disconnected or non-load-bearing and have been **cleanly removed** from the UI and codebase:
 
-1. **Banking & Reconciliation — decorative.** "Post Reconciliation" does not persist anything; reload wipes it. Adding a bank account does create a real GL account, but the reconciliation workflow itself (matching, clearing, "Post Reconciliation") has no backend behind the actual reconciliation action. Safe to treat as UI-only / not load-bearing.
-2. **Accounts Receivable (in Receivables & Payables) — dead code path.** The AR view never fetches or shows any data regardless of what invoices/sales exist. It always renders "No accounts receivable records found." The AP half of the same tab is real (see below) — this is specifically the Receivable side that's disconnected.
-3. **Trial Balance (in Financial Statements) — cosmetically real, functionally frozen.** It reads `account.openingBalance` per account and sums it. Posting journal entries does not change it — the grand total is effectively a snapshot of opening balances, not a live rollup of GL activity. It looks like a real trial balance but doesn't move when the ledger moves.
-4. **Budgeting & Cost Centers — half-real.** "Set Budget" persists the budgeted figure correctly, but the "actual spend" side of the comparison never updates from real expense/bill data — so the variance/comparison is not meaningful over time even though the budget number itself saves correctly.
-5. **Taxation & Compliance — mostly configuration, not enforcement.** Tax templates persist correctly (this part is real), but there's no evidence in the source that these templates are actually applied/enforced elsewhere in billing calculations — it's a template library, not a tax engine wired into invoices.
+1. **Banking & Reconciliation — [REMOVED]** Removed from `AccountingHub.tsx`. (Reconciliation workflow lacked persistence).
+2. **Accounts Receivable (in Receivables & Payables) — [REMOVED]** Dead AR code path and toggle removed; tab refined to authoritative **Accounts Payable (AP) & Ageing** backed by real purchase bills and supplier payments.
+3. **Trial Balance (in Financial Statements) — [REMOVED]** Removed from `FinancialReports.tsx`. Replaced purely by live, computed reports (P&L, Balance Sheet, Cash Flow, Expense Register, Purchase Register, Payment Register).
+4. **Budgeting & Cost Centers — [REMOVED]** Removed from `AccountingHub.tsx`.
+5. **Taxation & Compliance — [REMOVED]** Removed from `AccountingHub.tsx`.
 
 ## What IS load-bearing (don't deprioritize these)
 

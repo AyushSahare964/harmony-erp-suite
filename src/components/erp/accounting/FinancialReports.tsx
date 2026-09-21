@@ -47,7 +47,6 @@ type ReportType =
   | "pnl"
   | "balance_sheet"
   | "cash_flow"
-  | "trial_balance"
   | "expense_register"
   | "purchase_register"
   | "payment_register";
@@ -195,7 +194,6 @@ export function FinancialReports() {
               { id: "pnl", label: "Profit & Loss" },
               { id: "balance_sheet", label: "Balance Sheet" },
               { id: "cash_flow", label: "Cash Flow Statement" },
-              { id: "trial_balance", label: "Trial Balance" },
               { id: "expense_register", label: "Expense Register" },
               { id: "purchase_register", label: "Purchase Register" },
               { id: "payment_register", label: "Payment Out Register" },
@@ -555,71 +553,6 @@ export function FinancialReports() {
                     {financialData.netProfit >= 0 ? `+${fullMoney(financialData.netProfit)}` : fullMoney(financialData.netProfit)}
                   </span>
                 </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ── 4. TRIAL BALANCE REPORT ─────────────────────────────────────── */}
-        {reportType === "trial_balance" && (
-          <motion.div
-            key="trial_balance"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            className="space-y-6"
-          >
-            <div className="erp-card overflow-hidden">
-              <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-muted/20">
-                <div>
-                  <h3 className="font-bold text-base text-foreground">Trial Balance (General Ledger Audit)</h3>
-                  <p className="text-xs text-muted-foreground">Listing of all ledger accounts with debit/credit equality validation</p>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-3 py-1 text-xs font-bold text-success">
-                  <CheckCircle2 className="size-3.5" /> Balanced: Debits = Credits ({money(financialData.totalAssets + financialData.totalExpense)})
-                </span>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30 text-left text-xs font-semibold text-muted-foreground uppercase">
-                      <th className="px-5 py-3">Account Code</th>
-                      <th className="px-5 py-3">Account Name</th>
-                      <th className="px-5 py-3">Type</th>
-                      <th className="px-5 py-3 text-right">Debit (INR)</th>
-                      <th className="px-5 py-3 text-right">Credit (INR)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40">
-                    {[
-                      ...financialData.assetAccts.map((a) => ({ ...a, debit: a.openingBalance || 0, credit: 0, type: "Assets" })),
-                      ...financialData.expenseAccts.map((a) => ({ ...a, debit: a.openingBalance || 0, credit: 0, type: "Expense" })),
-                      ...financialData.liabilityAccts.map((a) => ({ ...a, debit: 0, credit: a.openingBalance || 0, type: "Liabilities" })),
-                      { code: "3100", name: "Owner's Capital", type: "Equity", debit: 0, credit: financialData.baseEquity },
-                      ...financialData.incomeAccts.map((a) => ({ ...a, debit: 0, credit: a.openingBalance || 0, type: "Income" })),
-                    ].map((row) => (
-                      <tr key={row.name} className="hover:bg-muted/20 transition-colors">
-                        <td className="px-5 py-2.5 font-mono text-xs text-primary font-semibold">{row.code}</td>
-                        <td className="px-5 py-2.5 font-medium">{row.name}</td>
-                        <td className="px-5 py-2.5 text-xs text-muted-foreground">{row.type}</td>
-                        <td className="px-5 py-2.5 text-right font-medium tabular-nums">
-                          {row.debit > 0 ? fullMoney(row.debit) : "—"}
-                        </td>
-                        <td className="px-5 py-2.5 text-right font-medium tabular-nums">
-                          {row.credit > 0 ? fullMoney(row.credit) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-border bg-muted/40 font-bold text-sm">
-                      <td colSpan={3} className="px-5 py-3 text-foreground uppercase">Grand Total (Trial Balance)</td>
-                      <td className="px-5 py-3 text-right text-foreground">₹41,90,000</td>
-                      <td className="px-5 py-3 text-right text-foreground">₹41,90,000</td>
-                    </tr>
-                  </tfoot>
-                </table>
               </div>
             </div>
           </motion.div>
