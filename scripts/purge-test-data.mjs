@@ -1,8 +1,9 @@
-﻿/**
+/**
  * purge-test-data.mjs
  *
  * Wipes ALL test / generated data from the vetos_erp MongoDB database.
  * SAFE: Keeps only the two default login accounts - makarand & ayush.
+ * Keeps system masters (uoms, tax_codes, payment_modes, expensecategories, paymentaccounts, org_branches, lab_test_catalog).
  *
  * Usage:
  *   node --env-file=.env scripts/purge-test-data.mjs
@@ -39,12 +40,12 @@ const COLLECTIONS_TO_PURGE = [
   "purchasebills",
   "supplierpayments",
   "billing_reminders",
+  "billingreminders",
   "inventory_items",
   "stock_batches",
   "stock_ledger",
   "parties",
   "suppliers",
-  "erp_rows",
   "lab_orders",
   "facilities",
   "boarding_bookings",
@@ -53,6 +54,8 @@ const COLLECTIONS_TO_PURGE = [
   "feeding_plans",
   "foodpurchases",
   "audit_logs",
+  "clientsubscriptions",
+  "subscriptionplans",
 ];
 
 async function run() {
@@ -66,15 +69,26 @@ async function run() {
     for (const colName of COLLECTIONS_TO_PURGE) {
       try {
         const res = await db.collection(colName).deleteMany({});
-        console.log("[" + colName + "] Deleted " + res.deletedCount + " documents.");
+        console.log(`[${colName}] Deleted ${res.deletedCount} documents.`);
         totalDeleted += res.deletedCount;
       } catch (err) {
-        console.warn("[" + colName + "] Skipped:", err.message);
+        console.warn(`[${colName}] Skipped:`, err.message);
       }
     }
 
+    // Purge transactional / test erp_rows, preserving the master lab_test_catalog
+    try {
+      const erpRes = await db.collection("erp_rows").deleteMany({
+        moduleId: { $ne: "lab_test_catalog" },
+      });
+      console.log(`[erp_rows] Deleted ${erpRes.deletedCount} test documents (preserved lab_test_catalog).`);
+      totalDeleted += erpRes.deletedCount;
+    } catch (err) {
+      console.warn("[erp_rows] Error cleaning:", err.message);
+    }
+
     console.log("=".repeat(60));
-    console.log("Total documents deleted:", totalDeleted);
+    console.log("Total test documents deleted:", totalDeleted);
 
     // Delete all users EXCEPT makarand & ayush
     const keepPattern = /makarand|ayush/i;
@@ -99,16 +113,16 @@ async function run() {
       const userDelRes = await db.collection("users").deleteMany({ _id: { $in: toDeleteIds } });
       console.log("[users] Deleted " + userDelRes.deletedCount + " test user(s).");
     } else {
-      console.log("[users] No extra users to delete.");
+      console.log("[users] No extra users to delete. Only Ayush and Makarand are present.");
     }
 
-    // Clear all remaining stale refresh tokens
+    // Clear stale refresh tokens
     const staleRt = await db.collection("refresh_tokens").deleteMany({});
     if (staleRt.deletedCount > 0) {
       console.log("[refresh_tokens] Cleared " + staleRt.deletedCount + " stale session(s).");
     }
 
-    // Reset sequence counters
+    // Reset sequence counters to 0
     const counterResult = await db.collection("counters").updateMany({}, { $set: { seq: 0 } });
     console.log("[counters] Reset " + counterResult.modifiedCount + " counter(s) to 0.");
 
@@ -134,7 +148,7 @@ async function run() {
     } catch (_) {}
 
     console.log("=".repeat(60));
-    console.log("DONE - All test data purged. Only makarand & ayush accounts remain.");
+    console.log("SUCCESS - All test data has been removed. Credentials for Ayush and Makarand remain intact.");
     console.log("=".repeat(60));
   } catch (err) {
     console.error("Fatal cleanup error:", err);
