@@ -37,7 +37,14 @@ import {
   Banknote,
   QrCode,
   Sparkles,
+  Package,
+  Tag,
+  User,
+  X,
+  AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
+import { useInventory } from "@/components/erp/inventory/useInventoryStore";
 import {
   PieChart,
   Pie,
@@ -120,6 +127,9 @@ export function BillingDeskDashboard({
   const [activeActivityTab, setActiveActivityTab] = useState<
     "recentSales" | "clientDue" | "amountReceived" | "chequeAlert"
   >("recentSales");
+
+  // Live inventory store hook for dynamic stock/batch search
+  const { medicines = [], batches = [] } = useInventory();
 
   // Hitech Search Card State
   const [searchScope, setSearchScope] = useState<"Stock" | "SerialNo" | "Invoice" | "Client">("Stock");
@@ -484,6 +494,167 @@ export function BillingDeskDashboard({
     });
   }, [creditNotesList, dateRange, searchQuery]);
 
+  // Derived Client Directory from Invoices
+  const clientList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        ownerName: string;
+        ownerPhone: string;
+        pets: Set<string>;
+        totalBilled: number;
+        totalPaid: number;
+        balanceDue: number;
+        invoiceCount: number;
+        lastInvoiceNo: string;
+        lastDate: string;
+      }
+    >();
+
+    (invoices || []).forEach((inv) => {
+      const key = (inv.ownerPhone || inv.ownerName || "Walk-in").trim().toLowerCase();
+      if (!key) return;
+      const existing = map.get(key) || {
+        ownerName: inv.ownerName || "Walk-in Client",
+        ownerPhone: inv.ownerPhone || "—",
+        pets: new Set<string>(),
+        totalBilled: 0,
+        totalPaid: 0,
+        balanceDue: 0,
+        invoiceCount: 0,
+        lastInvoiceNo: inv.invoiceNo || "—",
+        lastDate: inv.date || inv.createdAt?.slice(0, 10) || "",
+      };
+      if (inv.petName) existing.pets.add(inv.petName);
+      existing.totalBilled += Number(inv.totalAmount) || 0;
+      existing.totalPaid += Number(inv.amountPaid) || 0;
+      existing.balanceDue += invBalance(inv);
+      existing.invoiceCount += 1;
+      if (inv.date && (!existing.lastDate || inv.date > existing.lastDate)) {
+        existing.lastDate = inv.date;
+        existing.lastInvoiceNo = inv.invoiceNo;
+      }
+      map.set(key, existing);
+    });
+
+    return Array.from(map.values()).map((c) => ({
+      ...c,
+      petsList: Array.from(c.pets).join(", "),
+    }));
+  }, [invoices]);
+
+  // Real-time dynamic search results across the selected scope
+  const dynamicSearchResults = useMemo(() => {
+    const q = quickSearchQuery.trim().toLowerCase();
+
+    if (searchScope === "Stock") {
+      const all = medicines || [];
+      if (!q) {
+        return {
+          isDefault: true,
+          label: "Popular / In-Stock Clinic Items",
+          items: all.slice(0, 5),
+          totalCount: all.length,
+        };
+      }
+      const matched = all.filter((m) => {
+        return (
+          m.name?.toLowerCase().includes(q) ||
+          m.itemCode?.toLowerCase().includes(q) ||
+          m.genericName?.toLowerCase().includes(q) ||
+          m.brand?.toLowerCase().includes(q) ||
+          m.category?.toLowerCase().includes(q) ||
+          m.subGroup?.toLowerCase().includes(q)
+        );
+      });
+      return {
+        isDefault: false,
+        label: `Found ${matched.length} Item${matched.length === 1 ? "" : "s"}`,
+        items: matched.slice(0, 12),
+        totalCount: matched.length,
+      };
+    }
+
+    if (searchScope === "SerialNo") {
+      const all = batches || [];
+      if (!q) {
+        return {
+          isDefault: true,
+          label: "Active Stock Batches / Serials",
+          items: all.slice(0, 5),
+          totalCount: all.length,
+        };
+      }
+      const matched = all.filter((b) => {
+        return (
+          b.batchNumber?.toLowerCase().includes(q) ||
+          b.itemCode?.toLowerCase().includes(q) ||
+          b.itemName?.toLowerCase().includes(q)
+        );
+      });
+      return {
+        isDefault: false,
+        label: `Found ${matched.length} Batch${matched.length === 1 ? "" : "es"}`,
+        items: matched.slice(0, 12),
+        totalCount: matched.length,
+      };
+    }
+
+    if (searchScope === "Invoice") {
+      const all = invoices || [];
+      if (!q) {
+        return {
+          isDefault: true,
+          label: "Recent Clinic Invoices",
+          items: all.slice(0, 5),
+          totalCount: all.length,
+        };
+      }
+      const matched = all.filter((inv) => {
+        return (
+          inv.invoiceNo?.toLowerCase().includes(q) ||
+          inv.ownerName?.toLowerCase().includes(q) ||
+          inv.ownerPhone?.toLowerCase().includes(q) ||
+          inv.petName?.toLowerCase().includes(q) ||
+          inv.doctorName?.toLowerCase().includes(q)
+        );
+      });
+      return {
+        isDefault: false,
+        label: `Found ${matched.length} Invoice${matched.length === 1 ? "" : "s"}`,
+        items: matched.slice(0, 12),
+        totalCount: matched.length,
+      };
+    }
+
+    if (searchScope === "Client") {
+      const all = clientList;
+      if (!q) {
+        return {
+          isDefault: true,
+          label: "Recent Registered Clients",
+          items: all.slice(0, 5),
+          totalCount: all.length,
+        };
+      }
+      const matched = all.filter((c) => {
+        return (
+          c.ownerName.toLowerCase().includes(q) ||
+          c.ownerPhone.includes(q) ||
+          c.petsList.toLowerCase().includes(q)
+        );
+      });
+      return {
+        isDefault: false,
+        label: `Found ${matched.length} Client${matched.length === 1 ? "" : "s"}`,
+        items: matched.slice(0, 12),
+        totalCount: matched.length,
+      };
+    }
+
+    return { isDefault: true, label: "", items: [], totalCount: 0 };
+  }, [quickSearchQuery, searchScope, medicines, batches, invoices, clientList]);
+
   // Search Execute
   const handleExecuteQuickSearch = () => {
     if (!quickSearchQuery.trim()) {
@@ -495,22 +666,30 @@ export function BillingDeskDashboard({
       const match = invoices.find((i) => i.invoiceNo?.toLowerCase().includes(q));
       if (match) {
         onViewInvoice(match);
-        setSearchFeedback(`Found invoice ${match.invoiceNo}`);
+        setSearchFeedback(`Found & opened invoice ${match.invoiceNo}`);
       } else {
-        setSearchFeedback(`No invoice matching "${quickSearchQuery}"`);
+        setSearchFeedback(`No exact invoice number found for "${quickSearchQuery}"`);
       }
     } else if (searchScope === "Client") {
       const match = invoices.find(
         (i) => i.ownerName?.toLowerCase().includes(q) || i.ownerPhone?.includes(q)
       );
       if (match) {
-        onViewInvoice(match);
-        setSearchFeedback(`Found client bill for ${match.ownerName}`);
+        setSearchQuery(match.ownerName || "");
+        document.getElementById("billing-invoice-register")?.scrollIntoView({ behavior: "smooth" });
+        setSearchFeedback(`Filtered invoices register for ${match.ownerName}`);
       } else {
-        setSearchFeedback(`No client matching "${quickSearchQuery}"`);
+        setSearchFeedback(`No client found for "${quickSearchQuery}"`);
       }
-    } else {
-      setSearchFeedback(`Filtered stock search for "${quickSearchQuery}"`);
+    } else if (searchScope === "Stock") {
+      const match = (medicines || []).find(
+        (m) => m.name.toLowerCase().includes(q) || m.itemCode.toLowerCase().includes(q)
+      );
+      if (match) {
+        setSearchFeedback(`Showing details for ${match.name} (${match.currentStock ?? 0} in stock)`);
+      } else {
+        setSearchFeedback(`No item found matching "${quickSearchQuery}"`);
+      }
     }
   };
 
@@ -1061,61 +1240,407 @@ export function BillingDeskDashboard({
             </div>
           </div>
 
-          {/* 2. SEARCH CARD (Matches Image 1 & 5 Search Card) */}
-          <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-            <div className="bg-[#0a192f] text-white px-4 py-2.5 text-xs font-bold uppercase tracking-wider">
-              SEARCH
+          {/* 2. SEARCH CARD (Matches Image 1 & 5 Search Card, now 100% Dynamic & In-Place) */}
+          <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden flex flex-col">
+            {/* Header with Live Indicator & Active Scope */}
+            <div className="bg-[#0a192f] text-white px-4 py-2.5 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <Search className="size-3.5 text-emerald-400" />
+                <span className="font-bold uppercase tracking-wider">SEARCH</span>
+              </div>
+              <div className="flex items-center gap-2 font-mono text-[11px]">
+                <span className="size-1.5 rounded-full bg-emerald-400 animate-ping" />
+                <span className="text-white/80 uppercase font-semibold">
+                  {searchScope === "SerialNo" ? "Serial / Batch" : searchScope}
+                </span>
+                <span className="text-white/40">•</span>
+                <span className="text-emerald-400 font-bold">
+                  {dynamicSearchResults.totalCount}{" "}
+                  {searchScope === "Stock"
+                    ? "items"
+                    : searchScope === "Invoice"
+                    ? "invoices"
+                    : searchScope === "Client"
+                    ? "clients"
+                    : "batches"}
+                </span>
+              </div>
             </div>
-            <div className="p-4 space-y-3">
+
+            <div className="p-4 space-y-3.5">
               {/* Radio Buttons: Stock, Serial No, Invoice, Client */}
-              <div className="flex flex-wrap items-center gap-5 text-xs font-medium">
-                {(["Stock", "Serial No", "Invoice", "Client"] as const).map((scope) => (
-                  <label key={scope} className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="searchScope"
-                      checked={searchScope === scope.replace(" ", "")}
-                      onChange={() => setSearchScope(scope.replace(" ", "") as any)}
-                      className="size-3.5 text-primary"
-                    />
-                    <span>{scope}</span>
-                  </label>
-                ))}
+              <div className="flex flex-wrap items-center gap-4 text-xs font-medium">
+                {(
+                  [
+                    { key: "Stock", label: "Stock", icon: Package },
+                    { key: "SerialNo", label: "Serial No", icon: Tag },
+                    { key: "Invoice", label: "Invoice", icon: Receipt },
+                    { key: "Client", label: "Client", icon: User },
+                  ] as const
+                ).map(({ key, label, icon: Icon }) => {
+                  const isSelected = searchScope === key;
+                  return (
+                    <label
+                      key={key}
+                      onClick={() => setSearchScope(key as any)}
+                      className={cn(
+                        "flex items-center gap-1.5 cursor-pointer px-2.5 py-1 rounded-lg transition-all select-none border",
+                        isSelected
+                          ? "bg-primary/10 text-primary border-primary/30 font-bold shadow-xs"
+                          : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/50"
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="searchScope"
+                        checked={isSelected}
+                        onChange={() => setSearchScope(key as any)}
+                        className="size-3.5 text-primary accent-primary cursor-pointer"
+                      />
+                      <Icon className="size-3.5" />
+                      <span>{label}</span>
+                    </label>
+                  );
+                })}
               </div>
 
-              {/* Search input with green search button */}
+              {/* Search input with integrated clear (X) and green search button */}
               <div className="flex items-center gap-2">
-                <Input
-                  value={quickSearchQuery}
-                  onChange={(e) => setQuickSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleExecuteQuickSearch()}
-                  placeholder={
-                    searchScope === "Stock"
-                      ? "Item Name or Item Code"
-                      : searchScope === "Invoice"
-                      ? "Invoice Number (e.g. INV-905)"
-                      : searchScope === "Client"
-                      ? "Pet Parent Name or Phone"
-                      : "Serial / Batch Number"
-                  }
-                  className="h-9 text-xs bg-background flex-1"
-                />
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={quickSearchQuery}
+                    onChange={(e) => setQuickSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleExecuteQuickSearch()}
+                    placeholder={
+                      searchScope === "Stock"
+                        ? "Search item name, code (e.g. M-0001), brand..."
+                        : searchScope === "Invoice"
+                        ? "Search invoice # (e.g. INV-905), client, pet..."
+                        : searchScope === "Client"
+                        ? "Search pet parent name, phone, pet..."
+                        : "Search batch number or serial code..."
+                    }
+                    className="h-9.5 pl-9 pr-8 text-xs bg-background rounded-xl border-border/80 focus-visible:ring-primary shadow-xs"
+                  />
+                  {quickSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuickSearchQuery("");
+                        setSearchFeedback(null);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
+                      title="Clear search"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
 
                 <Button
                   type="button"
                   onClick={handleExecuteQuickSearch}
-                  className="size-9 p-0 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm"
-                  title="Search"
+                  className="h-9.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-transform active:scale-95 flex items-center gap-1.5"
+                  title="Search (Enter)"
                 >
                   <Search className="size-4" />
+                  <span className="hidden sm:inline text-xs font-semibold">Search</span>
                 </Button>
               </div>
 
+              {/* Feedback toast line if present */}
               {searchFeedback && (
-                <div className="text-xs text-primary font-medium animate-in fade-in">
-                  {searchFeedback}
+                <div className="text-[11px] text-primary bg-primary/10 border border-primary/20 rounded-lg px-2.5 py-1 font-medium animate-in fade-in flex items-center justify-between">
+                  <span>{searchFeedback}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSearchFeedback(null)}
+                    className="text-primary hover:underline text-[10px]"
+                  >
+                    ✕
+                  </button>
                 </div>
               )}
+
+              {/* ── DYNAMIC LIVE RESULTS CONTAINER ("able to see here very easily") ── */}
+              <div className="space-y-2 pt-1 border-t border-border/60">
+                {/* Result header line */}
+                <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-1.5 text-muted-foreground font-medium">
+                    {dynamicSearchResults.isDefault ? (
+                      <>
+                        <Sparkles className="size-3 text-amber-500" />
+                        <span>{dynamicSearchResults.label}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="size-2 rounded-full bg-emerald-500" />
+                        <span className="font-semibold text-foreground">{dynamicSearchResults.label}</span>
+                      </>
+                    )}
+                  </div>
+                  {quickSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setQuickSearchQuery("")}
+                      className="text-[10px] text-primary hover:underline"
+                    >
+                      Reset View
+                    </button>
+                  )}
+                </div>
+
+                {/* Result Items List */}
+                <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin rounded-xl border border-border/70 bg-muted/20 p-2">
+                  {dynamicSearchResults.items.length === 0 ? (
+                    <div className="py-8 text-center space-y-1.5">
+                      <div className="mx-auto flex size-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                        <Search className="size-4" />
+                      </div>
+                      <p className="text-xs font-semibold text-foreground">
+                        No {searchScope.toLowerCase()} found matching "{quickSearchQuery}"
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Try switching the search tab above or clearing your keywords.
+                      </p>
+                    </div>
+                  ) : (
+                    dynamicSearchResults.items.map((item: any, idx: number) => {
+                      if (searchScope === "Stock") {
+                        const stock = Number(item.currentStock ?? 0);
+                        const isLow = stock > 0 && stock <= (item.reorderLevel || 5);
+                        const isOut = stock <= 0;
+                        return (
+                          <div
+                            key={item.id || item.itemCode || idx}
+                            className="group flex items-center justify-between gap-3 p-2 rounded-lg bg-card/70 hover:bg-card border border-border/50 hover:border-primary/40 transition-all shadow-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-foreground truncate">{item.name}</span>
+                                <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-muted text-muted-foreground border border-border/60">
+                                  {item.itemCode}
+                                </span>
+                                {item.category && (
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-medium">
+                                    {item.category}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground truncate mt-0.5">
+                                {item.brand && `Brand: ${item.brand} • `}
+                                {item.genericName && `Generic: ${item.genericName} • `}
+                                UoM: {item.unit || "Unit"}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              {/* Stock Pill */}
+                              {isOut ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                                  Out of Stock
+                                </span>
+                              ) : isLow ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                                  Low: {stock}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                  {stock} in stock
+                                </span>
+                              )}
+
+                              {/* Price */}
+                              <span className="font-mono text-xs font-bold text-foreground">
+                                ₹{(item.defaultSalePrice || item.mrp || 0).toLocaleString("en-IN")}
+                              </span>
+
+                              {/* Action: Quick Bill */}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onNewInvoice()}
+                                className="h-6 px-2 text-[10px] font-semibold text-primary border-primary/30 hover:bg-primary hover:text-primary-foreground transition-colors"
+                              >
+                                + Bill
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (searchScope === "SerialNo") {
+                        return (
+                          <div
+                            key={item.batchNumber || idx}
+                            className="group flex items-center justify-between gap-3 p-2 rounded-lg bg-card/70 hover:bg-card border border-border/50 hover:border-primary/40 transition-all shadow-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-xs font-bold text-primary">
+                                  {item.batchNumber || "SN-UNKNOWN"}
+                                </span>
+                                <span className="text-xs font-medium text-foreground truncate">
+                                  {item.itemName || item.itemCode}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                                Exp: {item.expiryDate ? item.expiryDate.slice(0, 10) : "N/A"} • Item Code: {item.itemCode || "—"}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted text-foreground border border-border">
+                                {item.quantity ?? 0} units
+                              </span>
+                              <span className="font-mono text-xs font-bold text-foreground">
+                                ₹{(item.salePrice || item.mrp || 0).toLocaleString("en-IN")}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onNewInvoice()}
+                                className="h-6 px-2 text-[10px] font-semibold text-primary border-primary/30 hover:bg-primary hover:text-primary-foreground transition-colors"
+                              >
+                                + Bill
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (searchScope === "Invoice") {
+                        const due = invBalance(item);
+                        return (
+                          <div
+                            key={item.invoiceNo || idx}
+                            className="group flex items-center justify-between gap-3 p-2 rounded-lg bg-card/70 hover:bg-card border border-border/50 hover:border-primary/40 transition-all shadow-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-xs font-bold text-primary">
+                                  {item.invoiceNo}
+                                </span>
+                                <span className="text-xs font-semibold text-foreground truncate">
+                                  {item.ownerName} ({item.petName || "General"})
+                                </span>
+                                <span
+                                  className={cn(
+                                    "text-[9px] font-bold px-1.5 py-0.2 rounded-full",
+                                    item.status === "Paid"
+                                      ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
+                                      : item.status === "Partially Paid"
+                                      ? "bg-amber-500/10 text-amber-600 border border-amber-500/20"
+                                      : "bg-rose-500/10 text-rose-600 border border-rose-500/20"
+                                  )}
+                                >
+                                  {item.status || (due === 0 ? "Paid" : "Unpaid")}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                                Date: {item.date || item.createdAt?.slice(0, 10)} • Phone: {item.ownerPhone || "—"}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="text-right">
+                                <div className="font-mono text-xs font-bold text-foreground">
+                                  ₹{(item.totalAmount || 0).toLocaleString("en-IN")}
+                                </div>
+                                {due > 0 && (
+                                  <div className="font-mono text-[10px] font-bold text-rose-600">
+                                    Due: ₹{due.toLocaleString("en-IN")}
+                                  </div>
+                                )}
+                              </div>
+
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onViewInvoice(item)}
+                                className="h-6 px-2 text-[10px] font-semibold text-foreground hover:text-primary hover:border-primary/40"
+                                title="View Bill"
+                              >
+                                <Eye className="size-3 mr-1" />
+                                View
+                              </Button>
+
+                              {due > 0 && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => onPaymentIn(item.invoiceNo)}
+                                  className="h-6 px-2 text-[10px] font-semibold text-emerald-600 border-emerald-500/30 hover:bg-emerald-600 hover:text-white"
+                                  title="Collect Payment"
+                                >
+                                  Pay
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (searchScope === "Client") {
+                        return (
+                          <div
+                            key={item.ownerPhone || item.ownerName || idx}
+                            className="group flex items-center justify-between gap-3 p-2 rounded-lg bg-card/70 hover:bg-card border border-border/50 hover:border-primary/40 transition-all shadow-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-foreground">{item.ownerName}</span>
+                                <span className="font-mono text-[10px] text-muted-foreground">
+                                  {item.ownerPhone}
+                                </span>
+                                {item.balanceDue > 0 ? (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                                    Due: ₹{item.balanceDue.toLocaleString("en-IN")}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                    Clear
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                                Pets: {item.petsList || "Walk-in OTC"} • {item.invoiceCount} Bills (₹{item.totalBilled.toLocaleString("en-IN")})
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSearchQuery(item.ownerName);
+                                  document.getElementById("billing-invoice-register")?.scrollIntoView({ behavior: "smooth" });
+                                  toast.info(`Filtered invoice register for ${item.ownerName}`);
+                                }}
+                                className="h-6 px-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+                              >
+                                History
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onNewInvoice()}
+                                className="h-6 px-2 text-[10px] font-semibold text-primary border-primary/30 hover:bg-primary hover:text-primary-foreground"
+                              >
+                                + Bill
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return null;
+                    })
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
