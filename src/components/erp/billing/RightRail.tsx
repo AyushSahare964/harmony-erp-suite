@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "@tanstack/react-router";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Receipt,
   FileText,
@@ -26,6 +27,7 @@ import {
   FileBarChart,
   ChevronLeft,
   ChevronRight,
+  Sparkles,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
@@ -62,12 +64,22 @@ export function RightRail({
 }: RightRailProps) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [initialPulse, setInitialPulse] = useState(true);
+  const [showHint, setShowHint] = useState(true);
 
   useEffect(() => {
     try {
       const isPinned = localStorage.getItem("vetos_billing_rail_pinned") === "true";
       setPinned(isPinned);
     } catch {}
+
+    const pulseTimer = setTimeout(() => setInitialPulse(false), 2500);
+    const hintTimer = setTimeout(() => setShowHint(false), 4500);
+
+    return () => {
+      clearTimeout(pulseTimer);
+      clearTimeout(hintTimer);
+    };
   }, []);
 
   const togglePin = () => {
@@ -108,41 +120,69 @@ export function RightRail({
 
   return (
     <TooltipProvider delayDuration={150}>
-      <aside
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        className={cn(
-          "hidden md:flex flex-col justify-between shrink-0 sticky top-20 self-start z-30 transition-all duration-300 ease-in-out select-none",
-          "rounded-2xl border border-border/80 bg-card/95 backdrop-blur-xl shadow-xl",
-          "h-[calc(100vh-6.5rem)] overflow-hidden",
-          isExpanded ? "w-56" : "w-14",
-          className
-        )}
-      >
-        {/* Rail Top Header: Pin toggle & Status */}
-        <div className="flex items-center justify-between p-2.5 border-b border-border/60 bg-muted/20">
-          {isExpanded ? (
-            <div className="flex items-center gap-1.5 px-1">
-              <span className="text-[11px] font-bold tracking-tight text-foreground uppercase">
-                Quick Actions
-              </span>
-            </div>
-          ) : (
-            <div className="mx-auto size-2 rounded-full bg-emerald-500 animate-pulse" />
+      <div className="relative shrink-0 hidden md:block">
+        {/* Animated Navigation Callout pointing to Right Bar on load */}
+        <AnimatePresence>
+          {showHint && !isExpanded && (
+            <motion.div
+              initial={{ opacity: 0, x: 20, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 10, scale: 0.95 }}
+              transition={{ duration: 0.4, delay: 0.2 }}
+              className="absolute -left-48 top-3 z-50 flex items-center gap-2 rounded-full border border-primary/40 bg-card/95 px-3 py-1.5 text-xs font-semibold text-primary shadow-xl backdrop-blur-md"
+            >
+              <Sparkles className="size-3 text-amber-500 animate-spin" />
+              <span>Quick Actions 👉</span>
+              <button
+                type="button"
+                onClick={() => setShowHint(false)}
+                className="ml-0.5 text-muted-foreground hover:text-foreground text-[10px]"
+              >
+                ✕
+              </button>
+            </motion.div>
           )}
+        </AnimatePresence>
 
-          <button
-            type="button"
-            onClick={togglePin}
-            title={pinned ? "Unpin side rail" : "Pin side rail open"}
-            className="p-1 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors ml-auto"
-          >
-            {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
-          </button>
-        </div>
+        <motion.aside
+          initial={{ opacity: 0, x: 28 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          className={cn(
+            "flex flex-col justify-between sticky top-20 self-start z-30 transition-all duration-300 ease-in-out select-none",
+            "rounded-2xl border border-border/80 bg-card/95 backdrop-blur-xl shadow-xl",
+            "h-[calc(100vh-6.5rem)] overflow-hidden",
+            isExpanded ? "w-56" : "w-14",
+            initialPulse && "ring-2 ring-primary/60 shadow-lg shadow-primary/20 ring-offset-2 ring-offset-background",
+            className
+          )}
+        >
+          {/* Rail Top Header: Pin toggle & Status */}
+          <div className="flex items-center justify-between p-2.5 border-b border-border/60 bg-muted/20">
+            {isExpanded ? (
+              <div className="flex items-center gap-1.5 px-1">
+                <span className="text-[11px] font-bold tracking-tight text-foreground uppercase">
+                  Quick Actions
+                </span>
+              </div>
+            ) : (
+              <div className="mx-auto size-2 rounded-full bg-emerald-500 animate-pulse" />
+            )}
 
-        {/* Action Items List */}
-        <div className="flex-1 overflow-y-auto px-1.5 py-2 space-y-3.5 scrollbar-thin">
+            <button
+              type="button"
+              onClick={togglePin}
+              title={pinned ? "Unpin side rail" : "Pin side rail open"}
+              className="p-1 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors ml-auto"
+            >
+              {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+            </button>
+          </div>
+
+          {/* Action Items List */}
+          <div className="flex-1 overflow-y-auto px-1.5 py-2 space-y-3.5 scrollbar-thin">
           {/* Section: Create Documents */}
           <div className="space-y-0.5">
             {isExpanded && (
@@ -284,7 +324,8 @@ export function RightRail({
             )}
           </div>
         </div>
-      </aside>
+      </motion.aside>
+    </div>
     </TooltipProvider>
   );
 }

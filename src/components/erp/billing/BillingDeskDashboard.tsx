@@ -34,6 +34,9 @@ import {
   Calendar,
   Boxes,
   Building2,
+  Banknote,
+  QrCode,
+  Sparkles,
 } from "lucide-react";
 import {
   PieChart,
@@ -232,6 +235,52 @@ export function BillingDeskDashboard({
     if (masked) return "₹ ••••";
     return `₹ ${amount.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
+
+  // Payment mode distribution from filtered invoices
+  const paymentModeData = useMemo(() => {
+    let cash = 0;
+    let upi = 0;
+    let card = 0;
+    let bank = 0;
+
+    filteredInvoices.forEach((inv) => {
+      if (inv.payments && Array.isArray(inv.payments) && inv.payments.length > 0) {
+        inv.payments.forEach((p: any) => {
+          const raw = (p.mode || "").toUpperCase();
+          const amt = Number(p.amount) || 0;
+          if (raw.includes("CASH")) cash += amt;
+          else if (raw.includes("UPI") || raw.includes("QR") || raw.includes("GPAY") || raw.includes("PAYTM")) upi += amt;
+          else if (raw.includes("CARD") || raw.includes("POS") || raw.includes("DEBIT") || raw.includes("CREDIT")) card += amt;
+          else bank += amt;
+        });
+      } else if (inv.amountPaid > 0) {
+        const raw = (inv.paymentMode || "").toUpperCase();
+        const amt = Number(inv.amountPaid) || 0;
+        if (raw.includes("CASH")) cash += amt;
+        else if (raw.includes("UPI") || raw.includes("QR") || raw.includes("GPAY") || raw.includes("PAYTM")) upi += amt;
+        else if (raw.includes("CARD") || raw.includes("POS") || raw.includes("DEBIT") || raw.includes("CREDIT")) card += amt;
+        else bank += amt;
+      }
+    });
+
+    const total = cash + upi + card + bank;
+
+    return {
+      total,
+      breakdown: [
+        { name: "Cash", value: cash, color: "#10b981", rawMode: "CASH" },
+        { name: "UPI / QR", value: upi, color: "#8b5cf6", rawMode: "UPI" },
+        { name: "Card / POS", value: card, color: "#3b82f6", rawMode: "CARD" },
+        { name: "Bank / Transfer", value: bank, color: "#f59e0b", rawMode: "BANK" },
+      ],
+      activeSlices: [
+        { name: "Cash", value: cash, color: "#10b981" },
+        { name: "UPI / QR", value: upi, color: "#8b5cf6" },
+        { name: "Card / POS", value: card, color: "#3b82f6" },
+        { name: "Bank / Transfer", value: bank, color: "#f59e0b" },
+      ].filter((d) => d.value > 0),
+    };
+  }, [filteredInvoices]);
 
   // 15-Day Recent Sales Bar Chart Data (Truthful real-time data across last 15 days)
   const salesChartData = useMemo(() => {
@@ -653,95 +702,122 @@ export function BillingDeskDashboard({
             </div>
           </div>
 
-          {/* 2. 6 ACTION BUTTONS GRID (Matches 2x3 Grid in Image 1 & 5) */}
-          <div className="grid grid-cols-2 gap-2.5">
-            {/* Row 1, Col 1: New Invoice (Dark Navy button from screenshot) */}
-            <button
-              onClick={onNewInvoice}
-              className="flex items-center gap-3 rounded-xl p-3.5 text-left transition-all duration-200 bg-[#0a192f] hover:bg-[#112240] text-white border border-blue-900/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 group"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 group-hover:scale-110 transition-transform">
-                <Receipt className="size-5" />
+          {/* 2. COLLECTIONS BY PAYMENT MODE & REAL-TIME RECOVERY GRAPH */}
+          <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between border-b border-border/80 bg-muted/30 px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <div className="flex size-6 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600">
+                  <Wallet className="size-3.5" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                    Collections by Mode
+                  </span>
+                </div>
               </div>
-              <div className="font-bold text-xs tracking-wide">New Invoice</div>
-            </button>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+                {totalSale > 0 ? `${Math.round((amountReceived / totalSale) * 100)}% Settled` : "100% Balanced"}
+              </span>
+            </div>
 
-            {/* Row 1, Col 2: New Quotation (Dark Navy button from screenshot) */}
-            <button
-              onClick={onNewQuotation}
-              className="flex items-center gap-3 rounded-xl p-3.5 text-left transition-all duration-200 bg-[#0a192f] hover:bg-[#112240] text-white border border-blue-900/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 group"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 group-hover:scale-110 transition-transform">
-                <FileText className="size-5" />
-              </div>
-              <div className="font-bold text-xs tracking-wide">New Quotation</div>
-            </button>
+            <div className="p-4 space-y-3.5">
+              {paymentModeData.total > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                  {/* Donut Chart (5 cols) */}
+                  <div className="sm:col-span-5 relative h-36 flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={paymentModeData.activeSlices}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={36}
+                          outerRadius={55}
+                          paddingAngle={3}
+                          strokeWidth={2}
+                          stroke="hsl(var(--card))"
+                        >
+                          {paymentModeData.activeSlices.map((entry, idx) => (
+                            <Cell key={`slice-${idx}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(val: any) => fmtMoney(Number(val))}
+                          contentStyle={{
+                            backgroundColor: "hsl(var(--card))",
+                            borderColor: "hsl(var(--border))",
+                            borderRadius: "0.5rem",
+                            fontSize: "11px",
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className="text-[10px] uppercase font-semibold text-muted-foreground">Received</span>
+                      <span className="text-xs font-bold font-mono text-foreground">{fmtMoney(paymentModeData.total)}</span>
+                    </div>
+                  </div>
 
-            {/* Row 2, Col 1: Add Purchase (Vibrant Blue button from screenshot) */}
-            <button
-              onClick={onAddPurchase}
-              className="flex items-center gap-3 rounded-xl p-3.5 text-left transition-all duration-200 bg-[#0066cc] hover:bg-[#0055b3] text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 group"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white group-hover:scale-110 transition-transform">
-                <ShoppingBag className="size-5" />
-              </div>
-              <div className="font-bold text-xs tracking-wide">Add Purchase</div>
-            </button>
+                  {/* Channel Breakdown Cards (7 cols) */}
+                  <div className="sm:col-span-7 grid grid-cols-2 gap-2">
+                    {paymentModeData.breakdown.map((item) => {
+                      const pct = paymentModeData.total > 0 ? Math.round((item.value / paymentModeData.total) * 100) : 0;
+                      return (
+                        <div
+                          key={item.name}
+                          className="rounded-xl border border-border/60 bg-muted/20 p-2 text-left transition-all hover:bg-muted/40"
+                        >
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                            <span className="text-[10px] font-semibold truncate">{item.name}</span>
+                          </div>
+                          <div className="mt-1 font-mono text-xs font-bold text-foreground truncate">
+                            {fmtMoney(item.value)}
+                          </div>
+                          <div className="text-[9px] text-muted-foreground font-mono">{pct}% share</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* Sleek Empty State with Quick Guidance */
+                <div className="flex flex-col items-center justify-center py-4 px-2 text-center rounded-xl bg-muted/20 border border-dashed border-border/80">
+                  <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary mb-2">
+                    <CreditCard className="size-5" />
+                  </div>
+                  <p className="text-xs font-bold text-foreground">No Collection Split in Date Range</p>
+                  <p className="text-[11px] text-muted-foreground max-w-[260px] mt-0.5">
+                    Counter bills and receipts recorded via F2 will automatically populate payment channels here.
+                  </p>
+                  <div className="mt-3 flex items-center gap-2 text-[10px] font-medium text-primary">
+                    <span>Use Right Sidebar</span>
+                    <span>•</span>
+                    <kbd className="px-1.5 py-0.5 rounded bg-muted text-foreground font-mono font-bold">F2 New Invoice</kbd>
+                  </div>
+                </div>
+              )}
 
-            {/* Row 2, Col 2: Add Expense (Vibrant Blue button from screenshot) */}
-            <button
-              onClick={onAddExpense}
-              className="flex items-center gap-3 rounded-xl p-3.5 text-left transition-all duration-200 bg-[#0066cc] hover:bg-[#0055b3] text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 group"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white group-hover:scale-110 transition-transform">
-                <Wallet className="size-5" />
+              {/* Settlement Progress Bar */}
+              <div className="pt-1 border-t border-border/50">
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+                  <span>Recovery Ratio (Inflow vs Due)</span>
+                  <span className="font-mono font-bold text-foreground">
+                    {totalSale > 0 ? `${Math.round((amountReceived / totalSale) * 100)}%` : "100%"}
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+                    style={{
+                      width: `${totalSale > 0 ? Math.min(100, Math.round((amountReceived / totalSale) * 100)) : 100}%`,
+                    }}
+                  />
+                </div>
               </div>
-              <div className="font-bold text-xs tracking-wide">Add Expense</div>
-            </button>
-
-            {/* Row 3, Col 1: Add Client (Vibrant Blue button from screenshot) */}
-            <button
-              onClick={onAddCustomer}
-              className="flex items-center gap-3 rounded-xl p-3.5 text-left transition-all duration-200 bg-[#0066cc] hover:bg-[#0055b3] text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 group"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white group-hover:scale-110 transition-transform">
-                <UserPlus className="size-5" />
-              </div>
-              <div className="font-bold text-xs tracking-wide">Add Client</div>
-            </button>
-
-            {/* Row 3, Col 2: Add Supplier (Vibrant Blue button from screenshot) */}
-            <button
-              onClick={onAddSupplier}
-              className="flex items-center gap-3 rounded-xl p-3.5 text-left transition-all duration-200 bg-[#0066cc] hover:bg-[#0055b3] text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 group"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white group-hover:scale-110 transition-transform">
-                <Building2 className="size-5" />
-              </div>
-              <div className="font-bold text-xs tracking-wide">Add Supplier</div>
-            </button>
-
-            {/* Row 4, Col 1: Add Reminder (Vibrant Blue button from screenshot) */}
-            <button
-              onClick={onAddReminder}
-              className="flex items-center gap-3 rounded-xl p-3.5 text-left transition-all duration-200 bg-[#0066cc] hover:bg-[#0055b3] text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 group"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white group-hover:scale-110 transition-transform">
-                <Bell className="size-5" />
-              </div>
-              <div className="font-bold text-xs tracking-wide">Add Reminder</div>
-            </button>
-
-            {/* Row 4, Col 2: Quick Payment In */}
-            <button
-              onClick={() => onPaymentIn()}
-              className="flex items-center gap-3 rounded-xl p-3.5 text-left transition-all duration-200 bg-[#0066cc] hover:bg-[#0055b3] text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 group"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white group-hover:scale-110 transition-transform">
-                <ArrowDownCircle className="size-5" />
-              </div>
-              <div className="font-bold text-xs tracking-wide">Collect Payment</div>
-            </button>
+            </div>
           </div>
 
           {/* 3. DISTRIBUTION IN LAST 30 DAYS (3D Isometric Tilted Donut Chart matching Screenshot) */}
