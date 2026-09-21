@@ -177,6 +177,19 @@ function serializeSectionState(sectionKey: string, data: any): string {
       other: String(data?.other ?? "").trim(),
     });
   }
+  if (sectionKey === "VITALS") {
+    return JSON.stringify({
+      weight: data?.weight !== undefined && data?.weight !== null && data?.weight !== "" ? String(data.weight).trim() : "",
+      weightUnit: String(data?.weightUnit || "kg"),
+      temp:
+        data?.bodyTemperature !== undefined && data?.bodyTemperature !== null && data?.bodyTemperature !== ""
+          ? String(data.bodyTemperature).trim()
+          : data?.temp !== undefined && data?.temp !== null && data?.temp !== ""
+          ? String(data.temp).trim()
+          : "",
+      tempUnit: String(data?.temperatureUnit || data?.tempUnit || "°C"),
+    });
+  }
   if (sectionKey === "FEE") {
     return JSON.stringify({
       amount: data?.amount !== undefined && data?.amount !== null ? Number(data.amount) : null,
@@ -207,21 +220,47 @@ export function PrescriptionWorkflow({
 }: PrescriptionWorkflowProps) {
   const initialRx: IPrescriptionData = prescriptionData || visit?.prescriptionData || {};
 
-  // Patient details (Read-only reception data)
+  // Patient details (Read-only reception identity data)
   const patientName = visit?.petName || petDetails?.name || "Patient";
   const patientId = visit?.petId || petDetails?.petId || "PET-0001";
   const rawDate = visit?.date || initialRx.dateOfVisit || new Date().toISOString().slice(0, 10);
   const formattedVisitDate = formatDisplayDate(rawDate) || rawDate;
 
-  const displayWeight =
-    initialRx.weight ??
-    (visit?.vitals?.weight !== undefined ? visit.vitals.weight : visit?.vitals?.weightKg ?? 25);
-  const displayWeightUnit = initialRx.weightUnit || visit?.vitals?.weightUnit || "kg";
+  // Receptionist Intake vs Manual Vitals Check (no hardcoded fake seed fallbacks)
+  const rawIntakeWeight =
+    initialRx.weight !== undefined && initialRx.weight !== null
+      ? initialRx.weight
+      : visit?.vitals?.weight !== undefined && visit?.vitals?.weight !== null
+      ? visit.vitals.weight
+      : visit?.vitals?.weightKg !== undefined && visit?.vitals?.weightKg !== null
+      ? visit.vitals.weightKg
+      : undefined;
 
-  const displayTemp =
-    initialRx.bodyTemperature ??
-    (visit?.vitals?.temp !== undefined ? visit.vitals.temp : visit?.vitals?.tempC ?? 38.5);
-  const displayTempUnit = initialRx.temperatureUnit || visit?.vitals?.tempUnit || "°C";
+  const rawIntakeTemp =
+    initialRx.bodyTemperature !== undefined && initialRx.bodyTemperature !== null
+      ? initialRx.bodyTemperature
+      : visit?.vitals?.temp !== undefined && visit?.vitals?.temp !== null
+      ? visit.vitals.temp
+      : visit?.vitals?.tempC !== undefined && visit?.vitals?.tempC !== null
+      ? visit.vitals.tempC
+      : undefined;
+
+  const hasIntakeVitals = rawIntakeWeight !== undefined || rawIntakeTemp !== undefined;
+
+  // Doctor-editable Vitals State (allows manual entry if receptionist didn't capture)
+  const [patientWeight, setPatientWeight] = useState<string>(
+    rawIntakeWeight !== undefined ? String(rawIntakeWeight) : ""
+  );
+  const [patientWeightUnit, setPatientWeightUnit] = useState<"kg" | "lb">(
+    initialRx.weightUnit || visit?.vitals?.weightUnit || "kg"
+  );
+
+  const [patientTemp, setPatientTemp] = useState<string>(
+    rawIntakeTemp !== undefined ? String(rawIntakeTemp) : ""
+  );
+  const [patientTempUnit, setPatientTempUnit] = useState<"°C" | "°F">(
+    initialRx.temperatureUnit || visit?.vitals?.tempUnit || "°C"
+  );
 
   // Check if visit is settled
   const isSettled =
@@ -526,6 +565,12 @@ export function PrescriptionWorkflow({
 
   // ── Snapshots for Dirty Detection ─────────────────────────────────────────
   const [lastSaved, setLastSaved] = useState<Record<string, string>>(() => ({
+    VITALS: serializeSectionState("VITALS", {
+      weight: rawIntakeWeight !== undefined ? String(rawIntakeWeight) : "",
+      weightUnit: initialRx.weightUnit || visit?.vitals?.weightUnit || "kg",
+      temp: rawIntakeTemp !== undefined ? String(rawIntakeTemp) : "",
+      tempUnit: initialRx.temperatureUnit || visit?.vitals?.tempUnit || "°C",
+    }),
     HISTORY: serializeSectionState("HISTORY", { text: initialRx.previousHistory ?? visit?.clinicalNotes ?? "" }),
     SYMPTOMS: serializeSectionState("SYMPTOMS", {
       text: initialRx.symptomsText ?? "",
@@ -557,6 +602,16 @@ export function PrescriptionWorkflow({
   const [isProceeding, setIsProceeding] = useState(false);
 
   // Dirty calculations
+  const isVitalsDirty = useMemo(
+    () =>
+      serializeSectionState("VITALS", {
+        weight: patientWeight,
+        weightUnit: patientWeightUnit,
+        temp: patientTemp,
+        tempUnit: patientTempUnit,
+      }) !== lastSaved["VITALS"],
+    [patientWeight, patientWeightUnit, patientTemp, patientTempUnit, lastSaved]
+  );
   const isHistoryDirty = useMemo(
     () => serializeSectionState("HISTORY", { text: previousHistory }) !== lastSaved["HISTORY"],
     [previousHistory, lastSaved]
@@ -615,6 +670,7 @@ export function PrescriptionWorkflow({
   );
 
   const hasAnyDirtySection =
+    isVitalsDirty ||
     isHistoryDirty ||
     isSymptomsDirty ||
     isFindingsDirty ||
@@ -630,6 +686,7 @@ export function PrescriptionWorkflow({
 
   // Jump Bar Section Definitions
   const jumpSections: SectionJumpItem[] = [
+    { id: "sec-vitals", label: "0. Vitals", isDirty: isVitalsDirty },
     { id: "sec-history", label: "1. History", isDirty: isHistoryDirty },
     { id: "sec-symptoms", label: "2. Symptoms", isDirty: isSymptomsDirty },
     { id: "sec-findings", label: "3. Findings", isDirty: isFindingsDirty },
@@ -701,6 +758,7 @@ export function PrescriptionWorkflow({
       }
 
       const sectionFriendlyNames: Record<string, string> = {
+        VITALS: "Patient Vitals",
         HISTORY: "Previous History",
         SYMPTOMS: "Symptoms",
         FINDINGS: "Clinical Findings",
@@ -728,6 +786,13 @@ export function PrescriptionWorkflow({
   };
 
   // Section Save Callbacks
+  const handleSaveVitals = () =>
+    executeSaveSection("VITALS", {
+      weight: patientWeight ? Number(patientWeight) : undefined,
+      weightUnit: patientWeightUnit,
+      bodyTemperature: patientTemp ? Number(patientTemp) : undefined,
+      temperatureUnit: patientTempUnit,
+    });
   const handleSaveHistory = () =>
     executeSaveSection("HISTORY", { text: previousHistory.trim() });
   const handleSaveSymptoms = () =>
@@ -824,6 +889,7 @@ export function PrescriptionWorkflow({
     setIsSavingAll(true);
     let anyFailed = false;
     try {
+      if (isVitalsDirty) await handleSaveVitals();
       if (isHistoryDirty) await handleSaveHistory();
       if (isSymptomsDirty) await handleSaveSymptoms();
       if (isFindingsDirty) await handleSaveFindings();
@@ -976,8 +1042,10 @@ export function PrescriptionWorkflow({
     const rxSnapshot: IPrescriptionData = {
       prescriptionId: visit.prescriptionNo,
       dateOfVisit: rawDate,
-      weight: displayWeight,
-      bodyTemperature: displayTemp,
+      weight: patientWeight ? Number(patientWeight) : undefined,
+      weightUnit: patientWeightUnit,
+      bodyTemperature: patientTemp ? Number(patientTemp) : undefined,
+      temperatureUnit: patientTempUnit,
       previousHistory,
       symptomsText,
       symptomTags,
@@ -1017,6 +1085,7 @@ export function PrescriptionWorkflow({
       // each save sees the version the previous one just wrote.
       if (hasAnyDirtySection && !isSettled) {
         const saveHandlers: Array<() => Promise<void>> = [];
+        if (isVitalsDirty) saveHandlers.push(handleSaveVitals);
         if (isHistoryDirty) saveHandlers.push(handleSaveHistory);
         if (isSymptomsDirty) saveHandlers.push(handleSaveSymptoms);
         if (isFindingsDirty) saveHandlers.push(handleSaveFindings);
@@ -1363,42 +1432,143 @@ export function PrescriptionWorkflow({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Columns: Structured Prescription Sections */}
         <div className="lg:col-span-2 space-y-6">
-          {/* 1. Patient Details (Read-only receptionist intake data) */}
-          <div className="rounded-xl border border-border bg-card p-4 space-y-3 shadow-2xs">
-            <div className="flex items-center justify-between">
+          {/* 1. Patient Details & Doctor-Editable Vitals (Supports manual entry if not taken from receptionist) */}
+          <div id="sec-vitals" className="rounded-xl border border-border bg-card p-4 space-y-3 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <User className="size-3.5 text-primary" />
-                <span>Patient Details</span>
+                <span>Patient Details &amp; Vitals</span>
               </h3>
-              <span className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded font-mono font-medium">
-                Read-only (Receptionist Intake)
-              </span>
+              <div className="flex items-center gap-2">
+                {hasIntakeVitals ? (
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 px-2 py-0.5 rounded font-mono font-medium">
+                    Reception Intake (Editable)
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/20 px-2 py-0.5 rounded font-mono font-medium">
+                    Manual Doctor Entry
+                  </span>
+                )}
+                {isVitalsDirty && (
+                  <Button
+                    size="sm"
+                    onClick={handleSaveVitals}
+                    disabled={sectionStatus["VITALS"] === "saving"}
+                    className="h-6 px-2 text-[10px] font-bold bg-primary text-primary-foreground shadow-xs gap-1"
+                  >
+                    {sectionStatus["VITALS"] === "saving" ? "Saving..." : "Save Vitals ✓"}
+                  </Button>
+                )}
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-lg bg-muted/30 border border-border/60 p-2.5">
-                <span className="text-[10px] text-muted-foreground block font-medium">Patient Name</span>
-                <span className="text-xs font-bold text-foreground truncate block mt-0.5">{patientName}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Patient Name */}
+              <div className="rounded-lg bg-muted/30 border border-border/60 p-2.5 flex flex-col justify-between">
+                <span className="text-[10px] text-muted-foreground font-medium">Patient Name</span>
+                <span className="text-xs font-bold text-foreground truncate mt-0.5">{patientName}</span>
               </div>
-              <div className="rounded-lg bg-muted/30 border border-border/60 p-2.5">
-                <span className="text-[10px] text-muted-foreground block font-medium">Patient ID</span>
-                <span className="text-xs font-bold font-mono text-primary truncate block mt-0.5">{patientId}</span>
+
+              {/* Patient ID */}
+              <div className="rounded-lg bg-muted/30 border border-border/60 p-2.5 flex flex-col justify-between">
+                <span className="text-[10px] text-muted-foreground font-medium">Patient ID</span>
+                <span className="text-xs font-bold font-mono text-primary truncate mt-0.5">{patientId}</span>
               </div>
-              <div className="rounded-lg bg-muted/30 border border-border/60 p-2.5">
-                <span className="text-[10px] text-muted-foreground block font-medium flex items-center gap-1">
-                  <Weight className="size-3 text-muted-foreground" /> Weight
-                </span>
-                <span className="text-xs font-bold font-mono text-foreground block mt-0.5">
-                  {displayWeight} {displayWeightUnit}
-                </span>
+
+              {/* Weight (Manual entry supported) */}
+              <div className="rounded-lg bg-muted/30 border border-border/60 p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                    <Weight className="size-3 text-primary" /> Weight
+                  </span>
+                  <span className="text-[9px] text-muted-foreground font-mono">Editable</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={patientWeight}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPatientWeight(val);
+                      onPrescriptionDataChange?.({
+                        ...initialRx,
+                        weight: val ? Number(val) : undefined,
+                        weightUnit: patientWeightUnit,
+                      });
+                    }}
+                    onBlur={() => {
+                      if (isVitalsDirty) void handleSaveVitals();
+                    }}
+                    placeholder="Enter weight"
+                    className="h-7 text-xs font-mono font-bold bg-background px-2 flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = patientWeightUnit === "kg" ? "lb" : "kg";
+                      setPatientWeightUnit(next);
+                      onPrescriptionDataChange?.({
+                        ...initialRx,
+                        weight: patientWeight ? Number(patientWeight) : undefined,
+                        weightUnit: next,
+                      });
+                    }}
+                    className="h-7 px-1.5 text-[10px] font-bold rounded border border-border bg-card text-foreground hover:bg-muted transition-colors shrink-0"
+                    title="Toggle unit (kg / lb)"
+                  >
+                    {patientWeightUnit}
+                  </button>
+                </div>
               </div>
-              <div className="rounded-lg bg-muted/30 border border-border/60 p-2.5">
-                <span className="text-[10px] text-muted-foreground block font-medium flex items-center gap-1">
-                  <Thermometer className="size-3 text-muted-foreground" /> Temperature
-                </span>
-                <span className="text-xs font-bold font-mono text-foreground block mt-0.5">
-                  {displayTemp} {displayTempUnit}
-                </span>
+
+              {/* Temperature (Manual entry supported) */}
+              <div className="rounded-lg bg-muted/30 border border-border/60 p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                    <Thermometer className="size-3 text-primary" /> Temperature
+                  </span>
+                  <span className="text-[9px] text-muted-foreground font-mono">Editable</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={patientTemp}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPatientTemp(val);
+                      onPrescriptionDataChange?.({
+                        ...initialRx,
+                        bodyTemperature: val ? Number(val) : undefined,
+                        temperatureUnit: patientTempUnit,
+                      });
+                    }}
+                    onBlur={() => {
+                      if (isVitalsDirty) void handleSaveVitals();
+                    }}
+                    placeholder="Enter temp"
+                    className="h-7 text-xs font-mono font-bold bg-background px-2 flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = patientTempUnit === "°C" ? "°F" : "°C";
+                      setPatientTempUnit(next);
+                      onPrescriptionDataChange?.({
+                        ...initialRx,
+                        bodyTemperature: patientTemp ? Number(patientTemp) : undefined,
+                        temperatureUnit: next,
+                      });
+                    }}
+                    className="h-7 px-1.5 text-[10px] font-bold rounded border border-border bg-card text-foreground hover:bg-muted transition-colors shrink-0"
+                    title="Toggle unit (°C / °F)"
+                  >
+                    {patientTempUnit}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

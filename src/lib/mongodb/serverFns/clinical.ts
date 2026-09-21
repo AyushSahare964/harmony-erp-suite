@@ -429,6 +429,7 @@ async function applyInventoryStockDelta(
 const SectionSaveInputZ = z.object({
   visitId: z.string().min(1),
   section: z.enum([
+    "VITALS",
     "HISTORY",
     "SYMPTOMS",
     "FINDINGS",
@@ -522,6 +523,49 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
 
     // 3. Section Dispatch
     switch (data.section) {
+      case "VITALS": {
+        const rawWeight = data.payload?.weight;
+        const weight = rawWeight !== undefined && rawWeight !== null && rawWeight !== ""
+          ? Number(rawWeight)
+          : undefined;
+        const weightUnit = (data.payload?.weightUnit as "kg" | "lb") || "kg";
+
+        const rawTemp = data.payload?.bodyTemperature ?? data.payload?.temp;
+        const temp = rawTemp !== undefined && rawTemp !== null && rawTemp !== ""
+          ? Number(rawTemp)
+          : undefined;
+        const tempUnit = (data.payload?.temperatureUnit as "°C" | "°F") || (data.payload?.tempUnit as "°C" | "°F") || "°C";
+
+        if (!visit.vitals) {
+          visit.vitals = {};
+        }
+
+        if (weight !== undefined && !isNaN(weight)) {
+          visit.vitals.weight = weight;
+          visit.vitals.weightKg = weightUnit === "lb" ? Math.round(weight * 0.453592 * 10) / 10 : weight;
+          visit.vitals.weightUnit = weightUnit;
+          visit.prescriptionData.weight = weight;
+          visit.prescriptionData.weightUnit = weightUnit;
+        } else {
+          visit.vitals.weight = undefined;
+          visit.vitals.weightKg = undefined;
+          visit.prescriptionData.weight = undefined;
+        }
+
+        if (temp !== undefined && !isNaN(temp)) {
+          visit.vitals.temp = temp;
+          visit.vitals.tempC = tempUnit === "°F" ? Math.round(((temp - 32) * 5 / 9) * 10) / 10 : temp;
+          visit.vitals.tempUnit = tempUnit;
+          visit.prescriptionData.bodyTemperature = temp;
+          visit.prescriptionData.temperatureUnit = tempUnit;
+        } else {
+          visit.vitals.temp = undefined;
+          visit.vitals.tempC = undefined;
+          visit.prescriptionData.bodyTemperature = undefined;
+        }
+        break;
+      }
+
       case "FEE": {
         const feeAmount =
           typeof data.payload?.amount === "number"
