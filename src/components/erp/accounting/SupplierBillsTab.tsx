@@ -14,6 +14,9 @@ import {
   ChevronUp,
   TrendingDown,
   TrendingUp,
+  Eye,
+  Download,
+  Trash2,
 } from "lucide-react";
 import {
   BarChart,
@@ -46,6 +49,8 @@ import { formatDisplayDate } from "@/lib/utils/dateUtils";
 import {
   listPurchaseBillsFn,
   voidPurchaseBillFn,
+  markPurchaseBillPaidFn,
+  deletePurchaseBillFn,
   type PurchaseBillRow,
 } from "@/lib/mongodb/serverFns/purchaseBills";
 import {
@@ -54,6 +59,7 @@ import {
 } from "@/lib/mongodb/serverFns/masters";
 import { listInvoicesFn } from "@/lib/mongodb/serverFns/billing";
 import { SupplierBillFormModal } from "./SupplierBillFormModal";
+import { PurchaseBillPrintView } from "@/components/erp/billing/PurchaseBillPrintView";
 import { toast } from "sonner";
 
 interface SupplierBillsTabProps {
@@ -102,6 +108,48 @@ export function SupplierBillsTab({ onPayBill }: SupplierBillsTabProps) {
   const [showAnalytics, setShowAnalytics] = useState(true);
   const [billingRevenue, setBillingRevenue] = useState(0);
   const [billingLoading, setBillingLoading] = useState(false);
+  const [selectedPrintBill, setSelectedPrintBill] = useState<PurchaseBillRow | null>(null);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+
+  const handleOpenPrintBill = (row: PurchaseBillRow) => {
+    setSelectedPrintBill(row);
+    setShowPrintModal(true);
+  };
+
+  const handleMarkBillPaid = async (billId: string) => {
+    try {
+      await markPurchaseBillPaidFn({ data: { id: billId, mode: "BANK_TRANSFER" } });
+      toast.success("Purchase bill marked as PAID!");
+      void fetchBills();
+      if (selectedPrintBill && selectedPrintBill._id === billId) {
+        setSelectedPrintBill({
+          ...selectedPrintBill,
+          amountPaid: selectedPrintBill.grandTotal,
+          status: "PAID",
+        });
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to mark bill as paid");
+    }
+  };
+
+  const handleDeleteBill = async (billId: string, ref?: string) => {
+    const billLabel = ref || "this purchase bill";
+    if (!window.confirm(`Are you sure you want to permanently delete purchase bill ${billLabel}? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deletePurchaseBillFn({ data: { id: billId } });
+      toast.success(`Purchase bill ${billLabel} deleted successfully.`);
+      if (selectedPrintBill?._id === billId) {
+        setShowPrintModal(false);
+        setSelectedPrintBill(null);
+      }
+      void fetchBills();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete bill");
+    }
+  };
 
   useEffect(() => {
     listSuppliersFn()
@@ -554,12 +602,32 @@ export function SupplierBillsTab({ onPayBill }: SupplierBillsTabProps) {
                       <td className="px-4 py-3 text-center whitespace-nowrap">
                         {!isVoid ? (
                           <div className="flex items-center justify-center gap-1">
-                            {balance > 0 && onPayBill && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenPrintBill(row)}
+                              className="h-6 px-1.5 text-[11px] font-semibold text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:hover:bg-sky-950/50 gap-1"
+                              title="View Purchase Bill"
+                            >
+                              <Eye className="size-3" />
+                              <span>View</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenPrintBill(row)}
+                              title="Download PDF"
+                              className="size-6 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                            >
+                              <Download className="size-3" />
+                            </Button>
+                            {balance > 0 && (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => onPayBill(row.supplierId, row._id)}
-                                className="h-6 px-2 text-[10px] gap-1 text-primary border-primary/20 hover:bg-primary/10"
+                                onClick={() => handleMarkBillPaid(row._id)}
+                                className="h-6 px-2 text-[10px] font-bold text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 gap-1"
+                                title="Mark as Paid"
                               >
                                 <CreditCard className="size-3" /> Pay
                               </Button>
@@ -572,6 +640,15 @@ export function SupplierBillsTab({ onPayBill }: SupplierBillsTabProps) {
                               className="size-6 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"
                             >
                               <Ban className="size-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteBill(row._id, row.internalRef || row.billNumber)}
+                              title="Delete Bill"
+                              className="size-6 text-rose-500 hover:bg-rose-500/10 hover:text-rose-700"
+                            >
+                              <Trash2 className="size-3" />
                             </Button>
                           </div>
                         ) : (
@@ -611,6 +688,15 @@ export function SupplierBillsTab({ onPayBill }: SupplierBillsTabProps) {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSuccess={fetchBills}
+      />
+
+      {/* ── Purchase Bill View & Download Modal ── */}
+      <PurchaseBillPrintView
+        bill={selectedPrintBill}
+        open={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        onMarkPaid={handleMarkBillPaid}
+        onDelete={handleDeleteBill}
       />
     </div>
   );

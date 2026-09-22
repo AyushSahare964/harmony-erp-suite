@@ -325,3 +325,86 @@ export const voidPurchaseBillFn = createServerFn({ method: "POST" })
 
     return { ok: true };
   });
+
+export const markPurchaseBillPaidFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) =>
+    z.object({
+      id: z.string(),
+      mode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]).default("BANK_TRANSFER"),
+      paymentDate: z.string().optional(),
+    }).parse(raw)
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    await connectDB();
+    const bill = await PurchaseBillModel.findById(data.id);
+    if (!bill) throw new Error("Purchase bill not found");
+    if (bill.status === "PAID") return { ok: true };
+
+    const payDate = data.paymentDate || todayIST();
+    const remaining = Math.max(0, bill.grandTotal - (bill.amountPaid || 0));
+
+    bill.amountPaid = bill.grandTotal;
+    bill.status = "PAID";
+    await bill.save();
+
+    // Create a corresponding SupplierPayment voucher
+    const { from } = fiscalYearRange(payDate);
+    const fyStart = parseInt(from.slice(0, 4), 10);
+    const fyShort = `${fyStart}-${String(fyStart + 1).slice(2)}`;
+    const paySeqId = await nextSeq(`payment_out_${fyStart}`, `PO/${fyShort}`, 4);
+    const voucherNo = paySeqId.replace(/-(\d{4})$/, "/$1");
+
+    await SupplierPaymentModel.create({
+      voucherNo,
+      supplierId: bill.supplierId,
+      supplierName: bill.supplierName,
+      paymentDate: payDate,
+      totalAmount: remaining > 0 ? remaining : bill.grandTotal,
+      source: "BILL_ENTRY",
+      allocationMode: "SELECTED",
+      paymentLines: [
+        {
+          mode: data.mode,
+          accountId: "DEFAULT_PAYMENT",
+          accountName: data.mode === "CASH" ? "Cash Register" : "Main Bank Account",
+          amount: remaining > 0 ? remaining : bill.grandTotal,
+        },
+      ],
+      allocations: [
+        {
+          purchaseBillId: String(bill._id),
+          billRef: `${bill.internalRef} (${bill.billNumber})`,
+          amount: remaining > 0 ? remaining : bill.grandTotal,
+          allocatedOn: payDate,
+        },
+      ],
+      status: "ACTIVE",
+    });
+
+    return { ok: true };
+  });
+
+export const deletePurchaseBillFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => z.object({ id: z.string() }).parse(raw))
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    await connectDB();
+    const bill = await PurchaseBillModel.findById(data.id);
+    if (!bill) throw new Error("Purchase bill not found");
+
+    // Remove any supplier payments directly generated from this bill entry
+    await SupplierPaymentModel.deleteMany({
+      "allocations.purchaseBillId": data.id,
+      source: "BILL_ENTRY",
+    });
+
+    // Remove allocation reference from any other payments
+    await SupplierPaymentModel.updateMany(
+      { "allocations.purchaseBillId": data.id },
+      { $pull: { allocations: { purchaseBillId: data.id } } }
+    );
+
+    // Delete the purchase bill document
+    await PurchaseBillModel.findByIdAndDelete(data.id);
+
+    return { ok: true };
+  });

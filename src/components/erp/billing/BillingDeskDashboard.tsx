@@ -43,6 +43,7 @@ import {
   X,
   AlertTriangle,
   ExternalLink,
+  Trash2,
 } from "lucide-react";
 import { useInventory } from "@/components/erp/inventory/useInventoryStore";
 import {
@@ -81,7 +82,13 @@ import { QuotationsRegisterView } from "../reports/QuotationsRegisterView";
 import { GstCalculatorPopover } from "./GstCalculatorPopover";
 import { listExpensesFn, type ExpenseRow } from "@/lib/mongodb/serverFns/expenses";
 import { listQuotationsFn } from "@/lib/mongodb/serverFns/quotations";
-import { listPurchaseBillsFn, type PurchaseBillRow } from "@/lib/mongodb/serverFns/purchaseBills";
+import {
+  listPurchaseBillsFn,
+  markPurchaseBillPaidFn,
+  deletePurchaseBillFn,
+  type PurchaseBillRow,
+} from "@/lib/mongodb/serverFns/purchaseBills";
+import { PurchaseBillPrintView } from "./PurchaseBillPrintView";
 import { cn } from "@/lib/utils";
 
 interface BillingDeskDashboardProps {
@@ -195,6 +202,48 @@ export function BillingDeskDashboard({
   // Modals
   const [dailySummaryOpen, setDailySummaryOpen] = useState(false);
   const [stockSummaryOpen, setStockSummaryOpen] = useState(false);
+  const [selectedPurchaseBill, setSelectedPurchaseBill] = useState<PurchaseBillRow | null>(null);
+  const [showPurchaseBillPrintView, setShowPurchaseBillPrintView] = useState(false);
+
+  const handleOpenPurchaseBill = (pur: PurchaseBillRow) => {
+    setSelectedPurchaseBill(pur);
+    setShowPurchaseBillPrintView(true);
+  };
+
+  const handleMarkPurchaseBillPaid = async (billId: string) => {
+    try {
+      await markPurchaseBillPaidFn({ data: { id: billId, mode: "BANK_TRANSFER" } });
+      toast.success("Purchase bill marked as PAID!");
+      await loadExtraRegisters();
+      if (selectedPurchaseBill && selectedPurchaseBill._id === billId) {
+        setSelectedPurchaseBill({
+          ...selectedPurchaseBill,
+          amountPaid: selectedPurchaseBill.grandTotal,
+          status: "PAID",
+        });
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to mark bill as paid");
+    }
+  };
+
+  const handleDeletePurchaseBill = async (billId: string, refName?: string) => {
+    const billLabel = refName || "this purchase bill";
+    const confirmed = window.confirm(`Are you sure you want to permanently delete purchase bill ${billLabel}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      await deletePurchaseBillFn({ data: { id: billId } });
+      toast.success(`Purchase bill ${billLabel} deleted successfully.`);
+      if (selectedPurchaseBill?._id === billId) {
+        setShowPurchaseBillPrintView(false);
+        setSelectedPurchaseBill(null);
+      }
+      await loadExtraRegisters();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete purchase bill");
+    }
+  };
 
   // Live system clock for bottom bar (matching Image 5 clock)
   const [currentTime, setCurrentTime] = useState("");
@@ -1914,12 +1963,13 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3 text-right">Paid (₹)</th>
                     <th className="px-4 py-3 text-right">Balance Due (₹)</th>
                     <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredPurchases.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                      <td colSpan={9} className="py-12 text-center text-muted-foreground">
                         <ShoppingBag className="size-8 mx-auto text-muted-foreground/40 mb-2" />
                         <p className="font-semibold text-foreground">No purchase bills recorded</p>
                         <p className="text-xs">No vendor invoices matched your filters.</p>
@@ -1929,12 +1979,16 @@ export function BillingDeskDashboard({
                     filteredPurchases.map((pur) => {
                       const due = Math.max(0, pur.grandTotal - pur.amountPaid);
                       return (
-                        <tr key={pur._id} className="transition-colors hover:bg-muted/30">
+                        <tr
+                          key={pur._id}
+                          onClick={() => handleOpenPurchaseBill(pur)}
+                          className="transition-colors hover:bg-muted/40 cursor-pointer"
+                        >
                           <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                             {formatDisplayDate(pur.billDate)}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800 hover:bg-sky-100 transition-colors">
                               <span className="px-1 py-0.2 rounded text-[9px] font-black bg-sky-600 text-white">PUR</span>
                               <span>{pur.internalRef || pur.billNumber || `PUR-${pur._id.slice(-4)}`}</span>
                             </span>
@@ -1959,6 +2013,53 @@ export function BillingDeskDashboard({
                           </td>
                           <td className="px-4 py-3 text-center whitespace-nowrap">
                             <StatusPill value={pur.status} />
+                          </td>
+                          <td
+                            className="px-4 py-3 text-center whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-center gap-1">
+                              {due > 0 && pur.status !== "PAID" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleMarkPurchaseBillPaid(pur._id)}
+                                  className="h-6 px-2 text-[10px] font-bold text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 gap-1 shadow-2xs"
+                                  title="Mark as Paid"
+                                >
+                                  <CreditCard className="size-3" />
+                                  <span>Pay</span>
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleOpenPurchaseBill(pur)}
+                                className="h-7 px-2 text-xs text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:hover:bg-sky-950/50 gap-1 font-semibold"
+                                title="View Purchase Bill"
+                              >
+                                <Eye className="size-3.5" />
+                                <span>View</span>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleOpenPurchaseBill(pur)}
+                                className="h-7 w-7 p-0 text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Download PDF / Print"
+                              >
+                                <Download className="size-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeletePurchaseBill(pur._id, pur.internalRef || pur.billNumber)}
+                                className="h-7 w-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                                title="Delete Purchase Bill"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -2303,9 +2404,13 @@ export function BillingDeskDashboard({
         invoices={invoices}
       />
 
-      <StockSummaryModal
-        open={stockSummaryOpen}
-        onClose={() => setStockSummaryOpen(false)}
+      {/* ── PURCHASE BILL VIEW & PRINT MODAL ── */}
+      <PurchaseBillPrintView
+        bill={selectedPurchaseBill}
+        open={showPurchaseBillPrintView}
+        onClose={() => setShowPurchaseBillPrintView(false)}
+        onMarkPaid={handleMarkPurchaseBillPaid}
+        onDelete={handleDeletePurchaseBill}
       />
     </div>
   );

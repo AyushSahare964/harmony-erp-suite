@@ -56,6 +56,12 @@ import {
   type ValuationMethod,
 } from "./useInventoryStore";
 import { peekItemCodeFn } from "@/lib/mongodb/serverFns/inventory";
+import { createPurchaseBillFn } from "@/lib/mongodb/serverFns/purchaseBills";
+import { todayIST } from "@/lib/utils/dateUtils";
+import {
+  PurchaseBillWizardSection,
+  type PurchaseBillWizardState,
+} from "./PurchaseBillWizardSection";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -464,6 +470,23 @@ export function ProductMasterWizardDialog({
   const draftKey = `vetos_draft_${form.productType}`;
   const activeDef = CATEGORY_DEFS.find((d) => d.type === form.productType) ?? CATEGORY_DEFS[0]!;
 
+  const [purchaseBillState, setPurchaseBillState] = useState<PurchaseBillWizardState>(() => ({
+    enabled: !editing,
+    purchaseType: "GST",
+    billDate: todayIST(),
+    paymentStatus: "PAID",
+    paymentMode: "CASH",
+    supplierId: editing?.defaultSupplierId || "",
+    supplierName: editing?.defaultSupplierName || "",
+    placeOfSupply: "Maharashtra",
+    poNumber: "",
+    purchaseBillNo: `PB-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+    lines: [],
+    addShipping: false,
+    shippingCost: 0,
+    remarks: "",
+  }));
+
   // Reset or load initial data when dialog opens
   useEffect(() => {
     if (open) {
@@ -473,6 +496,23 @@ export function ProductMasterWizardDialog({
         initial.name = initialName;
       }
       setForm(initial);
+
+      setPurchaseBillState({
+        enabled: !editing,
+        purchaseType: "GST",
+        billDate: todayIST(),
+        paymentStatus: "PAID",
+        paymentMode: "CASH",
+        supplierId: editing?.defaultSupplierId || "",
+        supplierName: editing?.defaultSupplierName || "",
+        placeOfSupply: "Maharashtra",
+        poNumber: "",
+        purchaseBillNo: `PB-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+        lines: [],
+        addShipping: false,
+        shippingCost: 0,
+        remarks: "",
+      });
 
       // Check draft only when adding and no explicit initialName
       if (!editing && !initialName) {
@@ -732,7 +772,88 @@ export function ProductMasterWizardDialog({
       } else {
         const created = await addMedicine(payload as any);
         localStorage.removeItem(draftKey);
-        toast.success(`Created ${form.name} (${nextCode || "New"}) successfully`);
+
+        // Auto-generate Purchase Bill in Billing & Payments if enabled
+        if (purchaseBillState.enabled && purchaseBillState.lines.length > 0) {
+          try {
+            const subTotal = purchaseBillState.lines.reduce((s, l) => s + (l.amount || 0), 0);
+            const shipping = purchaseBillState.addShipping ? Math.max(0, purchaseBillState.shippingCost || 0) : 0;
+            const grandTotal = Math.round((subTotal + shipping) * 100) / 100;
+            const invItemId = created ? (created as any)._id || created.itemCode : undefined;
+
+            const paymentStatus = purchaseBillState.paymentStatus || "PAID";
+            const finalTotal = grandTotal > 0 ? grandTotal : 1;
+            const actualPaidAmount =
+              paymentStatus === "PAID"
+                ? finalTotal
+                : paymentStatus === "PARTIAL"
+                ? Math.min(finalTotal, Math.max(0, purchaseBillState.paidAmount ?? Math.round(finalTotal / 2)))
+                : 0;
+            const hasPayment = actualPaidAmount > 0;
+
+            await createPurchaseBillFn({
+              data: {
+                supplierId: purchaseBillState.supplierId || "GENERIC_SUPPLIER",
+                supplierName: purchaseBillState.supplierName || form.defaultSupplierName || "Supplier",
+                billNumber: purchaseBillState.purchaseBillNo.trim() || `PB-${Date.now()}`,
+                billDate: purchaseBillState.billDate,
+                dueDate: purchaseBillState.dueDate || undefined,
+                taxType: "INTRA",
+                subtotal: subTotal,
+                discountTotal: 0,
+                taxableTotal: subTotal,
+                cgstTotal: 0,
+                sgstTotal: 0,
+                igstTotal: 0,
+                otherCharges: shipping,
+                roundOff: 0,
+                grandTotal: finalTotal,
+                remarks: purchaseBillState.remarks.trim() || undefined,
+                paymentNow: hasPayment,
+                paymentLines: hasPayment
+                  ? [
+                      {
+                        mode: purchaseBillState.paymentMode || "CASH",
+                        accountId: "DEFAULT_ACCOUNT",
+                        accountName:
+                          purchaseBillState.paymentMode === "CASH"
+                            ? "Cash Register"
+                            : "Main Bank Account",
+                        amount: actualPaidAmount,
+                      },
+                    ]
+                  : undefined,
+                items: purchaseBillState.lines.map((l, idx) => ({
+                  lineNo: idx + 1,
+                  itemType: "INVENTORY",
+                  inventoryItemId: invItemId,
+                  description: l.productName,
+                  hsnCode: form.hsnCode || "3004",
+                  qty: l.quantity,
+                  freeQty: 0,
+                  unit: l.unit,
+                  purchaseRate: l.purchasePrice,
+                  mrp: Number(form.mrp) || (l.purchasePrice > 0 ? l.purchasePrice * 1.25 : undefined),
+                  discountPct: 0,
+                  gstPct: Number(form.gstRate) || 0,
+                  taxableAmount: l.amount,
+                  taxAmount: 0,
+                  lineTotal: l.amount,
+                })),
+              },
+            });
+
+            toast.success(
+              `Created ${form.name} and generated Purchase Bill (${purchaseBillState.purchaseBillNo}) in Billing!`
+            );
+          } catch (pbErr: any) {
+            console.error("[ProductMasterWizard] Auto-generate purchase bill failed:", pbErr);
+            toast.warning(`Item created, but failed to generate purchase bill: ${pbErr.message || "Unknown error"}`);
+          }
+        } else {
+          toast.success(`Created ${form.name} (${nextCode || "New"}) successfully`);
+        }
+
         if (created) {
           onItemCreated?.(created);
         }
@@ -1780,52 +1901,25 @@ export function ProductMasterWizardDialog({
           )}
 
           {/* ─────────────────────────────────────────────────────────────
-              STEP 4: PURCHASING & SUPPLIERS
+              STEP 4: PURCHASING & INWARD PURCHASE BILL
           ────────────────────────────────────────────────────────────── */}
           {currentStep === 4 && (
-            <div className="space-y-5 animate-in fade-in-50">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Default Supplier Name</Label>
-                  <Input
-                    placeholder="e.g. MedVet Distributors / PetNutri / BioPharm"
-                    value={form.defaultSupplierName}
-                    onChange={(e) => updateField("defaultSupplierName", e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Supplier ID / Code</Label>
-                  <Input
-                    placeholder="e.g. SUP-01"
-                    value={form.defaultSupplierId}
-                    onChange={(e) => updateField("defaultSupplierId", e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Supplier Lead Time (Days)</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    placeholder="7"
-                    value={form.leadTimeDays}
-                    onChange={(e) => updateField("leadTimeDays", e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Minimum Order Quantity (MOQ)</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    placeholder="1"
-                    value={form.minOrderQty}
-                    onChange={(e) => updateField("minOrderQty", e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
+            <PurchaseBillWizardSection
+              currentProductName={form.name}
+              currentProductUnit={form.purchaseUom || form.unit}
+              currentOpeningStock={form.openingStock}
+              currentPurchasePrice={form.defaultPurchasePrice}
+              leadTimeDays={form.leadTimeDays}
+              onLeadTimeDaysChange={(v) => updateField("leadTimeDays", v)}
+              minOrderQty={form.minOrderQty}
+              onMinOrderQtyChange={(v) => updateField("minOrderQty", v)}
+              state={purchaseBillState}
+              onChange={(patch) => setPurchaseBillState((prev) => ({ ...prev, ...patch }))}
+              onSupplierSelected={(sup) => {
+                updateField("defaultSupplierId", sup.id);
+                updateField("defaultSupplierName", sup.name);
+              }}
+            />
           )}
 
           {/* ─────────────────────────────────────────────────────────────
