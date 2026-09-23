@@ -54,3 +54,13 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+
+# Playwright
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# Local tool outputs & scratch
+graphify-out/
+new-project/

@@ -30,6 +30,7 @@ function PatientBillingHubInner() {
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showPurchaseBillModal, setShowPurchaseBillModal] = useState(false);
+  const [purchasesRefreshKey, setPurchasesRefreshKey] = useState(0);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showPaymentInModal, setShowPaymentInModal] = useState(false);
   const [payInvoiceNo, setPayInvoiceNo] = useState<string | undefined>(undefined);
@@ -123,6 +124,7 @@ function PatientBillingHubInner() {
             loading={loading}
             deepLinkPet={deepLinkPet}
             onRefresh={loadInvoices}
+            purchasesRefreshKey={purchasesRefreshKey}
             onNewInvoice={() => setShowNewInvoiceModal(true)}
             onNewQuotation={() => setShowQuotationModal(true)}
             onAddPurchase={() => setShowPurchaseBillModal(true)}
@@ -200,7 +202,7 @@ function PatientBillingHubInner() {
         <SupplierBillFormModal
           open={showPurchaseBillModal}
           onClose={() => setShowPurchaseBillModal(false)}
-          onSuccess={loadInvoices}
+          onSuccess={() => setPurchasesRefreshKey((k) => k + 1)}
         />
 
         {/* ── 6. Add Clinic Expense Modal ── */}

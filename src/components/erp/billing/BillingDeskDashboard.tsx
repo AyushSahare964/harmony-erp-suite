@@ -108,6 +108,8 @@ interface BillingDeskDashboardProps {
   onAddReminder: () => void;
   onViewInvoice: (invoice: any) => void;
   onConvertToInvoice?: (quotation: any) => void;
+  /** Bumped by the parent after a purchase bill is saved: reloads registers and shows the Purchases tab. */
+  purchasesRefreshKey?: number;
 }
 
 export function BillingDeskDashboard({
@@ -126,6 +128,7 @@ export function BillingDeskDashboard({
   onAddReminder,
   onViewInvoice,
   onConvertToInvoice,
+  purchasesRefreshKey = 0,
 }: BillingDeskDashboardProps) {
   const [masked, setMasked] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>(defaultDateRange());
@@ -157,7 +160,7 @@ export function BillingDeskDashboard({
     try {
       const [expData, purData, qtnData] = await Promise.all([
         listExpensesFn({ data: { status: "ALL", from: "2020-01-01", to: "2030-12-31" } }).catch(() => []),
-        listPurchaseBillsFn({ data: {} }).catch(() => []),
+        listPurchaseBillsFn({ data: { from: "2020-01-01", to: "2030-12-31" } }).catch(() => []),
         listQuotationsFn({ data: { query: "" } }).catch(() => []),
       ]);
       setExpenses(expData || []);
@@ -170,7 +173,12 @@ export function BillingDeskDashboard({
 
   useEffect(() => {
     void loadExtraRegisters();
-  }, []);
+    if (purchasesRefreshKey > 0) {
+      setRegisterTab("purchases");
+      setSearchQuery("");
+      document.getElementById("billing-documents-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [purchasesRefreshKey]);
 
   // Invoices table search and filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -487,6 +495,24 @@ export function BillingDeskDashboard({
       return true;
     });
   }, [expenses, dateRange, searchQuery]);
+
+  // Cancels (voids) the bill rather than hard-deleting it, so linked payments are voided too.
+  const handleDeletePurchase = async (pur: PurchaseBillRow) => {
+    const ref = pur.internalRef || pur.billNumber;
+    const reason = window.prompt(`Delete purchase bill ${ref}? Enter a reason:`);
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      toast.error("A reason of at least 3 characters is required");
+      return;
+    }
+    try {
+      await voidPurchaseBillFn({ data: { id: pur._id, reason: reason.trim() } });
+      setPurchases((prev) => prev.filter((p) => p._id !== pur._id));
+      toast.success(`Purchase bill ${ref} deleted`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete purchase bill");
+    }
+  };
 
   // Filtered Purchases for Register
   const filteredPurchases = useMemo(() => {
@@ -1721,7 +1747,7 @@ export function BillingDeskDashboard({
       </div>
 
       {/* ── BLOCK ④: FULL DOCUMENTS REGISTER (Plan §5.6) ── */}
-      <div className="space-y-3 pt-2">
+      <div id="billing-documents-register" className="space-y-3 pt-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Register Tabs: Invoices, Quotations, Credit Notes, Payments, Purchases, Expenses */}
           <div className="flex flex-wrap items-center gap-1.5">
