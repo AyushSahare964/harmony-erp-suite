@@ -34,6 +34,7 @@ import {
   Calendar,
   Boxes,
   Building2,
+  Trash2,
 } from "lucide-react";
 import {
   PieChart,
@@ -71,7 +72,7 @@ import { QuotationsRegisterView } from "../reports/QuotationsRegisterView";
 import { GstCalculatorPopover } from "./GstCalculatorPopover";
 import { listExpensesFn, type ExpenseRow } from "@/lib/mongodb/serverFns/expenses";
 import { listQuotationsFn } from "@/lib/mongodb/serverFns/quotations";
-import { listPurchaseBillsFn, type PurchaseBillRow } from "@/lib/mongodb/serverFns/purchaseBills";
+import { listPurchaseBillsFn, voidPurchaseBillFn, type PurchaseBillRow } from "@/lib/mongodb/serverFns/purchaseBills";
 import { cn } from "@/lib/utils";
 
 interface BillingDeskDashboardProps {
@@ -91,6 +92,8 @@ interface BillingDeskDashboardProps {
   onAddReminder: () => void;
   onViewInvoice: (invoice: any) => void;
   onConvertToInvoice?: (quotation: any) => void;
+  /** Bumped by the parent after a purchase bill is saved: reloads registers and shows the Purchases tab. */
+  purchasesRefreshKey?: number;
 }
 
 export function BillingDeskDashboard({
@@ -109,6 +112,7 @@ export function BillingDeskDashboard({
   onAddReminder,
   onViewInvoice,
   onConvertToInvoice,
+  purchasesRefreshKey = 0,
 }: BillingDeskDashboardProps) {
   const [masked, setMasked] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>(defaultDateRange());
@@ -137,7 +141,7 @@ export function BillingDeskDashboard({
     try {
       const [expData, purData, qtnData] = await Promise.all([
         listExpensesFn({ data: { status: "ALL", from: "2020-01-01", to: "2030-12-31" } }).catch(() => []),
-        listPurchaseBillsFn({ data: {} }).catch(() => []),
+        listPurchaseBillsFn({ data: { from: "2020-01-01", to: "2030-12-31" } }).catch(() => []),
         listQuotationsFn({ data: { query: "" } }).catch(() => []),
       ]);
       setExpenses(expData || []);
@@ -150,7 +154,12 @@ export function BillingDeskDashboard({
 
   useEffect(() => {
     void loadExtraRegisters();
-  }, []);
+    if (purchasesRefreshKey > 0) {
+      setRegisterTab("purchases");
+      setSearchQuery("");
+      document.getElementById("billing-documents-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [purchasesRefreshKey]);
 
   // Invoices table search and filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -379,6 +388,24 @@ export function BillingDeskDashboard({
       return true;
     });
   }, [expenses, dateRange, searchQuery]);
+
+  // Cancels (voids) the bill rather than hard-deleting it, so linked payments are voided too.
+  const handleDeletePurchase = async (pur: PurchaseBillRow) => {
+    const ref = pur.internalRef || pur.billNumber;
+    const reason = window.prompt(`Delete purchase bill ${ref}? Enter a reason:`);
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      toast.error("A reason of at least 3 characters is required");
+      return;
+    }
+    try {
+      await voidPurchaseBillFn({ data: { id: pur._id, reason: reason.trim() } });
+      setPurchases((prev) => prev.filter((p) => p._id !== pur._id));
+      toast.success(`Purchase bill ${ref} deleted`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete purchase bill");
+    }
+  };
 
   // Filtered Purchases for Register
   const filteredPurchases = useMemo(() => {
@@ -1071,7 +1098,7 @@ export function BillingDeskDashboard({
       </div>
 
       {/* ── BLOCK ④: FULL DOCUMENTS REGISTER (Plan §5.6) ── */}
-      <div className="space-y-3 pt-2">
+      <div id="billing-documents-register" className="space-y-3 pt-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Register Tabs: Invoices, Quotations, Credit Notes, Payments, Purchases, Expenses */}
           <div className="flex flex-wrap items-center gap-1.5">
@@ -1313,12 +1340,13 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3 text-right">Paid (₹)</th>
                     <th className="px-4 py-3 text-right">Balance Due (₹)</th>
                     <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredPurchases.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                      <td colSpan={9} className="py-12 text-center text-muted-foreground">
                         <ShoppingBag className="size-8 mx-auto text-muted-foreground/40 mb-2" />
                         <p className="font-semibold text-foreground">No purchase bills recorded</p>
                         <p className="text-xs">No vendor invoices matched your filters.</p>
@@ -1358,6 +1386,17 @@ export function BillingDeskDashboard({
                           </td>
                           <td className="px-4 py-3 text-center whitespace-nowrap">
                             <StatusPill value={pur.status} />
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePurchase(pur)}
+                              className="p-1.5 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                              title="Delete purchase bill"
+                              aria-label="Delete purchase bill"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
                           </td>
                         </tr>
                       );
