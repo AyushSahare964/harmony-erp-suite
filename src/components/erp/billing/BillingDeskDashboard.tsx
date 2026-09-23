@@ -40,6 +40,11 @@ import {
   Package,
   Tag,
   User,
+  Users,
+  Phone,
+  MapPin,
+  Pencil,
+  BookOpen,
   X,
   AlertTriangle,
   ExternalLink,
@@ -88,6 +93,12 @@ import {
   deletePurchaseBillFn,
   type PurchaseBillRow,
 } from "@/lib/mongodb/serverFns/purchaseBills";
+import {
+  listSuppliersFn,
+  deleteSupplierFn,
+  type SupplierMasterRow,
+} from "@/lib/mongodb/serverFns/masters";
+import { listOwnersWithPetsFn } from "@/lib/mongodb/serverFns/crm";
 import { PurchaseBillPrintView } from "./PurchaseBillPrintView";
 import { cn } from "@/lib/utils";
 
@@ -105,11 +116,15 @@ interface BillingDeskDashboardProps {
   onPaymentOut: () => void;
   onAddCustomer: () => void;
   onAddSupplier?: () => void;
+  onEditSupplier?: (supplier: SupplierMasterRow) => void;
+  onViewSupplierLedger?: (supplierId: string) => void;
   onAddReminder: () => void;
   onViewInvoice: (invoice: any) => void;
   onConvertToInvoice?: (quotation: any) => void;
   /** Bumped by the parent after a purchase bill is saved: reloads registers and shows the Purchases tab. */
   purchasesRefreshKey?: number;
+  suppliersRefreshKey?: number;
+  clientsRefreshKey?: number;
 }
 
 export function BillingDeskDashboard({
@@ -125,10 +140,14 @@ export function BillingDeskDashboard({
   onPaymentOut,
   onAddCustomer,
   onAddSupplier,
+  onEditSupplier,
+  onViewSupplierLedger,
   onAddReminder,
   onViewInvoice,
   onConvertToInvoice,
   purchasesRefreshKey = 0,
+  suppliersRefreshKey = 0,
+  clientsRefreshKey = 0,
 }: BillingDeskDashboardProps) {
   const [masked, setMasked] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>(defaultDateRange());
@@ -148,24 +167,30 @@ export function BillingDeskDashboard({
 
   // Big Documents Register Tab State
   const [registerTab, setRegisterTab] = useState<
-    "invoices" | "quotations" | "creditNotes" | "payments" | "purchases" | "expenses"
+    "invoices" | "quotations" | "creditNotes" | "payments" | "purchases" | "expenses" | "suppliers" | "clients"
   >("invoices");
 
   // Document Collections for Registers
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [purchases, setPurchases] = useState<PurchaseBillRow[]>([]);
   const [quotations, setQuotations] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierMasterRow[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
 
   const loadExtraRegisters = async () => {
     try {
-      const [expData, purData, qtnData] = await Promise.all([
+      const [expData, purData, qtnData, supData, cliData] = await Promise.all([
         listExpensesFn({ data: { status: "ALL", from: "2020-01-01", to: "2030-12-31" } }).catch(() => []),
         listPurchaseBillsFn({ data: { from: "2020-01-01", to: "2030-12-31" } }).catch(() => []),
         listQuotationsFn({ data: { query: "" } }).catch(() => []),
+        listSuppliersFn().catch(() => []),
+        listOwnersWithPetsFn().catch(() => []),
       ]);
       setExpenses(expData || []);
       setPurchases(purData || []);
       setQuotations(qtnData || []);
+      setSuppliers(supData || []);
+      setClients(cliData || []);
     } catch (err) {
       console.error("Failed to load extra register data:", err);
     }
@@ -179,6 +204,24 @@ export function BillingDeskDashboard({
       document.getElementById("billing-documents-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [purchasesRefreshKey]);
+
+  useEffect(() => {
+    if (suppliersRefreshKey > 0) {
+      void listSuppliersFn().then(setSuppliers).catch(console.error);
+      setRegisterTab("suppliers");
+      setSearchQuery("");
+      document.getElementById("billing-documents-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [suppliersRefreshKey]);
+
+  useEffect(() => {
+    if (clientsRefreshKey > 0) {
+      void listOwnersWithPetsFn().then(setClients).catch(console.error);
+      setRegisterTab("clients");
+      setSearchQuery("");
+      document.getElementById("billing-documents-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [clientsRefreshKey]);
 
   // Invoices table search and filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -569,6 +612,59 @@ export function BillingDeskDashboard({
     });
   }, [creditNotesList, dateRange, searchQuery]);
 
+  // Deactivate supplier
+  const handleDeleteSupplier = async (supplierId: string, supplierName: string) => {
+    if (!window.confirm(`Are you sure you want to deactivate supplier "${supplierName}"?`)) return;
+    try {
+      await deleteSupplierFn({ data: { id: supplierId } });
+      toast.success(`Supplier "${supplierName}" deactivated`);
+      setSuppliers((prev) => prev.filter((s) => s._id !== supplierId));
+    } catch (err: any) {
+      toast.error(err.message || "Failed to deactivate supplier");
+    }
+  };
+
+  // Filtered Suppliers for Register
+  const filteredSuppliers = useMemo(() => {
+    return suppliers.filter((s) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const match =
+          s.name?.toLowerCase().includes(q) ||
+          s.contactPerson?.toLowerCase().includes(q) ||
+          s.phone?.toLowerCase().includes(q) ||
+          s.mobileNo?.toLowerCase().includes(q) ||
+          s.email?.toLowerCase().includes(q) ||
+          s.gstin?.toLowerCase().includes(q) ||
+          s.panNo?.toLowerCase().includes(q) ||
+          s.city?.toLowerCase().includes(q) ||
+          s.state?.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [suppliers, searchQuery]);
+
+  // Filtered Clients for Register
+  const filteredClients = useMemo(() => {
+    return clients.filter((c) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const petsStr = (c.pets || []).map((p: any) => `${p.name} ${p.species} ${p.breed}`).join(" ").toLowerCase();
+        const match =
+          c.name?.toLowerCase().includes(q) ||
+          c.ownerId?.toLowerCase().includes(q) ||
+          c.phone?.toLowerCase().includes(q) ||
+          c.altPhone?.toLowerCase().includes(q) ||
+          c.email?.toLowerCase().includes(q) ||
+          c.city?.toLowerCase().includes(q) ||
+          petsStr.includes(q);
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [clients, searchQuery]);
+
   // Derived Client Directory from Invoices
   const clientList = useMemo(() => {
     const map = new Map<
@@ -821,6 +917,17 @@ export function BillingDeskDashboard({
       rows = filteredPayments.map((p) =>
         `"${p.receiptNo}","${p.invoiceNo}","${p.date}","${p.ownerName}","${p.petName}","${p.mode}",${p.amount},"${p.trxRef}","${p.status}"`
       ).join("\n");
+    } else if (registerTab === "suppliers") {
+      headers = "CompanyName,ContactPerson,Phone,Mobile,Email,GSTIN,PAN,City,State,BankName,BankAccountNo,IFSC,OpeningBalance,BalanceType,Status\n";
+      rows = filteredSuppliers.map((s) =>
+        `"${s.name}","${s.contactPerson || ""}","${s.phone || ""}","${s.mobileNo || ""}","${s.email || ""}","${s.gstin || ""}","${s.panNo || ""}","${s.city || ""}","${s.state || ""}","${s.bankName || ""}","${s.bankAccountNo || ""}","${s.ifscCode || ""}",${s.openingBalance || 0},"${s.openingBalanceType || "Debit"}","${s.isActive !== false ? "Active" : "Inactive"}"`
+      ).join("\n");
+    } else if (registerTab === "clients") {
+      headers = "ClientID,ClientName,Phone,Email,City,Address,PetsCount,PetNames,OutstandingBalance\n";
+      rows = filteredClients.map((c) => {
+        const petsStr = (c.pets || []).map((p: any) => `${p.name} (${p.species || ""})`).join("; ");
+        return `"${c.ownerId || ""}","${c.name || ""}","${c.phone || ""}","${c.email || ""}","${c.city || ""}","${(c.address || "").replace(/"/g, '""')}",${(c.pets || []).length},"${petsStr}",${c.outstandingBalance || 0}`;
+      }).join("\n");
     } else {
       headers = "InvoiceNo,Date,ClientName,Phone,PetName,Doctor,TotalAmount,PaidAmount,BalanceDue,Status\n";
       rows = tableInvoices.map((i) =>
@@ -1852,6 +1959,46 @@ export function BillingDeskDashboard({
                 {filteredExpenses.length}
               </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setRegisterTab("suppliers");
+                setSearchQuery("");
+              }}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                registerTab === "suppliers"
+                  ? "bg-emerald-600 text-white shadow-xs"
+                  : "bg-card text-muted-foreground hover:bg-muted border border-border"
+              )}
+            >
+              <Building2 className="size-3.5" />
+              <span>Suppliers</span>
+              <span className="rounded-full px-1.5 py-0.2 text-[10px] font-mono bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                {suppliers.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setRegisterTab("clients");
+                setSearchQuery("");
+              }}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                registerTab === "clients"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "bg-card text-muted-foreground hover:bg-muted border border-border"
+              )}
+            >
+              <Users className="size-3.5" />
+              <span>Clients</span>
+              <span className="rounded-full px-1.5 py-0.2 text-[10px] font-mono bg-blue-500/20 text-blue-700 dark:text-blue-300">
+                {clients.length}
+              </span>
+            </button>
           </div>
 
           {/* Export CSV & PDF Actions */}
@@ -2267,8 +2414,449 @@ export function BillingDeskDashboard({
               </table>
             </div>
           </div>
+        ) : registerTab === "suppliers" ? (
+          /* ═══ 5. SUPPLIERS REGISTER TABLE ═══ */
+          <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
+            <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
+              <div className="relative min-w-[260px] flex-1">
+                <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search supplier by company name, contact, phone, GSTIN, city..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8 pl-8 text-xs bg-card"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground font-medium hidden sm:inline">
+                  {filteredSuppliers.length} supplier{filteredSuppliers.length === 1 ? "" : "s"}
+                </span>
+                <Button
+                  size="sm"
+                  onClick={onAddSupplier}
+                  className="h-8 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
+                >
+                  <Plus className="size-3.5" />
+                  <span>+ Add Supplier</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadExtraRegisters()}
+                  title="Refresh suppliers list"
+                  className="h-8 px-2 text-xs"
+                >
+                  <RefreshCw className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-border bg-muted/40 font-semibold text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">Supplier / Company</th>
+                    <th className="px-4 py-3">Contact Details</th>
+                    <th className="px-4 py-3">Tax & Registration</th>
+                    <th className="px-4 py-3">Location</th>
+                    <th className="px-4 py-3">Bank Details</th>
+                    <th className="px-4 py-3 text-right">Opening Balance (₹)</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredSuppliers.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                        <Building2 className="size-8 mx-auto text-muted-foreground/40 mb-2" />
+                        <p className="font-semibold text-foreground">No suppliers found</p>
+                        <p className="text-xs">No clinic distributors or vendors matched your search.</p>
+                        <Button
+                          size="sm"
+                          onClick={onAddSupplier}
+                          className="mt-3 h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                        >
+                          <Plus className="size-3.5" />
+                          <span>Register New Supplier</span>
+                        </Button>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSuppliers.map((sup) => (
+                      <tr key={sup._id} className="transition-colors hover:bg-muted/30">
+                        {/* Company & Contact Person */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 font-bold shrink-0">
+                              <Building2 className="size-4" />
+                            </div>
+                            <div>
+                              <div className="font-bold text-foreground text-xs flex items-center gap-1.5">
+                                <span>{sup.name}</span>
+                              </div>
+                              {sup.contactPerson && (
+                                <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                  <User className="size-3" />
+                                  <span>{sup.contactPerson}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Contact Details (Phone & Email) */}
+                        <td className="px-4 py-3">
+                          <div className="space-y-0.5">
+                            {(sup.phone || sup.mobileNo) && (
+                              <a
+                                href={`tel:${sup.phone || sup.mobileNo}`}
+                                className="text-foreground hover:text-primary font-mono text-[11px] flex items-center gap-1"
+                              >
+                                <Phone className="size-3 text-muted-foreground" />
+                                <span>{sup.phone || sup.mobileNo}</span>
+                              </a>
+                            )}
+                            {sup.email && (
+                              <a
+                                href={`mailto:${sup.email}`}
+                                className="text-muted-foreground hover:text-foreground text-[11px] flex items-center gap-1 truncate max-w-[160px]"
+                              >
+                                <Mail className="size-3" />
+                                <span>{sup.email}</span>
+                              </a>
+                            )}
+                            {!sup.phone && !sup.mobileNo && !sup.email && (
+                              <span className="text-muted-foreground text-[11px]">—</span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Tax & Identifiers */}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="space-y-1">
+                            {sup.gstin ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800">
+                                <span>GSTIN:</span>
+                                <span>{sup.gstin}</span>
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground text-[10px] italic">Unregistered</span>
+                            )}
+                            {sup.panNo && (
+                              <div className="font-mono text-[10px] text-muted-foreground">
+                                PAN: {sup.panNo}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Location */}
+                        <td className="px-4 py-3">
+                          <div className="text-[11px] text-foreground font-medium flex items-center gap-1">
+                            <MapPin className="size-3 text-muted-foreground shrink-0" />
+                            <span>{sup.city || "—"}{sup.state ? `, ${sup.state}` : ""}</span>
+                          </div>
+                          {sup.address && (
+                            <div className="text-[10px] text-muted-foreground truncate max-w-[150px]" title={sup.address}>
+                              {sup.address}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Bank Details */}
+                        <td className="px-4 py-3">
+                          {sup.bankName ? (
+                            <div className="space-y-0.5">
+                              <div className="font-medium text-foreground text-[11px]">{sup.bankName}</div>
+                              {sup.bankAccountNo && (
+                                <div className="font-mono text-[10px] text-muted-foreground">
+                                  A/C: {sup.bankAccountNo}
+                                </div>
+                              )}
+                              {sup.ifscCode && (
+                                <div className="font-mono text-[9px] text-muted-foreground">
+                                  IFSC: {sup.ifscCode}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-[11px]">—</span>
+                          )}
+                        </td>
+
+                        {/* Opening Balance */}
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <div className="font-mono font-bold text-foreground">
+                            ₹{(sup.openingBalance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          </div>
+                          <span className={cn(
+                            "inline-block text-[9px] font-bold px-1 rounded uppercase",
+                            sup.openingBalanceType === "Cr" || sup.openingBalanceType === "Credit"
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                              : "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                          )}>
+                            {sup.openingBalanceType || "Debit"}
+                          </span>
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <StatusPill value={sup.isActive !== false ? "ACTIVE" : "INACTIVE"} />
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onViewSupplierLedger?.(sup._id)}
+                              title="View Supplier Ledger / Statement"
+                              className="h-7 px-2 text-xs text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-950/50"
+                            >
+                              <BookOpen className="size-3.5 mr-1" />
+                              <span>Statement</span>
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onEditSupplier?.(sup)}
+                              title="Edit Supplier Details"
+                              className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/50"
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void handleDeleteSupplier(sup._id, sup.name)}
+                              title="Deactivate Supplier"
+                              className="h-7 px-2 text-xs text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : registerTab === "clients" ? (
+          /* ═══ 6. CLIENTS REGISTER TABLE ═══ */
+          <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
+            <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
+              <div className="relative min-w-[260px] flex-1">
+                <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search client name, mobile, pet name, client ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8 pl-8 text-xs bg-card"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground font-medium hidden sm:inline">
+                  {filteredClients.length} client{filteredClients.length === 1 ? "" : "s"}
+                </span>
+                <Button
+                  size="sm"
+                  onClick={onAddCustomer}
+                  className="h-8 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white gap-1.5 shadow-xs"
+                >
+                  <Plus className="size-3.5" />
+                  <span>+ Add Client &amp; Pet</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadExtraRegisters()}
+                  title="Refresh clients list"
+                  className="h-8 px-2 text-xs"
+                >
+                  <RefreshCw className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-border bg-muted/40 font-semibold text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">Client / Owner Name</th>
+                    <th className="px-4 py-3">Contact Details</th>
+                    <th className="px-4 py-3">City &amp; Address</th>
+                    <th className="px-4 py-3">Registered Pets</th>
+                    <th className="px-4 py-3 text-right">Outstanding Due (₹)</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredClients.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                        <Users className="size-8 mx-auto text-muted-foreground/40 mb-2" />
+                        <p className="font-semibold text-foreground">No clients found</p>
+                        <p className="text-xs">No registered clinic clients or pet owners matched your search.</p>
+                        <Button
+                          size="sm"
+                          onClick={onAddCustomer}
+                          className="mt-3 h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
+                        >
+                          <Plus className="size-3.5" />
+                          <span>Register New Client &amp; Pet</span>
+                        </Button>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredClients.map((client) => {
+                      const clientPets = client.pets || [];
+                      const hasDue = (client.outstandingBalance || 0) > 0;
+                      return (
+                        <tr key={client.ownerId || client._id} className="transition-colors hover:bg-muted/30">
+                          {/* Client Name & ID */}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <div className="flex size-7 items-center justify-center rounded-full bg-blue-500/10 text-blue-600 font-bold text-xs shrink-0">
+                                {client.name ? client.name.charAt(0).toUpperCase() : "C"}
+                              </div>
+                              <div>
+                                <div className="font-bold text-foreground text-xs flex items-center gap-1.5">
+                                  <span>{client.name}</span>
+                                  {client.ownerId && (
+                                    <span className="px-1.5 py-0.2 rounded font-mono text-[9px] font-bold bg-muted text-muted-foreground">
+                                      {client.ownerId}
+                                    </span>
+                                  )}
+                                </div>
+                                {client.city && (
+                                  <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                    <MapPin className="size-3" />
+                                    <span>{client.city}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Contact Details */}
+                          <td className="px-4 py-3">
+                            <div className="space-y-0.5">
+                              {client.phone && (
+                                <a
+                                  href={`tel:${client.phone}`}
+                                  className="text-foreground hover:text-primary font-mono text-[11px] flex items-center gap-1"
+                                >
+                                  <Phone className="size-3 text-muted-foreground" />
+                                  <span>{client.phone}</span>
+                                </a>
+                              )}
+                              {client.email && (
+                                <a
+                                  href={`mailto:${client.email}`}
+                                  className="text-muted-foreground hover:text-foreground text-[11px] flex items-center gap-1 truncate max-w-[160px]"
+                                >
+                                  <Mail className="size-3" />
+                                  <span>{client.email}</span>
+                                </a>
+                              )}
+                              {!client.phone && !client.email && (
+                                <span className="text-muted-foreground text-[11px]">—</span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Address */}
+                          <td className="px-4 py-3">
+                            <div className="text-[11px] text-foreground">
+                              {client.address ? (
+                                <span title={client.address} className="truncate max-w-[180px] inline-block">
+                                  {client.address}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Pets */}
+                          <td className="px-4 py-3">
+                            {clientPets.length === 0 ? (
+                              <span className="text-[11px] text-muted-foreground italic">No pets</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1 max-w-[240px]">
+                                {clientPets.map((pet: any, idx: number) => (
+                                  <span
+                                    key={pet.petId || idx}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
+                                  >
+                                    <span>🐾 {pet.name}</span>
+                                    {pet.breed && <span className="text-[9px] opacity-75">({pet.breed})</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Outstanding Balance */}
+                          <td className="px-4 py-3 text-right whitespace-nowrap font-mono font-bold">
+                            <span className={cn(hasDue ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400")}>
+                              ₹{(client.outstandingBalance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            </span>
+                          </td>
+
+                          {/* Status */}
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <StatusPill value={client.status || "ACTIVE"} />
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSearchQuery(client.name);
+                                  setRegisterTab("invoices");
+                                  document.getElementById("billing-documents-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                }}
+                                title="View Client Bills & Invoices"
+                                className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/50"
+                              >
+                                <Receipt className="size-3.5 mr-1" />
+                                <span>Invoices</span>
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                onClick={onNewInvoice}
+                                title="Create New Sales Invoice"
+                                className="h-7 px-2 text-xs font-semibold bg-primary/10 text-primary hover:bg-primary hover:text-white"
+                              >
+                                <Plus className="size-3 mr-0.5" />
+                                <span>Bill</span>
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : (
-          /* ═══ 5. INVOICES REGISTER TABLE (DEFAULT) ═══ */
+          /* ═══ 7. INVOICES REGISTER TABLE (DEFAULT) ═══ */
           <div
             id="billing-invoice-register"
             className={cn(

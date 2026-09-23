@@ -148,38 +148,68 @@ import { syncPartyForSupplier } from "./parties";
 export interface SupplierMasterRow {
   _id: string;
   name: string;
-  contactPerson?: string;
-  phone?: string;
-  email?: string;
-  gstin?: string;
-  address?: string;
+  contactPerson?: string | undefined;
+  phone?: string | undefined;
+  mobileNo?: string | undefined;
+  email?: string | undefined;
+  gstin?: string | undefined;
+  panNo?: string | undefined;
+  address?: string | undefined;
+  city?: string | undefined;
+  state?: string | undefined;
+  pincode?: string | undefined;
+  country?: string | undefined;
+  bankName?: string | undefined;
+  bankAccountNo?: string | undefined;
+  ifscCode?: string | undefined;
+  remarks?: string | undefined;
   creditDays: number;
   openingBalance: number;
-  openingBalanceType: "Cr" | "Dr";
+  openingBalanceType: "Cr" | "Dr" | "Debit" | "Credit";
   isActive: boolean;
+  createdAt?: string | undefined;
 }
 
 export const listSuppliersFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SupplierMasterRow[]> => {
     await connectDB();
     await seedSuppliers();
-    const docs = await SupplierModel.find({ isActive: true }).sort({ name: 1 }).lean();
-    return docs.map((d) => ({
+    const docs = await SupplierModel.find({ isActive: { $ne: false } }).sort({ name: 1 }).lean();
+    return docs.map((d: any) => ({
       _id: String(d._id),
       name: d.name,
       contactPerson: d.contactPerson || "",
-      phone: d.phone || "",
+      phone: d.phone || d.mobileNo || "",
+      mobileNo: d.mobileNo || "",
       email: d.email || "",
       gstin: d.gstin || "",
+      panNo: d.panNo || "",
       address: d.address || "",
+      city: d.city || "",
+      state: d.state || "",
+      pincode: d.pincode || "",
+      country: d.country || "India",
+      bankName: d.bankName || "",
+      bankAccountNo: d.bankAccountNo || "",
+      ifscCode: d.ifscCode || "",
+      remarks: d.remarks || "",
       creditDays: d.creditDays ?? 30,
       openingBalance: d.openingBalance ?? 0,
       openingBalanceType:
         d.openingBalanceType === "Debit" || d.openingBalanceType === "Dr" ? "Dr" : "Cr",
-      isActive: d.isActive,
+      isActive: d.isActive !== false,
+      createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : undefined,
     }));
   },
 );
+
+export const deleteSupplierFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => z.object({ id: z.string() }).parse(raw))
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    await connectDB();
+    await SupplierModel.findByIdAndUpdate(data.id, { isActive: false });
+    return { ok: true };
+  });
 
 export const saveSupplierFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) =>

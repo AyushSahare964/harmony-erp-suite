@@ -18,6 +18,8 @@ import { SupplierBillFormModal } from "@/components/erp/accounting/SupplierBillF
 import { ExpenseFormModal } from "@/components/erp/accounting/ExpenseFormModal";
 import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
 import { NewSupplierModal } from "@/components/erp/accounting/NewSupplierModal";
+import { SupplierLedgerModal } from "@/components/erp/accounting/SupplierLedgerModal";
+import { type SupplierMasterRow } from "@/lib/mongodb/serverFns/masters";
 import { DailySummaryModal } from "./DailySummaryModal";
 import { StockSummaryModal } from "./StockSummaryModal";
 
@@ -31,6 +33,8 @@ function PatientBillingHubInner() {
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showPurchaseBillModal, setShowPurchaseBillModal] = useState(false);
   const [purchasesRefreshKey, setPurchasesRefreshKey] = useState(0);
+  const [suppliersRefreshKey, setSuppliersRefreshKey] = useState(0);
+  const [clientsRefreshKey, setClientsRefreshKey] = useState(0);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showPaymentInModal, setShowPaymentInModal] = useState(false);
   const [payInvoiceNo, setPayInvoiceNo] = useState<string | undefined>(undefined);
@@ -38,6 +42,8 @@ function PatientBillingHubInner() {
   // Direct Client Intake & Supplier modals (No duplicate 'double double' party forms)
   const [showPetOwnerModal, setShowPetOwnerModal] = useState(false);
   const [showNewSupplierModal, setShowNewSupplierModal] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<SupplierMasterRow | null>(null);
+  const [selectedSupplierForLedger, setSelectedSupplierForLedger] = useState<string | null>(null);
 
   // Summary Modals
   const [showDailySummary, setShowDailySummary] = useState(false);
@@ -125,6 +131,8 @@ function PatientBillingHubInner() {
             deepLinkPet={deepLinkPet}
             onRefresh={loadInvoices}
             purchasesRefreshKey={purchasesRefreshKey}
+            suppliersRefreshKey={suppliersRefreshKey}
+            clientsRefreshKey={clientsRefreshKey}
             onNewInvoice={() => setShowNewInvoiceModal(true)}
             onNewQuotation={() => setShowQuotationModal(true)}
             onAddPurchase={() => setShowPurchaseBillModal(true)}
@@ -135,7 +143,15 @@ function PatientBillingHubInner() {
             }}
             onPaymentOut={() => setShowExpenseModal(true)}
             onAddCustomer={() => setShowPetOwnerModal(true)}
-            onAddSupplier={() => setShowNewSupplierModal(true)}
+            onAddSupplier={() => {
+              setEditingSupplier(null);
+              setShowNewSupplierModal(true);
+            }}
+            onEditSupplier={(sup) => {
+              setEditingSupplier(sup);
+              setShowNewSupplierModal(true);
+            }}
+            onViewSupplierLedger={(supId) => setSelectedSupplierForLedger(supId)}
             onAddReminder={() => setShowReminderModal(true)}
             onViewInvoice={(invoice) => setSelectedInvoice(invoice)}
             onConvertToInvoice={(quotation) => {
@@ -231,6 +247,7 @@ function PatientBillingHubInner() {
           onRegistered={({ owner, pets: registeredPets }) => {
             toast.success(`Client "${owner.name}" (${registeredPets.length} pet${registeredPets.length === 1 ? "" : "s"}) registered successfully!`);
             void loadInvoices();
+            setClientsRefreshKey((k) => k + 1);
           }}
         />
 
@@ -247,14 +264,27 @@ function PatientBillingHubInner() {
           onClose={() => setShowStockSummary(false)}
         />
 
-        {/* ── 11. New Supplier Profile Modal (Matches Image 2) ── */}
+        {/* ── 11. New / Edit Supplier Profile Modal (Matches Image 1 & 2) ── */}
         <NewSupplierModal
           open={showNewSupplierModal}
-          onClose={() => setShowNewSupplierModal(false)}
+          onClose={() => {
+            setShowNewSupplierModal(false);
+            setEditingSupplier(null);
+          }}
+          supplierToEdit={editingSupplier}
           onSuccess={(sup) => {
-            toast.success(`Supplier "${sup.name}" added to clinic suppliers!`);
+            setSuppliersRefreshKey((k) => k + 1);
           }}
         />
+
+        {/* ── 12. Supplier Statement / Ledger Modal ── */}
+        {selectedSupplierForLedger && (
+          <SupplierLedgerModal
+            open={!!selectedSupplierForLedger}
+            onClose={() => setSelectedSupplierForLedger(null)}
+            supplierId={selectedSupplierForLedger}
+          />
+        )}
       </div>
     </Shell>
   );

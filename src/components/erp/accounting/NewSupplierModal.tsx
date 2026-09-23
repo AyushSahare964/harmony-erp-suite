@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   X,
   Building2,
@@ -18,13 +18,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { saveSupplierFn } from "@/lib/mongodb/serverFns/masters";
+import { saveSupplierFn, type SupplierMasterRow } from "@/lib/mongodb/serverFns/masters";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface NewSupplierModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess?: (createdSupplier: { _id: string; name: string }) => void;
+  supplierToEdit?: SupplierMasterRow | null;
 }
 
 const INDIAN_STATES = [
@@ -79,7 +81,7 @@ const MAJOR_BANKS = [
   "Other Bank",
 ];
 
-export function NewSupplierModal({ open, onClose, onSuccess }: NewSupplierModalProps) {
+export function NewSupplierModal({ open, onClose, onSuccess, supplierToEdit }: NewSupplierModalProps) {
   // Supplier Details
   const [companyName, setCompanyName] = useState("");
   const [address, setAddress] = useState("");
@@ -113,6 +115,56 @@ export function NewSupplierModal({ open, onClose, onSuccess }: NewSupplierModalP
 
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (open) {
+      if (supplierToEdit) {
+        setCompanyName(supplierToEdit.name || "");
+        setAddress(supplierToEdit.address || "");
+        setCity(supplierToEdit.city || "Mumbai");
+        setState(supplierToEdit.state || "Maharashtra");
+        setPinCode(supplierToEdit.pincode || "");
+        setCountry(supplierToEdit.country || "India");
+        setEmail(supplierToEdit.email || "");
+        setPhoneNo(supplierToEdit.phone || "");
+        setMobileNo(supplierToEdit.mobileNo || supplierToEdit.phone || "");
+        setBankName(supplierToEdit.bankName || "HDFC Bank");
+        setBankAccountNo(supplierToEdit.bankAccountNo || "");
+        setIfscCode(supplierToEdit.ifscCode || "");
+        setPanNo(supplierToEdit.panNo || "");
+        setGstin(supplierToEdit.gstin || "");
+        setTaxState(supplierToEdit.state || "Maharashtra");
+        setOpeningBalance(supplierToEdit.openingBalance || 0);
+        setBalanceType(
+          supplierToEdit.openingBalanceType === "Cr" || supplierToEdit.openingBalanceType === "Credit"
+            ? "Credit"
+            : "Debit"
+        );
+        setContactPerson(supplierToEdit.contactPerson || "");
+        setRemarkNote(supplierToEdit.remarks || "");
+      } else {
+        setCompanyName("");
+        setAddress("");
+        setCity("Mumbai");
+        setState("Maharashtra");
+        setPinCode("");
+        setCountry("India");
+        setEmail("");
+        setPhoneNo("");
+        setMobileNo("");
+        setBankName("HDFC Bank");
+        setBankAccountNo("");
+        setIfscCode("");
+        setPanNo("");
+        setGstin("");
+        setTaxState("Maharashtra");
+        setOpeningBalance(0);
+        setBalanceType("Debit");
+        setContactPerson("");
+        setRemarkNote("");
+      }
+    }
+  }, [open, supplierToEdit]);
+
   // Quick GST format validation
   const handleCheckGstin = () => {
     if (!gstin.trim()) {
@@ -145,6 +197,7 @@ export function NewSupplierModal({ open, onClose, onSuccess }: NewSupplierModalP
     try {
       const res = await saveSupplierFn({
         data: {
+          _id: supplierToEdit?._id,
           name: companyName.trim(),
           contactPerson: contactPerson.trim() || undefined,
           phone: phoneNo.trim() || mobileNo.trim() || undefined,
@@ -167,7 +220,11 @@ export function NewSupplierModal({ open, onClose, onSuccess }: NewSupplierModalP
         },
       });
 
-      toast.success(`Supplier "${companyName}" added successfully!`);
+      toast.success(
+        supplierToEdit
+          ? `Supplier "${companyName}" updated successfully!`
+          : `Supplier "${companyName}" added successfully!`
+      );
       onSuccess?.({ _id: res._id, name: companyName.trim() });
       onClose();
     } catch (err: any) {
@@ -191,7 +248,7 @@ export function NewSupplierModal({ open, onClose, onSuccess }: NewSupplierModalP
               <Building2 className="size-3.5" />
             </div>
             <DialogTitle className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-              New Supplier Information
+              {supplierToEdit ? "Edit Supplier Information" : "New Supplier Information"}
             </DialogTitle>
           </div>
 
@@ -218,7 +275,14 @@ export function NewSupplierModal({ open, onClose, onSuccess }: NewSupplierModalP
 
           <div className="flex items-center gap-2 text-xs">
             <span className="text-slate-500 font-medium">Account Status</span>
-            <span className="font-bold text-red-600 tracking-wider">UNSAVED</span>
+            <span
+              className={cn(
+                "font-bold tracking-wider",
+                supplierToEdit ? "text-emerald-600 dark:text-emerald-400" : "text-red-600"
+              )}
+            >
+              {supplierToEdit ? "ACTIVE" : "UNSAVED"}
+            </span>
           </div>
         </div>
 
@@ -607,7 +671,7 @@ export function NewSupplierModal({ open, onClose, onSuccess }: NewSupplierModalP
               className="h-9 px-6 gap-2 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold text-xs shadow-sm"
             >
               <Save className="size-3.5" />
-              <span>{saving ? "Saving..." : "Save"}</span>
+              <span>{saving ? "Saving..." : supplierToEdit ? "Update Supplier" : "Save"}</span>
             </Button>
           </div>
         </div>
