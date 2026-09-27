@@ -668,25 +668,35 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
           visit.prescriptionData.immediateMedicines = items.map((it: any) => ({
             id: it.id,
             itemCode: it.itemCode,
-            medicineName: it.name,
+            medicineName: it.medicineName || it.name,
+            name: it.medicineName || it.name,
+            dose: it.dose !== undefined && it.dose !== null && it.dose !== "" ? it.dose : 1,
             quantity: Number(it.quantity) || 1,
             unit: it.unit || "Tablet",
+            route: it.route || "Oral",
+            time: it.time || "Immediate",
             dosage: it.dosage || it.dosageInstructions || "",
             instructions: it.instructions || it.dosageInstructions || "",
+            note: it.note || it.remarks || "",
             unitPrice: Number(it.unitPrice) || 0,
           }));
         } else if (data.section === "PRESCRIBED_MED") {
           visit.prescriptionData.prescribedMedicines = items.map((it: any) => ({
             id: it.id,
             itemCode: it.itemCode,
-            medicineName: it.name,
+            medicineName: it.medicineName || it.name,
+            name: it.medicineName || it.name,
+            dose: it.dose !== undefined && it.dose !== null && it.dose !== "" ? it.dose : 1,
             quantity: Number(it.quantity) || 1,
             unit: it.unit || "Tablet",
             dosage: it.dosage || it.dosageInstructions || "",
-            frequency: it.frequency || "As directed",
-            duration: it.duration || "5",
+            frequency: it.frequency || "Twice daily (BID)",
+            duration: it.duration || "5 days",
             route: it.route || "Oral",
+            timing: it.timing || "After Food",
+            time: it.time || "Morning & Night",
             instructions: it.instructions || it.dosageInstructions || "",
+            note: it.note || it.remarks || "",
             unitPrice: 0, // prescribed (take-home) — clinic never charges for this
           }));
         } else if (data.section === "INJECTABLE") {
@@ -744,14 +754,16 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
         if (!isSettled) {
           visit.items = (visit.items || []).filter(
             (l: any) =>
-              !(l.sourceType === "RX_ITEM" && l.rxSection === data.section)
+              !(l.sourceType === "RX_ITEM" && l.rxSection === data.section) &&
+              l.rxSection !== "PRESCRIBED_MED"
           );
 
-          for (const it of items) {
-            const qty = Number(it.quantity) || 1;
-            // Prescribed (take-home) medicine is never billed by the clinic, even if legacy data carries a price
-            const price = data.section === "PRESCRIBED_MED" ? 0 : Number(it.unitPrice) || 0;
-            const disc = Number(it.discountPercent) || 0;
+          // Take-home prescribed medicines are part of the medical Rx sheet, not billed in invoice
+          if (data.section !== "PRESCRIBED_MED") {
+            for (const it of items) {
+              const qty = Number(it.quantity) || 1;
+              const price = Number(it.unitPrice) || 0;
+              const disc = Number(it.discountPercent) || 0;
             const defaultGst =
               data.section === "ANIMAL_FOOD" ||
               data.section === "PRESCRIBED_FOOD" ||
@@ -802,6 +814,7 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
               rxSection: data.section,
             });
           }
+        }
         }
         break;
       }
@@ -1361,6 +1374,9 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
 
     visit.status = status;
     visit.inventoryDeducted = true;
+    if (visit.paymentRequestStatus === "pending") {
+      visit.paymentRequestStatus = balanceDue === 0 ? "collected" : "partial";
+    }
     if (data.appointmentToken && !visit.appointmentToken) {
       visit.appointmentToken = data.appointmentToken;
     }
@@ -1566,3 +1582,122 @@ export const getVisitByIdFn = createServerFn({ method: "GET" })
     if (!visit) return null;
     return toPlain<any>(visit);
   });
+
+// ─── Doctor → Receptionist Payment Handoff ───────────────────────────────────
+
+const RequestPaymentZ = z.object({
+  visitId: z.string().min(1),
+  requestedBy: z.string().optional(),
+  totalAmount: z.number().optional(),
+  pendingAmount: z.number().optional(),
+  subtotal: z.number().optional(),
+  billDiscount: z.number().optional(),
+  taxableAmount: z.number().optional(),
+  gstAmount: z.number().optional(),
+  roundOff: z.number().optional(),
+  items: z.array(z.any()).optional(),
+});
+
+/** Doctor calls this to push the visit into the receptionist's "Pending Collections" queue. */
+export const requestPaymentFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => RequestPaymentZ.parse(raw))
+  .handler(async ({ data }: { data: z.infer<typeof RequestPaymentZ> }) => {
+    await connectDB();
+    const updateFields: any = {
+      paymentRequestedAt: new Date().toISOString(),
+      paymentRequestStatus: "pending",
+    };
+    if (data.totalAmount !== undefined) {
+      updateFields.totalAmount = data.totalAmount;
+      updateFields.pendingAmount = data.pendingAmount !== undefined ? data.pendingAmount : data.totalAmount;
+      updateFields.balanceDue = updateFields.pendingAmount;
+    }
+    if (data.subtotal !== undefined) updateFields.subtotal = data.subtotal;
+    if (data.billDiscount !== undefined) updateFields.billDiscount = data.billDiscount;
+    if (data.taxableAmount !== undefined) updateFields.taxableAmount = data.taxableAmount;
+    if (data.gstAmount !== undefined) updateFields.gstAmount = data.gstAmount;
+    if (data.roundOff !== undefined) updateFields.roundOff = data.roundOff;
+    if (data.items !== undefined) updateFields.items = data.items;
+
+    const updated = await ClinicalVisit.findOneAndUpdate(
+      { visitId: data.visitId },
+      { $set: updateFields },
+      { new: true },
+    ).lean();
+    if (!updated) throw new Error(`Visit ${data.visitId} not found`);
+    return toPlain<any>(updated);
+  });
+
+/** Receptionist polls this to see all visits awaiting payment collection. */
+export const listPaymentRequestsFn = createServerFn({ method: "GET" }).handler(async () => {
+  await connectDB();
+  const visits = await ClinicalVisit.find({ paymentRequestStatus: "pending" })
+    .sort({ paymentRequestedAt: 1 })
+    .lean();
+  return toPlain<any[]>(visits);
+});
+
+const CollectReceptionistPaymentZ = z.object({
+  visitId: z.string().min(1),
+  paymentMode: z.enum(["UPI", "Cash", "Card", "NetBanking", "Cheque", "Account Due"]).default("Cash"),
+  amountPaid: z.number().min(0),
+  trxRef: z.string().optional(),
+  notes: z.string().optional(),
+  recordedBy: z.string().optional(),
+  dismiss: z.boolean().optional(),
+});
+
+/** Receptionist records the payment and marks the request as collected / dismissed. */
+export const collectReceptionistPaymentFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => CollectReceptionistPaymentZ.parse(raw))
+  .handler(async ({ data }: { data: z.infer<typeof CollectReceptionistPaymentZ> }) => {
+    await connectDB();
+
+    if (data.dismiss) {
+      const dismissed = await ClinicalVisit.findOneAndUpdate(
+        { visitId: data.visitId },
+        { $set: { paymentRequestStatus: "dismissed" } },
+        { new: true },
+      ).lean();
+      return toPlain<any>(dismissed);
+    }
+
+    const visit = await ClinicalVisit.findOne({ visitId: data.visitId }).lean() as any;
+    if (!visit) throw new Error(`Visit ${data.visitId} not found`);
+
+    const newAmountPaid = (visit.amountPaid || 0) + data.amountPaid;
+    const newBalanceDue = Math.max(0, (visit.totalAmount || 0) - newAmountPaid);
+    const newPendingAmount = newBalanceDue;
+    const newPaymentStatus: "Full" | "Partial" | "Unpaid" =
+      newBalanceDue <= 0 ? "Full" : newAmountPaid > 0 ? "Partial" : "Unpaid";
+
+    const paymentRecord = {
+      id: `PAY-${Date.now()}`,
+      paymentId: `PAY-${Date.now()}`,
+      mode: data.paymentMode,
+      amount: data.amountPaid,
+      trxRef: data.trxRef,
+      timestamp: new Date().toISOString(),
+      recordedBy: data.recordedBy || "Receptionist",
+      notes: data.notes,
+    };
+
+    const updated = await ClinicalVisit.findOneAndUpdate(
+      { visitId: data.visitId },
+      {
+        $set: {
+          amountPaid: newAmountPaid,
+          balanceDue: newBalanceDue,
+          pendingAmount: newPendingAmount,
+          paymentStatus: newPaymentStatus,
+          status: newBalanceDue <= 0 ? "Paid" : "Billed",
+          paymentRequestStatus: "collected",
+        },
+        $push: { payments: paymentRecord },
+      },
+      { new: true },
+    ).lean();
+
+    return toPlain<any>(updated);
+  });
+

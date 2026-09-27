@@ -7,6 +7,7 @@ import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
 import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 
 import { cn } from "@/lib/utils";
+import { calcLineItem, roundMoney, addMoney } from "@/lib/utils/moneyUtils";
 
 interface Props {
   visit: any;
@@ -127,144 +128,225 @@ export function InvoicePrintView({ visit, open, onClose }: Props) {
             </div>
           </div>
 
-          {/* Itemized Table */}
-          <table className="w-full text-xs border border-gray-300">
-            <thead>
-              <tr className="bg-gray-100 border-b border-gray-300 text-left font-bold text-gray-700">
-                <th className="p-2 w-8">#</th>
-                <th className="p-2">Description / Category</th>
-                <th className="p-2 text-center">Qty</th>
-                <th className="p-2 text-right">Rate (₹)</th>
-                <th className="p-2 text-center">Disc (%)</th>
-                {isGst && <th className="p-2 text-center">GST</th>}
-                <th className="p-2 text-right">Amount (₹)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {(visit?.items || []).map((item: any, idx: number) => {
-                const gross = item.quantity * item.unitPrice;
-                const disc = (gross * (item.discountPercent || 0)) / 100;
-                const lineNet = gross - disc;
-                return (
-                  <tr key={idx}>
-                    <td className="p-2 text-gray-500">{idx + 1}</td>
-                    <td className="p-2">
-                      <p className="font-semibold text-gray-900">{item.name}</p>
-                      <span className="text-[10px] text-gray-500">{item.lineType}</span>
-                    </td>
-                    <td className="p-2 text-center font-medium">{item.quantity}</td>
-                    <td className="p-2 text-right">{item.unitPrice.toFixed(2)}</td>
-                    <td className="p-2 text-center">{item.discountPercent || 0}%</td>
-                    {isGst && <td className="p-2 text-center">{item.gstRate || 0}%</td>}
-                    <td className="p-2 text-right font-bold">{lineNet.toFixed(2)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {/* Itemized Table with Professional Detailed Calculation */}
+          {(() => {
+            const invoiceItems = (visit?.items || []).filter((item: any) => {
+              if (item.rxSection === "PRESCRIBED_MED") return false;
+              if (item.sourceType === "RX_ITEM" && item.rxSection === "PRESCRIBED_MED") return false;
+              if (item.lineType === "Prescription") return false;
+              if (Number(item.unitPrice || 0) <= 0 && Number(item.lineTotal || 0) <= 0 && item.lineType !== "Consultation") return false;
+              return true;
+            });
 
-          {/* Financial Summary & Split Settlement (§4.4) */}
-          <div className="flex flex-col md:flex-row justify-between items-start gap-4 pt-2">
-            {/* Left: Payment History Sub-Table (§4.4) */}
-            <div className="flex-1 w-full space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="font-bold text-gray-700 uppercase text-[10px]">Payment History / Installments</p>
-                {/* Status Watermark / Badge (§4.4) */}
-                <span
-                  className={cn(
-                    "text-[10px] font-black uppercase px-2 py-0.5 rounded border",
-                    balanceDue === 0
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                      : "bg-amber-50 text-amber-700 border-amber-300"
-                  )}
-                >
-                  {balanceDue === 0 ? "PAID IN FULL ✓" : `PARTIAL PAYMENT — BALANCE DUE: ₹${balanceDue.toFixed(2)}`}
-                </span>
-              </div>
+            let calculatedGross = 0;
+            let calculatedDiscount = 0;
+            let calculatedTaxable = 0;
+            let calculatedGst = 0;
 
-              {payments.length > 0 ? (
-                <table className="w-full text-[11px] border border-gray-200">
+            const processedRows = invoiceItems.map((item: any, idx: number) => {
+              const qty = Math.max(1, Number(item.quantity) || 1);
+              const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
+              const gross = roundMoney(qty * unitPrice);
+
+              const dType = (item.discountType === "fixed" || item.discountType === "₹") ? "fixed" : "percentage";
+              const rawDisc = item.discountValue !== undefined && item.discountValue !== null ? Number(item.discountValue) : (Number(item.discountPercent) || 0);
+              const discVal = Math.max(0, isNaN(rawDisc) ? 0 : rawDisc);
+
+              const isLineGst = isGst ? (item.gstApplicable !== false) : (item.gstApplicable === true);
+              const rate = isLineGst ? (Number(item.gstRate) || 0) : 0;
+
+              const lineCalc = calcLineItem({
+                quantity: qty,
+                unitPrice,
+                discountType: dType,
+                discountValue: discVal,
+                gstRate: rate,
+                applyGst: isLineGst,
+              });
+
+              const discPercent = dType === "percentage" ? discVal : (gross > 0 ? Math.round((lineCalc.discountAmount / gross) * 100) : 0);
+              const taxableAmt = lineCalc.taxableAmount;
+              const gstAmt = lineCalc.gstAmount;
+              const finalAmt = lineCalc.lineTotal;
+
+              calculatedGross = addMoney(calculatedGross, gross);
+              calculatedDiscount = addMoney(calculatedDiscount, lineCalc.discountAmount);
+              calculatedTaxable = addMoney(calculatedTaxable, taxableAmt);
+              calculatedGst = addMoney(calculatedGst, gstAmt);
+
+              return {
+                item,
+                idx,
+                qty,
+                unitPrice,
+                discPercent,
+                discountAmount: lineCalc.discountAmount,
+                taxableAmt,
+                gstRate: rate,
+                gstAmt,
+                finalAmt,
+              };
+            });
+
+            return (
+              <>
+                <table className="w-full text-xs border border-gray-300">
                   <thead>
-                    <tr className="bg-gray-100 text-gray-700 border-b border-gray-200 text-left font-semibold">
-                      <th className="p-1.5">Date</th>
-                      <th className="p-1.5">Mode</th>
-                      <th className="p-1.5">Ref / Notes</th>
-                      <th className="p-1.5">Recorded By</th>
-                      <th className="p-1.5 text-right">Amount Paid</th>
+                    <tr className="bg-gray-100 border-b border-gray-300 text-left font-bold text-gray-700 text-[10px] uppercase tracking-wider">
+                      <th className="p-2 w-8 text-center">#</th>
+                      <th className="p-2">Description / Item</th>
+                      <th className="p-2 text-center w-12">Qty</th>
+                      <th className="p-2 text-right w-20">Rate (₹)</th>
+                      <th className="p-2 text-center w-16">Disc (%)</th>
+                      <th className="p-2 text-right w-24">Taxable Amt (₹)</th>
+                      {isGst && <th className="p-2 text-center w-16">GST (%)</th>}
+                      <th className="p-2 text-right w-24">Final Amt (₹)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {payments.map((p: any, idx: number) => {
-                      const dateStr = p.timestamp ? new Date(p.timestamp).toLocaleDateString("en-GB") : visit?.date || "-";
-                      return (
-                        <tr key={idx}>
-                          <td className="p-1.5 text-gray-700">{dateStr}</td>
-                          <td className="p-1.5 font-bold uppercase text-[10px] text-gray-800">{p.mode || "UPI"}</td>
-                          <td className="p-1.5 text-gray-600">{p.trxRef || p.notes || "—"}</td>
-                          <td className="p-1.5 text-gray-600">{p.recordedBy || "Cashier"}</td>
-                          <td className="p-1.5 text-right font-mono font-bold text-gray-900">₹{Number(p.amount).toFixed(2)}</td>
-                        </tr>
-                      );
-                    })}
+                    {processedRows.map(({ item, idx, qty, unitPrice, discPercent, discountAmount, taxableAmt, gstRate, gstAmt, finalAmt }) => (
+                      <tr key={idx}>
+                        <td className="p-2 text-center text-gray-500">{idx + 1}</td>
+                        <td className="p-2">
+                          <p className="font-semibold text-gray-900">{item.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] text-gray-500">{item.lineType || "Service"}</span>
+                            {item.batchNo && (
+                              <span className="text-[9px] text-gray-400 font-mono">Batch: {item.batchNo}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-2 text-center font-medium">{qty}</td>
+                        <td className="p-2 text-right font-mono">{unitPrice.toFixed(2)}</td>
+                        <td className="p-2 text-center font-mono">
+                          {discPercent > 0 ? (
+                            <div>
+                              <span className="font-bold text-emerald-700">{discPercent}%</span>
+                              <div className="text-[9px] text-emerald-600">-₹{discountAmount.toFixed(2)}</div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">0%</span>
+                          )}
+                        </td>
+                        <td className="p-2 text-right font-mono font-semibold text-gray-800">{taxableAmt.toFixed(2)}</td>
+                        {isGst && (
+                          <td className="p-2 text-center font-mono">
+                            {gstRate > 0 ? (
+                              <div>
+                                <span className="font-bold text-gray-700">{gstRate}%</span>
+                                <div className="text-[9px] text-gray-500">+₹{gstAmt.toFixed(2)}</div>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 text-[10px]">0%</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="p-2 text-right font-bold font-mono text-gray-900">{finalAmt.toFixed(2)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
-              ) : (
-                <p className="text-xs text-gray-400 italic">No payments recorded.</p>
-              )}
-            </div>
 
-            {/* Right: Detailed Summary (§4.4) */}
-            <div className="w-72 space-y-1.5 text-xs text-right border-t md:border-t-0 md:border-l border-gray-200 pt-3 md:pt-0 md:pl-4">
-              <div className="flex justify-between text-gray-600">
-                <span>Subtotal:</span>
-                <span>₹{(visit?.subtotal || 0).toFixed(2)}</span>
-              </div>
-              {isGst && (
-                <div className="flex justify-between text-gray-600">
-                  <span>GST Amount:</span>
-                  <span>+₹{(visit?.gstAmount || 0).toFixed(2)}</span>
-                </div>
-              )}
-              {visit?.roundOff !== 0 && (
-                <div className="flex justify-between text-gray-600">
-                  <span>Round-off:</span>
-                  <span>{visit?.roundOff >= 0 ? `+₹${visit.roundOff.toFixed(2)}` : `-₹${Math.abs(visit.roundOff).toFixed(2)}`}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-extrabold text-base pt-2 border-t-2 border-black text-gray-900">
-                <span>Total Bill:</span>
-                <span>₹{(visit?.totalAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-              </div>
+                {/* Financial Summary & Split Settlement (§4.4) */}
+                <div className="flex flex-col md:flex-row justify-between items-start gap-4 pt-2">
+                  {/* Left: Payment History Sub-Table (§4.4) */}
+                  <div className="flex-1 w-full space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-gray-700 uppercase text-[10px]">Payment History / Installments</p>
+                      {/* Status Watermark / Badge (§4.4) */}
+                      <span
+                        className={cn(
+                          "text-[10px] font-black uppercase px-2 py-0.5 rounded border",
+                          balanceDue === 0
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                            : "bg-amber-50 text-amber-700 border-amber-300"
+                        )}
+                      >
+                        {balanceDue === 0 ? "PAID IN FULL ✓" : `PARTIAL PAYMENT — BALANCE DUE: ₹${balanceDue.toFixed(2)}`}
+                      </span>
+                    </div>
 
-              {isMultiPayment && (
-                <>
-                  <div className="flex justify-between text-xs text-gray-600">
-                    <span>Previous Paid:</span>
-                    <span>₹{previousPaidAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    {payments.length > 0 ? (
+                      <table className="w-full text-[11px] border border-gray-200">
+                        <thead>
+                          <tr className="bg-gray-100 text-gray-700 border-b border-gray-200 text-left font-semibold">
+                            <th className="p-1.5">Date</th>
+                            <th className="p-1.5">Mode</th>
+                            <th className="p-1.5">Ref / Notes</th>
+                            <th className="p-1.5">Recorded By</th>
+                            <th className="p-1.5 text-right">Amount Paid</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {payments.map((p: any, idx: number) => {
+                            const dateStr = p.timestamp ? new Date(p.timestamp).toLocaleDateString("en-GB") : visit?.date || "-";
+                            return (
+                              <tr key={idx}>
+                                <td className="p-1.5 text-gray-700">{dateStr}</td>
+                                <td className="p-1.5 font-bold uppercase text-[10px] text-gray-800">{p.mode || "UPI"}</td>
+                                <td className="p-1.5 text-gray-600">{p.trxRef || p.notes || "—"}</td>
+                                <td className="p-1.5 text-gray-600">{p.recordedBy || "Cashier"}</td>
+                                <td className="p-1.5 text-right font-mono font-bold text-gray-900">₹{Number(p.amount).toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">No payments recorded.</p>
+                    )}
                   </div>
-                  <div className="flex justify-between text-xs font-semibold text-gray-800">
-                    <span>Current Payment:</span>
-                    <span>₹{Number(currentPaymentAmount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+
+                  {/* Right: Detailed Summary (§4.4) */}
+                  <div className="w-72 space-y-1.5 text-xs text-right border-t md:border-t-0 md:border-l border-gray-200 pt-3 md:pt-0 md:pl-4">
+                    <div className="flex justify-between text-gray-600">
+                      <span>Subtotal (Gross):</span>
+                      <span className="font-mono">₹{(visit?.subtotal || calculatedGross).toFixed(2)}</span>
+                    </div>
+                    {(visit?.billDiscount || calculatedDiscount) > 0 && (
+                      <div className="flex justify-between text-emerald-700 font-medium">
+                        <span>Total Discount:</span>
+                        <span className="font-mono">-₹{(visit?.billDiscount || calculatedDiscount).toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-gray-700 font-semibold pt-0.5 border-t border-gray-200">
+                      <span>Taxable Amount:</span>
+                      <span className="font-mono">₹{(visit?.taxableAmount || calculatedTaxable).toFixed(2)}</span>
+                    </div>
+                    {isGst && (
+                      <div className="flex justify-between text-gray-600">
+                        <span>GST Amount:</span>
+                        <span className="font-mono">+₹{(visit?.gstAmount || calculatedGst).toFixed(2)}</span>
+                      </div>
+                    )}
+                    {visit?.roundOff !== 0 && visit?.roundOff !== undefined && (
+                      <div className="flex justify-between text-gray-600">
+                        <span>Round-off:</span>
+                        <span className="font-mono">{visit?.roundOff >= 0 ? `+₹${visit.roundOff.toFixed(2)}` : `-₹${Math.abs(visit.roundOff).toFixed(2)}`}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-extrabold text-base pt-2 border-t-2 border-black text-gray-900">
+                      <span>Total Bill:</span>
+                      <span className="font-mono">₹{(visit?.totalAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    </div>
+
+                    {isMultiPayment && (
+                      <>
+                        <div className="flex justify-between text-xs text-gray-600">
+                          <span>Previous Paid:</span>
+                          <span className="font-mono">₹{previousPaidAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="flex justify-between text-xs font-semibold text-gray-800">
+                          <span>Current Payment:</span>
+                          <span className="font-mono">₹{Number(currentPaymentAmount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
-                </>
-              )}
-
-              <div className="flex justify-between text-xs font-semibold text-gray-800 border-t border-gray-200 pt-1">
-                <span>Total Paid:</span>
-                <span>₹{Number(totalPaid).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-              </div>
-
-              <div
-                className={cn(
-                  "flex justify-between text-xs font-bold pt-1 border-t border-gray-200",
-                  balanceDue > 0 ? "text-red-600" : "text-emerald-700"
-                )}
-              >
-                <span>Balance Due:</span>
-                <span>₹{Number(balanceDue).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-              </div>
-            </div>
-          </div>
+                </div>
+              </>
+            );
+          })()}
 
           {/* Follow-up Reminder Note */}
           {(visit?.nextVaccineDate || visit?.nextDewormingDate || visit?.nextVisitDate) && (

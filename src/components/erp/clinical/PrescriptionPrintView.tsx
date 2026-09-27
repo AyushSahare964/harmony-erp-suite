@@ -291,13 +291,13 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
                   {immediateMeds.map((m: any, idx: number) => (
                     <tr key={idx} className="hover:bg-slate-50/50">
                       <td className="p-1.5 text-slate-400 font-mono">{idx + 1}</td>
-                      <td className="p-1.5 font-bold text-slate-900">{m.medicineName}</td>
+                      <td className="p-1.5 font-bold text-slate-900">{m.medicineName || m.name || "Medicine"}</td>
                       <td className="p-1.5 text-center font-mono font-semibold">
-                        {m.dose} {m.unit}
+                        {m.dose !== undefined && m.dose !== null ? `${m.dose} ` : "1 "}{m.unit || "Tablet"}
                       </td>
                       <td className="p-1.5 text-center font-medium text-slate-700">{m.route || "Oral"}</td>
                       <td className="p-1.5 text-center font-medium text-slate-700">{m.time || "Immediate"}</td>
-                      <td className="p-1.5 text-slate-600 italic">{m.note || "—"}</td>
+                      <td className="p-1.5 text-slate-600 italic">{m.note || m.instructions || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -341,22 +341,30 @@ export function PrescriptionPrintView({ visit, open, onClose }: Props) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {prescribedMeds.map((m: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-slate-50/50">
-                      <td className="p-1.5 text-slate-400 font-mono">{idx + 1}</td>
-                      <td className="p-1.5 font-bold text-slate-900">
-                        {m.medicineName}
-                        {m.note && <span className="block text-[10px] text-slate-500 font-normal italic">{m.note}</span>}
-                      </td>
-                      <td className="p-1.5 text-center font-mono font-semibold">
-                        {m.dose} {m.unit}
-                      </td>
-                      <td className="p-1.5 text-center font-semibold text-blue-900">{m.frequency}</td>
-                      <td className="p-1.5 text-center font-medium text-slate-800">{m.duration}</td>
-                      <td className="p-1.5 text-center font-medium text-slate-700">{m.route || "Oral"}</td>
-                      <td className="p-1.5 text-slate-700 font-medium">{m.time || "After Food"}</td>
-                    </tr>
-                  ))}
+                  {prescribedMeds.map((m: any, idx: number) => {
+                    const timingDisplay = m.timing
+                      ? (m.time ? `${m.timing} (${m.time})` : m.timing)
+                      : (m.time || "After Food");
+                    const durationDisplay = m.duration
+                      ? (String(m.duration).toLowerCase().includes("day") ? m.duration : `${m.duration} days`)
+                      : "5 days";
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        <td className="p-1.5 text-slate-400 font-mono">{idx + 1}</td>
+                        <td className="p-1.5 font-bold text-slate-900">
+                          {m.medicineName || m.name || "Medicine"}
+                          {(m.note || m.dosageInstructions) && <span className="block text-[10px] text-slate-500 font-normal italic">{m.note || m.dosageInstructions}</span>}
+                        </td>
+                        <td className="p-1.5 text-center font-mono font-semibold">
+                          {m.dose !== undefined && m.dose !== null ? `${m.dose} ` : "1 "}{m.unit || "Tablet"}
+                        </td>
+                        <td className="p-1.5 text-center font-semibold text-blue-900">{m.frequency || "Twice daily (BID)"}</td>
+                        <td className="p-1.5 text-center font-medium text-slate-800">{durationDisplay}</td>
+                        <td className="p-1.5 text-center font-medium text-slate-700">{m.route || "Oral"}</td>
+                        <td className="p-1.5 text-slate-700 font-medium">{timingDisplay}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (

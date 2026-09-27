@@ -246,6 +246,11 @@ export interface IClinicalVisit extends Document {
   accountingPosted: boolean;
   appointmentToken?: string | undefined;
 
+  /** Set by doctor when clicking "Send to Receptionist" – ISO timestamp */
+  paymentRequestedAt?: string | undefined;
+  /** Lifecycle of the doctor → receptionist payment handoff */
+  paymentRequestStatus?: "pending" | "collected" | "dismissed" | undefined;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -381,6 +386,12 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
 
     inventoryDeducted: { type: Boolean, default: false },
     accountingPosted: { type: Boolean, default: false },
+
+    paymentRequestedAt: { type: String },
+    paymentRequestStatus: {
+      type: String,
+      enum: ["pending", "collected", "dismissed"],
+    },
   },
   { timestamps: true },
 );

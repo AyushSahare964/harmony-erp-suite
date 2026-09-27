@@ -136,7 +136,10 @@ function serializeSectionState(sectionKey: string, data: any): string {
         frequency: String(it.frequency || ""),
         duration: String(it.duration || ""),
         route: String(it.route || ""),
-        dose: it.dose !== undefined ? Number(it.dose) : undefined,
+        dose: it.dose !== undefined ? String(it.dose) : undefined,
+        timing: String(it.timing || ""),
+        time: String(it.time || ""),
+        note: String(it.note || ""),
         category: String(it.category || ""),
       }))
     );
@@ -349,11 +352,16 @@ export function PrescriptionWorkflow({
         id: m.id || `imm-${idx}-${visit?.visitId || "rx"}`,
         itemCode: m.itemCode,
         name: m.medicineName || m.name,
+        medicineName: m.medicineName || m.name,
         dosageInstructions: m.dosage || m.instructions || "",
+        dose: m.dose !== undefined && m.dose !== null && m.dose !== "" ? m.dose : 1,
+        route: m.route || "Oral",
+        time: m.time || "Immediate",
         quantity: Number(m.quantity) || 1,
         unit: m.unit || "Tablet",
         unitPrice: Number(m.unitPrice) || 120,
         discountPercent: 0,
+        note: m.note || m.remarks || "",
       }));
     }
     return [];
@@ -367,15 +375,20 @@ export function PrescriptionWorkflow({
         id: m.id || `med-${idx}-${visit?.visitId || "rx"}`,
         itemCode: m.itemCode,
         name: m.medicineName || m.name,
+        medicineName: m.medicineName || m.name,
         brand: m.brand,
-        dosageInstructions: m.dosage || m.instructions || "",
-        frequency: m.frequency || "As directed",
+        dosageInstructions: m.dosage || m.instructions || m.dosageInstructions || "",
+        dose: m.dose !== undefined && m.dose !== null && m.dose !== "" ? m.dose : 1,
+        frequency: m.frequency || "Twice daily (BID)",
         duration: m.duration || "5 days",
         route: m.route || "Oral",
+        timing: m.timing || (m.time && !m.time.includes(":") ? m.time : "After Food"),
+        time: m.time || "Morning & Night",
         quantity: Number(m.quantity) || 1,
         unit: m.unit || "Tablet",
-        unitPrice: Number(m.unitPrice) || 150,
+        unitPrice: Number(m.unitPrice) || 0,
         discountPercent: 0,
+        note: m.note || m.remarks || "",
       }));
     }
     // Migration fallback for legacy visit.items
@@ -392,11 +405,19 @@ export function PrescriptionWorkflow({
           id: m.id || m.sourceId || `med-${idx}-${visit?.visitId || "rx"}`,
           itemCode: m.itemCode,
           name: m.name,
+          medicineName: m.name,
           dosageInstructions: m.dosageInstructions || "As directed",
+          dose: 1,
+          frequency: "Twice daily (BID)",
+          duration: "5 days",
+          route: "Oral",
+          timing: "After Food",
+          time: "Morning & Night",
           quantity: Number(m.quantity) || 1,
           unit: "Tablet",
-          unitPrice: Number(m.unitPrice) || 150,
-          discountPercent: Number(m.discountPercent) || 0,
+          unitPrice: 0,
+          discountPercent: 0,
+          note: "",
         }));
       }
     }
@@ -937,7 +958,12 @@ export function PrescriptionWorkflow({
         lineType: "Pharmacy",
         itemCode: m.itemCode,
         name: m.name || (m as any).medicineName || "Immediate Medicine",
+        medicineName: m.medicineName || m.name || "Immediate Medicine",
         dosageInstructions: m.dosageInstructions || (m as any).dosage || (m as any).instructions,
+        dose: m.dose !== undefined && m.dose !== null ? m.dose : 1,
+        unit: m.unit || "Tablet",
+        route: m.route || "Oral",
+        time: m.time || "Immediate",
         quantity: Number(m.quantity) || 1,
         unitPrice: Number(m.unitPrice) || 0,
         discountPercent: Number(m.discountPercent) || 0,
@@ -947,22 +973,8 @@ export function PrescriptionWorkflow({
       });
     }
 
-    // Prescribed medicines
-    for (const m of prescribedMedicines) {
-      linesList.push({
-        id: m.id || `rx-pm-${Math.random()}`,
-        lineType: "Pharmacy",
-        itemCode: m.itemCode,
-        name: m.name || (m as any).medicineName || "Prescribed Medicine",
-        dosageInstructions: m.dosageInstructions || (m as any).dosage || (m as any).instructions,
-        quantity: Number(m.quantity) || 1,
-        unitPrice: Number(m.unitPrice) || 0,
-        discountPercent: Number(m.discountPercent) || 0,
-        gstRate: visit?.billType === "GST" ? 12 : 0,
-        sourceType: "RX_ITEM",
-        rxSection: "PRESCRIBED_MED",
-      });
-    }
+    // Prescribed medicines (take-home prescriptions) are part of the medical Rx sheet,
+    // not clinic billing lines. Only immediate clinic dispensations/services are billed.
 
     // Injectables
     for (const inj of injectables) {
@@ -1051,8 +1063,25 @@ export function PrescriptionWorkflow({
       symptomTags,
       clinicalFindings,
       clinicalFindingsOther,
-      immediateMedicines: immediateMedicines as any,
-      prescribedMedicines: prescribedMedicines as any,
+      immediateMedicines: immediateMedicines.map((m: any) => ({
+        ...m,
+        medicineName: m.medicineName || m.name,
+        name: m.medicineName || m.name,
+        dose: m.dose !== undefined && m.dose !== null && m.dose !== "" ? m.dose : 1,
+        route: m.route || "Oral",
+        time: m.time || "Immediate",
+      })) as any,
+      prescribedMedicines: prescribedMedicines.map((m: any) => ({
+        ...m,
+        medicineName: m.medicineName || m.name,
+        name: m.medicineName || m.name,
+        dose: m.dose !== undefined && m.dose !== null && m.dose !== "" ? m.dose : 1,
+        frequency: m.frequency || "Twice daily (BID)",
+        duration: m.duration || "5 days",
+        route: m.route || "Oral",
+        timing: m.timing || "After Food",
+        time: m.time || "Morning & Night",
+      })) as any,
       injectables: injectables as any,
       consultationFee: consultationFee ?? undefined,
       consultationFeePreset: consultationFeePreset || undefined,
@@ -1979,6 +2008,7 @@ export function PrescriptionWorkflow({
               saveLabel="Save Immediate Meds ✓"
               catalogItems={catalogItems}
               showDosage={true}
+              showRoute={true}
               allowCustomAdd={false}
               isLocked={isSettled}
             />
@@ -2000,6 +2030,8 @@ export function PrescriptionWorkflow({
               saveLabel="Save Prescribed Meds ✓"
               catalogItems={catalogItems}
               showDosage={true}
+              showFrequencyDuration={true}
+              showRoute={true}
               showPrice={false}
               isLocked={isSettled}
             />

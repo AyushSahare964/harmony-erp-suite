@@ -20,6 +20,8 @@ import {
   Edit,
   Copy,
   Tag,
+  BellRing,
+  Send,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -32,7 +34,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useErp } from "@/lib/erp/store";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
-import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn, savePrescriptionFn, getVisitByIdFn } from "@/lib/mongodb/serverFns/clinical";
+import { finalizeVisitAndBillFn, getLatestVisitFn, getPatientHistoryFn, savePrescriptionFn, getVisitByIdFn, requestPaymentFn } from "@/lib/mongodb/serverFns/clinical";
 import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { PrescriptionWorkflow } from "./prescription/PrescriptionWorkflow";
 import { SectionJumpBar, DEFAULT_RX_JUMP_SECTIONS, type SectionJumpItem } from "./prescription/SectionJumpBar";
@@ -42,13 +44,14 @@ import { InvoicePrintView } from "./InvoicePrintView";
 import { printOrSaveDocumentAsPdf } from "@/lib/utils/pdfExport";
 import { getPetFn } from "@/lib/mongodb/serverFns/crm";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
-import { calcLineItem, calcBillSummary, validateDiscount, roundMoney } from "@/lib/utils/moneyUtils";
+import { calcLineItem, calcBillSummary, validateDiscount, roundMoney, addMoney } from "@/lib/utils/moneyUtils";
 
 interface VisitWorkspaceProps {
   open: boolean;
   onClose: () => void;
   visit: any;
   onVisitFinalized?: (updatedVisit: any) => void;
+  initialTab?: "consultation" | "billing" | "completed";
 }
 
 interface BillLine {
@@ -76,9 +79,16 @@ interface BillLine {
 
 // FALLBACK_CATALOG removed — real inventory is always used. Empty inventory shows "no items found" correctly.
 
-export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: VisitWorkspaceProps) {
-  const { currentUser, role } = useErp();
+export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, initialTab }: VisitWorkspaceProps) {
+  const { currentUser, role, roleId } = useErp();
   const [activeVisit, setActiveVisit] = useState<any>(visit);
+
+  const isReceptionist =
+    roleId === "reception" ||
+    role?.id === "reception" ||
+    currentUser?.roleId === "reception" ||
+    currentUser?.role === "reception" ||
+    Boolean(visit?.openedFromReception);
 
   useEffect(() => {
     setActiveVisit(visit);
@@ -210,6 +220,10 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
   const [showRxPrint, setShowRxPrint] = useState(false);
   const [showInvoicePrint, setShowInvoicePrint] = useState(false);
   const [finalizedVisit, setFinalizedVisit] = useState<any | null>(null);
+  const [paymentSentToReceptionist, setPaymentSentToReceptionist] = useState(false);
+  const [isSendingToReceptionist, setIsSendingToReceptionist] = useState(false);
+  const [billingTabSentToReceptionist, setBillingTabSentToReceptionist] = useState(false);
+  const [isBillingTabSending, setIsBillingTabSending] = useState(false);
 
   const loadFreshVisit = async (visitId: string) => {
     try {
@@ -231,7 +245,12 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
           if (fresh.vitals.complaint) setComplaint(fresh.vitals.complaint);
         }
         if (fresh.items && fresh.items.length > 0) {
-          setLines(fresh.items.map((l: any, idx: number) => ({
+          const billableItems = fresh.items.filter((l: any) =>
+            l.rxSection !== "PRESCRIBED_MED" &&
+            !(l.sourceType === "RX_ITEM" && l.rxSection === "PRESCRIBED_MED") &&
+            !(Number(l.unitPrice || 0) <= 0 && Number(l.lineTotal || 0) <= 0 && l.lineType !== "Consultation")
+          );
+          setLines(billableItems.map((l: any, idx: number) => ({
             id: l.id || `line-${idx + 1}`,
             lineType: l.lineType || "Pharmacy",
             itemCode: l.itemCode,
@@ -252,6 +271,14 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             sourceId: l.sourceId,
             rxSection: l.rxSection,
           })));
+        }
+        const isCompleted =
+          fresh.status === "PAID" ||
+          fresh.status === "Settled" ||
+          fresh.status === "Paid" ||
+          fresh.status === "Completed";
+        if (isCompleted) {
+          setFinalizedVisit(fresh);
         }
       }
     } catch (e) {
@@ -869,7 +896,12 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       setNextVisitDate(visit?.nextVisitDate || "");
       setNextDewormingDate(visit?.nextDewormingDate || "");
       if (visit.items && visit.items.length > 0) {
-        setLines(visit.items.map((it: any, idx: number) => ({ ...it, id: it.id || String(idx + 1) })));
+        const billable = visit.items.filter((it: any) =>
+          it.rxSection !== "PRESCRIBED_MED" &&
+          !(it.sourceType === "RX_ITEM" && it.rxSection === "PRESCRIBED_MED") &&
+          !(Number(it.unitPrice || 0) <= 0 && Number(it.lineTotal || 0) <= 0 && it.lineType !== "Consultation")
+        );
+        setLines(billable.map((it: any, idx: number) => ({ ...it, id: it.id || String(idx + 1) })));
       } else {
         setLines([
           {
@@ -879,7 +911,10 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             quantity: 1,
             unitPrice: 500,
             discountPercent: 0,
+            discountValue: 0,
+            discountType: "percentage",
             gstRate: 18,
+            gstApplicable: billType === "GST",
           },
         ]);
       }
@@ -894,6 +929,12 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
       if (isAlreadyCompleted) {
         setFinalizedVisit(visit);
         setTab("completed");
+      } else if (initialTab) {
+        setFinalizedVisit(null);
+        setTab(initialTab);
+      } else if (isReceptionist || visit.paymentRequestStatus === "pending") {
+        setFinalizedVisit(null);
+        setTab("billing");
       } else {
         setFinalizedVisit(null);
         setTab("consultation");
@@ -983,25 +1024,140 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
 
   const updateLine = (id: string, field: keyof BillLine, value: any) => {
     setLines((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, [field]: value } : l))
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const updated = { ...l, [field]: value };
+        if (field === "discountPercent") {
+          updated.discountValue = value;
+          updated.discountType = "percentage";
+        } else if (field === "discountValue") {
+          if (updated.discountType === "percentage") {
+            updated.discountPercent = value;
+          }
+        }
+        return updated;
+      })
+    );
+  };
+
+  const handleDiscountChange = (id: string, val: number, currentType?: "percentage" | "fixed") => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const dType = currentType || l.discountType || "percentage";
+        const clampedVal = dType === "percentage" ? Math.min(100, Math.max(0, val)) : Math.max(0, val);
+        return {
+          ...l,
+          discountType: dType,
+          discountValue: clampedVal,
+          discountPercent: dType === "percentage" ? clampedVal : (l.unitPrice > 0 ? (clampedVal / (l.unitPrice * l.quantity)) * 100 : 0),
+        };
+      })
+    );
+  };
+
+  const handleToggleDiscountType = (id: string) => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const currentType = l.discountType === "fixed" ? "fixed" : "percentage";
+        const nextType: "percentage" | "fixed" = currentType === "fixed" ? "percentage" : "fixed";
+        let nextValue = l.discountValue !== undefined && l.discountValue !== null ? Number(l.discountValue) : (Number(l.discountPercent) || 0);
+        if (nextType === "percentage" && nextValue > 100) {
+          nextValue = 100;
+        }
+        return {
+          ...l,
+          discountType: nextType,
+          discountValue: nextValue,
+          discountPercent: nextType === "percentage" ? nextValue : 0,
+        };
+      })
+    );
+  };
+
+  const handleGstToggle = (id: string, active: boolean) => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        return {
+          ...l,
+          gstApplicable: active,
+          gstRate: active && (!l.gstRate || l.gstRate <= 0) ? 18 : l.gstRate,
+        };
+      })
+    );
+  };
+
+  const handleGstRateChange = (id: string, rate: number) => {
+    const clampedRate = Math.min(100, Math.max(0, rate));
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        return {
+          ...l,
+          gstRate: clampedRate,
+          gstApplicable: clampedRate > 0 ? true : l.gstApplicable,
+        };
+      })
+    );
+  };
+
+  const handleBillTypeChange = (newType: "GST" | "Non-GST") => {
+    setBillType(newType);
+    setLines((prev) =>
+      prev.map((l) => ({
+        ...l,
+        gstApplicable: newType === "GST",
+      }))
     );
   };
 
   // Dynamic Financial Computations — decimal-safe (REQ-DISC-04, moneyUtils)
-  // Each line's own GST toggle wins; the Bill Type dropdown is just the default for lines that haven't been overridden.
   const billSummary = useMemo(() => {
-    const result = calcBillSummary(
-      lines.map((l) => ({
-        quantity: l.quantity,
-        unitPrice: l.unitPrice,
-        discountType: l.discountType || "percentage",
-        discountValue: l.discountValue ?? l.discountPercent ?? 0,
-        gstRate: l.gstRate,
-        applyGst: l.gstApplicable,
-      })),
-      billType === "GST"
-    );
+    const isGstBill = billType === "GST";
+    let grossTotal = 0;
+    let totalDiscount = 0;
+
+    const mappedLines = lines.map((l) => {
+      const qty = Math.max(1, Number(l.quantity) || 1);
+      const price = Math.max(0, Number(l.unitPrice) || 0);
+      const base = roundMoney(qty * price);
+      grossTotal = addMoney(grossTotal, base);
+
+      const dType: "percentage" | "fixed" = (l.discountType === "fixed" || l.discountType === "₹") ? "fixed" : "percentage";
+      const rawDisc = l.discountValue !== undefined && l.discountValue !== null ? Number(l.discountValue) : (Number(l.discountPercent) || 0);
+      const discVal = Math.max(0, isNaN(rawDisc) ? 0 : rawDisc);
+
+      const isLineGstActive = isGstBill ? (l.gstApplicable !== false) : (l.gstApplicable === true);
+      const rate = Number(l.gstRate) || 0;
+
+      const calc = calcLineItem({
+        quantity: qty,
+        unitPrice: price,
+        discountType: dType,
+        discountValue: discVal,
+        gstRate: rate,
+        applyGst: isLineGstActive,
+      });
+
+      totalDiscount = addMoney(totalDiscount, calc.discountAmount);
+
+      return {
+        quantity: qty,
+        unitPrice: price,
+        discountType: dType,
+        discountValue: discVal,
+        gstRate: rate,
+        applyGst: isLineGstActive,
+      };
+    });
+
+    const result = calcBillSummary(mappedLines, isGstBill);
+
     return {
+      grossTotal,
+      totalDiscount,
       subtotal: result.subtotal,
       taxableAmount: result.subtotal,
       gstAmount: result.totalGst,
@@ -1140,15 +1296,17 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
           complaint: effectiveRx?.symptomsText || complaint || activeVisit?.vitals?.complaint || visit?.vitals?.complaint,
         },
         items: lines.map((l) => {
-          const applyGst = l.gstApplicable ?? (billType === "GST");
+          const isGstBill = billType === "GST";
+          const applyGst = isGstBill ? (l.gstApplicable !== false) : (l.gstApplicable === true);
           const dType: "percentage" | "fixed" = (l.discountType === "fixed" || l.discountType === "₹") ? "fixed" : "percentage";
-          const discVal = l.discountValue ?? l.discountPercent ?? 0;
+          const rawDisc = l.discountValue !== undefined && l.discountValue !== null ? Number(l.discountValue) : (Number(l.discountPercent) || 0);
+          const discVal = Math.max(0, isNaN(rawDisc) ? 0 : rawDisc);
           const calc = calcLineItem({
-            quantity: l.quantity,
-            unitPrice: l.unitPrice,
+            quantity: Math.max(1, Number(l.quantity) || 1),
+            unitPrice: Math.max(0, Number(l.unitPrice) || 0),
             discountType: dType,
             discountValue: discVal,
-            gstRate: l.gstRate,
+            gstRate: Number(l.gstRate) || 0,
             applyGst,
           });
           return {
@@ -1160,12 +1318,12 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             dosageInstructions: l.dosageInstructions,
             quantity: l.quantity,
             unitPrice: l.unitPrice,
-            discountPercent: dType === "percentage" ? discVal : 0,
+            discountPercent: dType === "percentage" ? discVal : (l.unitPrice > 0 ? roundMoney((calc.discountAmount / (l.unitPrice * l.quantity)) * 100) : 0),
             discountType: dType,
             discountValue: discVal,
             discountAmount: calc.discountAmount,
             taxableAmount: calc.taxableAmount,
-            gstRate: l.gstRate,
+            gstRate: applyGst ? (Number(l.gstRate) || 0) : 0,
             gstApplicable: applyGst,
             lineTotal: calc.lineTotal,
             sourceType: l.sourceType || null,
@@ -1173,8 +1331,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             rxSection: l.rxSection || null,
           };
         }),
-        subtotal: billSummary.subtotal,
-        billDiscount: 0,
+        subtotal: billSummary.grossTotal,
+        billDiscount: billSummary.totalDiscount,
         taxableAmount: billSummary.taxableAmount,
         gstAmount: billSummary.gstAmount,
         roundOff: billSummary.roundOff,
@@ -1365,15 +1523,15 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left 2 Cols: Categorized Bill Items & Bill Type */}
               <div className="lg:col-span-2 space-y-4">
-                <div className="erp-card p-4 flex items-center justify-between">
+                <div className="erp-card p-4 flex items-center justify-between border border-border shadow-xs">
                   <div>
                     <h3 className="font-bold text-sm text-foreground">Invoice Itemization</h3>
-                    <p className="text-xs text-muted-foreground">Review and adjust unit prices, quantities or discounts for each clinical service</p>
+                    <p className="text-xs text-muted-foreground">Review and adjust unit prices, quantities, discounts, and GST for each clinical service</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Label className="text-xs font-semibold">Bill Type:</Label>
-                    <Select value={billType} onValueChange={(v) => setBillType(v as any)}>
-                      <SelectTrigger className="h-8 w-32 text-xs">
+                    <Label className="text-xs font-semibold text-foreground">Bill Type:</Label>
+                    <Select value={billType} onValueChange={(v) => handleBillTypeChange(v as any)}>
+                      <SelectTrigger className="h-8 w-36 text-xs bg-background">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1384,115 +1542,203 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   </div>
                 </div>
 
-                <div className="erp-card overflow-hidden">
+                <div className="erp-card overflow-hidden border border-border shadow-xs">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-border bg-muted/40 text-left font-semibold text-muted-foreground">
-                        <th className="px-4 py-2.5">Category &amp; Item</th>
-                        <th className="px-3 py-2.5 text-center w-20">Qty</th>
-                        <th className="px-3 py-2.5 text-right w-28">Price (₹)</th>
-                        <th className="px-3 py-2.5 text-center w-20">Disc (%)</th>
-                        <th className="px-3 py-2.5 text-center w-32">GST</th>
-                        <th className="px-4 py-2.5 text-right w-28">Total (₹)</th>
-                        <th className="px-2 py-2.5 w-10"></th>
+                        <th className="px-4 py-3">Category &amp; Item</th>
+                        <th className="px-2 py-3 text-center w-20">Qty</th>
+                        <th className="px-2 py-3 text-right w-28">Price (₹)</th>
+                        <th className="px-2 py-3 text-center w-32">Discount</th>
+                        <th className="px-2 py-3 text-center w-36">GST</th>
+                        <th className="px-4 py-3 text-right w-28">Total (₹)</th>
+                        <th className="px-2 py-3 text-center w-10"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/40">
-                      {lines.map((l) => (
-                        <tr key={l.id} className="hover:bg-muted/20">
-                          <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <p className="font-semibold text-foreground">{l.name}</p>
-                              {l.sourceType && (
-                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-bold bg-primary/10 text-primary border-primary/20">
-                                  Rx
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-[10px] text-muted-foreground">{l.lineType} {l.batchNo && `· Batch: ${l.batchNo}`}</span>
-                              {l.sourceType && (
-                                <button
-                                  type="button"
-                                  onClick={() => setTab("consultation")}
-                                  className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
-                                >
-                                  Edit in Rx
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <Input
-                              type="number"
-                              min={1}
-                              value={l.quantity}
-                              onChange={(e) => updateLine(l.id, "quantity", Math.max(1, Number(e.target.value)))}
-                              className="h-7 w-16 text-center text-xs font-mono mx-auto bg-card"
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <div className="relative inline-block w-24">
-                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-[10px]">₹</span>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={l.unitPrice}
-                                onChange={(e) => updateLine(l.id, "unitPrice", Number(e.target.value))}
-                                className="h-7 pl-5 pr-1 text-right text-xs font-mono font-semibold bg-card"
-                              />
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <Input
-                              type="number"
-                              min={0}
-                              max={100}
-                              value={l.discountPercent}
-                              onChange={(e) => updateLine(l.id, "discountPercent", Number(e.target.value))}
-                              className="h-7 w-16 text-center text-xs font-mono mx-auto bg-card"
-                            />
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <Switch
-                                checked={l.gstApplicable ?? (billType === "GST")}
-                                onCheckedChange={(v) => updateLine(l.id, "gstApplicable", v)}
-                                className="scale-75 shrink-0"
-                              />
-                              <div className="relative w-14 shrink-0">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={l.gstRate}
-                                  onChange={(e) =>
-                                    updateLine(l.id, "gstRate", Math.min(100, Math.max(0, Number(e.target.value) || 0)))
-                                  }
-                                  title="GST rate — enter manually (commonly 0, 5, 12, 18, 28)"
-                                  className="h-7 w-14 pr-4 text-center text-[10px] font-mono bg-card"
-                                />
-                                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground pointer-events-none">%</span>
+                      {lines.map((l) => {
+                        const isGstBill = billType === "GST";
+                        const isLineGstActive = isGstBill ? (l.gstApplicable !== false) : (l.gstApplicable === true);
+                        const dType: "percentage" | "fixed" = (l.discountType === "fixed" || l.discountType === "₹") ? "fixed" : "percentage";
+                        const rawDisc = l.discountValue !== undefined && l.discountValue !== null ? Number(l.discountValue) : (Number(l.discountPercent) || 0);
+                        const discVal = Math.max(0, isNaN(rawDisc) ? 0 : rawDisc);
+                        const lineQty = Math.max(1, Number(l.quantity) || 1);
+                        const lineUnitPrice = Math.max(0, Number(l.unitPrice) || 0);
+                        const lineGstRate = Number(l.gstRate) || 0;
+
+                        const lineCalc = calcLineItem({
+                          quantity: lineQty,
+                          unitPrice: lineUnitPrice,
+                          discountType: dType,
+                          discountValue: discVal,
+                          gstRate: lineGstRate,
+                          applyGst: isLineGstActive,
+                        });
+
+                        return (
+                          <tr key={l.id} className="hover:bg-muted/20 transition-colors">
+                            {/* Category & Item */}
+                            <td className="px-4 py-3 align-middle">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="font-semibold text-foreground text-xs">{l.name}</p>
+                                {l.sourceType && (
+                                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-bold bg-primary/10 text-primary border-primary/20">
+                                    Rx
+                                  </Badge>
+                                )}
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-bold text-foreground font-mono">
-                            ₹{calcLineItem({
-                              quantity: l.quantity,
-                              unitPrice: l.unitPrice,
-                              discountType: l.discountType || "percentage",
-                              discountValue: l.discountValue ?? l.discountPercent ?? 0,
-                              gstRate: l.gstRate,
-                              applyGst: l.gstApplicable ?? (billType === "GST"),
-                            }).lineTotal.toFixed(2)}
-                          </td>
-                          <td className="px-2 py-2.5 text-right">
-                            <button onClick={() => handleRemoveLine(l.id)} className="text-muted-foreground hover:text-destructive">
-                              <Trash2 className="size-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-muted-foreground">{l.lineType} {l.batchNo && `· Batch: ${l.batchNo}`}</span>
+                                {l.sourceType && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setTab("consultation")}
+                                    className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
+                                  >
+                                    Edit in Rx
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Qty */}
+                            <td className="px-2 py-3 align-middle text-center">
+                              <div className="flex items-center justify-center">
+                                <div className="flex items-center border border-input rounded-md bg-card shadow-2xs focus-within:ring-1 focus-within:ring-ring h-8 w-16 px-1">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={l.quantity}
+                                    onChange={(e) => {
+                                      const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                                      updateLine(l.id, "quantity", val);
+                                    }}
+                                    className="w-full text-center text-xs font-mono font-semibold bg-transparent border-0 p-0 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Price */}
+                            <td className="px-2 py-3 align-middle text-right">
+                              <div className="flex items-center justify-end">
+                                <div className="flex items-center border border-input rounded-md bg-card shadow-2xs focus-within:ring-1 focus-within:ring-ring h-8 w-24 px-2">
+                                  <span className="text-[11px] font-semibold text-muted-foreground select-none mr-1 font-mono">₹</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={l.unitPrice}
+                                    onChange={(e) => {
+                                      const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                      updateLine(l.id, "unitPrice", val);
+                                    }}
+                                    className="w-full text-right text-xs font-mono font-semibold bg-transparent border-0 p-0 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Discount */}
+                            <td className="px-2 py-3 align-middle text-center">
+                              <div className="flex flex-col items-center justify-center">
+                                <div className="flex items-center border border-input rounded-md bg-card shadow-2xs focus-within:ring-1 focus-within:ring-ring h-8 w-24 overflow-hidden">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={dType === "fixed" ? (lineUnitPrice * lineQty) : 100}
+                                    value={discVal === 0 && (l.discountValue === undefined || l.discountValue === 0) && (l.discountPercent === undefined || l.discountPercent === 0) ? "" : discVal}
+                                    placeholder="0"
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      const num = raw === "" ? 0 : Math.max(0, parseFloat(raw) || 0);
+                                      handleDiscountChange(l.id, num, dType);
+                                    }}
+                                    className="w-full text-center text-xs font-mono font-semibold bg-transparent border-0 p-0 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleDiscountType(l.id)}
+                                    title={`Current: ${dType === "fixed" ? "Flat Amount (₹)" : "Percentage (%)"}. Click to toggle.`}
+                                    className="px-2 h-full bg-muted/60 hover:bg-muted text-[11px] font-bold text-muted-foreground hover:text-primary border-l border-input transition-colors shrink-0 flex items-center justify-center cursor-pointer select-none"
+                                  >
+                                    {dType === "fixed" ? "₹" : "%"}
+                                  </button>
+                                </div>
+                                {lineCalc.discountAmount > 0 && (
+                                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 leading-tight">
+                                    -₹{lineCalc.discountAmount.toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* GST */}
+                            <td className="px-2 py-3 align-middle text-center">
+                              <div className="flex flex-col items-center justify-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <Switch
+                                    checked={isLineGstActive}
+                                    onCheckedChange={(checked) => handleGstToggle(l.id, checked)}
+                                    className="scale-90 shrink-0"
+                                    title={isLineGstActive ? "GST enabled — click to make tax-exempt" : "GST exempt — click to apply tax"}
+                                  />
+                                  {isLineGstActive ? (
+                                    <div className="flex items-center border border-input rounded-md bg-card shadow-2xs focus-within:ring-1 focus-within:ring-ring h-8 w-20 px-1.5">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={l.gstRate ?? 18}
+                                        onChange={(e) => {
+                                          const raw = e.target.value;
+                                          const rate = raw === "" ? 0 : Math.min(100, Math.max(0, parseFloat(raw) || 0));
+                                          handleGstRateChange(l.id, rate);
+                                        }}
+                                        title="GST rate % (e.g. 5, 12, 18, 28)"
+                                        className="w-full text-center text-xs font-mono font-semibold bg-transparent border-0 p-0 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                      />
+                                      <span className="text-[11px] font-medium text-muted-foreground select-none ml-0.5">%</span>
+                                    </div>
+                                  ) : (
+                                    <span className="inline-flex items-center justify-center px-1.5 h-8 w-20 rounded-md bg-muted/50 text-[10px] font-semibold text-muted-foreground border border-border/60 select-none">
+                                      Exempt
+                                    </span>
+                                  )}
+                                </div>
+                                {isLineGstActive && lineCalc.gstAmount > 0 && (
+                                  <span className="text-[10px] font-semibold text-muted-foreground font-mono mt-0.5 leading-tight">
+                                    +₹{lineCalc.gstAmount.toFixed(2)} GST
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Total */}
+                            <td className="px-4 py-3 align-middle text-right font-mono">
+                              <div className="font-bold text-foreground text-sm">
+                                ₹{lineCalc.lineTotal.toFixed(2)}
+                              </div>
+                              {lineCalc.discountAmount > 0 && (
+                                <div className="text-[10px] text-muted-foreground line-through">
+                                  ₹{lineCalc.baseAmount.toFixed(2)}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Action */}
+                            <td className="px-2 py-3 align-middle text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLine(l.id)}
+                                className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                title="Remove item"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1520,8 +1766,20 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between text-muted-foreground">
                       <span>Subtotal</span>
-                      <span className="font-mono">₹{billSummary.subtotal.toFixed(2)}</span>
+                      <span className="font-mono">₹{billSummary.grossTotal.toFixed(2)}</span>
                     </div>
+                    {billSummary.totalDiscount > 0 && (
+                      <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-medium">
+                        <span>Total Discount</span>
+                        <span className="font-mono">-₹{billSummary.totalDiscount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {billSummary.totalDiscount > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Taxable Amount</span>
+                        <span className="font-mono">₹{billSummary.taxableAmount.toFixed(2)}</span>
+                      </div>
+                    )}
                     {billSummary.gstAmount > 0 && (
                       <div className="flex justify-between text-muted-foreground">
                         <span>GST (CGST + SGST)</span>
@@ -1720,7 +1978,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                     onClick={handleFinalize}
                     disabled={isFinalizing || isSyncingPrescription || Boolean(paymentValidationError)}
                     className={cn(
-                      "w-full font-bold transition-all shadow-sm",
+                      "w-full h-11 text-sm font-bold transition-all shadow-sm",
                       paymentStatus === "Full"
                         ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                         : paymentStatus === "Partial"
@@ -1740,6 +1998,91 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                       `Finalize Unpaid Bill (₹${pendingAmount.toFixed(2)} Due) ✓`
                     )}
                   </Button>
+
+                  {/* ── Send to Receptionist (from Billing Tab) - Hidden for Receptionist ── */}
+                  {!isReceptionist && (
+                    <>
+                      <div className="relative my-2">
+                        <div className="absolute inset-0 flex items-center">
+                          <div className="w-full border-t border-border/70" />
+                        </div>
+                        <div className="relative flex justify-center">
+                          <span className="bg-card px-2.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">or</span>
+                        </div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        disabled={isBillingTabSending || billingTabSentToReceptionist}
+                        onClick={async () => {
+                          const visitId = activeVisit?.visitId || visit?.visitId;
+                          if (!visitId) {
+                            toast.error("Cannot send — visit not found");
+                            return;
+                          }
+                          setIsBillingTabSending(true);
+                          try {
+                            await requestPaymentFn({
+                              data: {
+                                visitId,
+                                requestedBy: activeVisit?.doctorName || visit?.doctorName || activeDoctorName || "Doctor",
+                                totalAmount: billSummary.totalAmount,
+                                pendingAmount: billSummary.totalAmount,
+                                subtotal: billSummary.grossTotal,
+                                billDiscount: billSummary.totalDiscount,
+                                taxableAmount: billSummary.taxableAmount,
+                                gstAmount: billSummary.gstAmount,
+                                roundOff: billSummary.roundOff,
+                                items: lines.map((l) => ({
+                                  id: l.id,
+                                  lineType: l.lineType,
+                                  itemCode: l.itemCode,
+                                  batchNo: l.batchNo,
+                                  name: l.name,
+                                  quantity: l.quantity,
+                                  unitPrice: l.unitPrice,
+                                  discountPercent: l.discountPercent,
+                                  gstRate: l.gstRate,
+                                })),
+                              },
+                            });
+                            setBillingTabSentToReceptionist(true);
+                            toast.success(
+                              `Bill forwarded to Receptionist for ${activeVisit?.petName || visit?.petName} (₹${billSummary.totalAmount}). She will collect the payment at the front desk.`,
+                              { duration: 5000 },
+                            );
+                          } catch (err: any) {
+                            toast.error(err?.message || "Failed to send to receptionist");
+                          } finally {
+                            setIsBillingTabSending(false);
+                          }
+                        }}
+                        className={cn(
+                          "w-full h-11 px-3 text-xs sm:text-sm font-bold gap-2 transition-all rounded-lg shadow-sm whitespace-normal text-center leading-tight flex items-center justify-center cursor-pointer",
+                          billingTabSentToReceptionist
+                            ? "bg-emerald-600 hover:bg-emerald-600 text-white cursor-not-allowed opacity-95 shadow-emerald-500/20"
+                            : "bg-violet-600 hover:bg-violet-700 active:scale-[0.99] text-white shadow-violet-500/25 shadow-md hover:shadow-lg"
+                        )}
+                      >
+                        {billingTabSentToReceptionist ? (
+                          <span className="flex items-center justify-center gap-1.5">
+                            <CheckCircle2 className="size-4 shrink-0" />
+                            <span>Sent to Receptionist — Awaiting Collection</span>
+                          </span>
+                        ) : isBillingTabSending ? (
+                          <span className="flex items-center justify-center gap-1.5">
+                            <BellRing className="size-4 shrink-0 animate-spin" />
+                            <span>Forwarding to Receptionist…</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-center gap-1.5">
+                            <Send className="size-4 shrink-0" />
+                            <span>Send to Receptionist for Payment Collection</span>
+                          </span>
+                        )}
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1804,6 +2147,49 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                   >
                     <CheckCircle2 className="size-3.5" /> Done &amp; Return to Dashboard
                   </Button>
+
+                  {/* ── Send to Receptionist (Payment Collection) - Hidden for Receptionist ── */}
+                  {!isReceptionist && (
+                    <Button
+                      size="sm"
+                      disabled={isSendingToReceptionist || paymentSentToReceptionist}
+                      onClick={async () => {
+                        setIsSendingToReceptionist(true);
+                        try {
+                          await requestPaymentFn({
+                            data: {
+                              visitId: finalizedVisit.visitId,
+                              requestedBy: finalizedVisit.doctorName || "Doctor",
+                            },
+                          });
+                          setPaymentSentToReceptionist(true);
+                          toast.success(
+                            `Payment request sent to Receptionist for ${finalizedVisit.petName} (${finalizedVisit.visitId}). The receptionist will see it in their Pending Collections tab.`,
+                            { duration: 5000 },
+                          );
+                        } catch (err: any) {
+                          toast.error(err?.message || "Failed to send payment request to receptionist");
+                        } finally {
+                          setIsSendingToReceptionist(false);
+                        }
+                      }}
+                      className={`h-8 text-xs font-bold shadow-xs gap-1.5 transition-all ${
+                        paymentSentToReceptionist
+                          ? "bg-green-600 hover:bg-green-700 text-white cursor-not-allowed opacity-80"
+                          : finalizedVisit.paymentStatus !== "Full"
+                          ? "bg-amber-500 hover:bg-amber-600 text-white animate-pulse"
+                          : "bg-violet-600 hover:bg-violet-700 text-white"
+                      }`}
+                    >
+                      {paymentSentToReceptionist ? (
+                        <><CheckCircle2 className="size-3.5" /> Sent to Receptionist</>
+                      ) : isSendingToReceptionist ? (
+                        <><BellRing className="size-3.5 animate-spin" /> Sending…</>
+                      ) : (
+                        <><Send className="size-3.5" /> {finalizedVisit.paymentStatus !== "Full" ? "Request Collection (₹" + (finalizedVisit.pendingAmount ?? finalizedVisit.balanceDue ?? 0).toFixed(2) + " Due)" : "Send to Receptionist"}</>
+                      )}
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -1995,8 +2381,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                               <tbody>
                                 {finalizedVisit.prescriptionData.immediateMedicines.map((im: any, idx: number) => (
                                   <tr key={idx} style={{ borderBottom: "1px solid #fef3c7" }}>
-                                    <td style={{ padding: "8px 10px", fontWeight: 600, color: "#0f172a" }}>{im.medicineName}</td>
-                                    <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{im.dose} {im.unit}</td>
+                                    <td style={{ padding: "8px 10px", fontWeight: 600, color: "#0f172a" }}>{im.medicineName || im.name || "Medicine"}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{im.dose !== undefined && im.dose !== null ? `${im.dose} ` : "1 "}{im.unit || "Tablet"}</td>
                                     <td style={{ padding: "8px 10px", textAlign: "center" }}>{im.route}</td>
                                     <td style={{ padding: "8px 10px", textAlign: "center" }}>{im.time || "Immediate"}</td>
                                   </tr>
@@ -2047,14 +2433,14 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                                 {finalizedVisit.prescriptionData.prescribedMedicines.map((m: any, idx: number) => (
                                   <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
                                     <td style={{ padding: "8px 10px", fontWeight: 700, color: "#0f172a" }}>
-                                      {m.medicineName}
-                                      {m.note && <span style={{ display: "block", fontSize: "10px", color: "#64748b", fontWeight: 400, fontStyle: "italic" }}>{m.note}</span>}
+                                      {m.medicineName || m.name || "Medicine"}
+                                      {(m.note || m.dosageInstructions) && <span style={{ display: "block", fontSize: "10px", color: "#64748b", fontWeight: 400, fontStyle: "italic", marginTop: "2px" }}>{m.note || m.dosageInstructions}</span>}
                                     </td>
-                                    <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace", fontWeight: 600 }}>{m.dose} {m.unit}</td>
-                                    <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 600, color: "#1e3a8a" }}>{m.frequency}</td>
-                                    <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>{m.duration}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace", fontWeight: 600 }}>{m.dose !== undefined && m.dose !== null ? `${m.dose} ` : "1 "}{m.unit || "Tablet"}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 600, color: "#1e3a8a" }}>{m.frequency || "Twice daily (BID)"}</td>
+                                    <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>{m.duration ? (String(m.duration).toLowerCase().includes("day") ? m.duration : `${m.duration} days`) : "5 days"}</td>
                                     <td style={{ padding: "8px 10px", textAlign: "center" }}>{m.route || "Oral"}</td>
-                                    <td style={{ padding: "8px 10px", color: "#334155" }}>{m.time || "After Food"}</td>
+                                    <td style={{ padding: "8px 10px", color: "#334155" }}>{m.timing ? (m.time ? `${m.timing} (${m.time})` : m.timing) : (m.time || "After Food")}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -2311,104 +2697,213 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized }: 
                         </div>
                       </div>
 
-                      {/* Itemized Table */}
+                      {/* Itemized Table with Professional Detailed Calculation */}
                       <div className="overflow-x-auto -mx-1">
-                        <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
-                          <thead>
-                            <tr className="bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700" style={{ backgroundColor: "#f1f5f9", borderBottom: "1.5px solid #cbd5e1", color: "#334155", fontWeight: 700 }}>
-                              <th style={{ padding: "8px 10px", width: "32px" }}>#</th>
-                              <th style={{ padding: "8px 10px" }}>Description / Category</th>
-                              <th style={{ padding: "8px 10px", textAlign: "center", width: "48px" }}>Qty</th>
-                              <th style={{ padding: "8px 10px", textAlign: "right", width: "72px" }}>Rate (₹)</th>
-                              <th style={{ padding: "8px 10px", textAlign: "center", width: "56px" }}>Disc (%)</th>
-                              {finalizedVisit.billType === "GST" && <th style={{ padding: "8px 10px", textAlign: "center", width: "52px" }}>GST</th>}
-                              <th style={{ padding: "8px 10px", textAlign: "right", width: "80px" }}>Amount (₹)</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(finalizedVisit.items || []).map((item: any, idx: number) => {
-                              const gross = item.quantity * item.unitPrice;
-                              const disc = (gross * (item.discountPercent || 0)) / 100;
-                              const lineNet = gross - disc;
-                              return (
-                                <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                                  <td style={{ padding: "8px 10px", color: "#94a3b8" }}>{idx + 1}</td>
-                                  <td style={{ padding: "8px 10px" }}>
-                                    <p style={{ fontWeight: 600, color: "#0f172a", margin: 0 }}>{item.name}</p>
-                                    <span style={{ fontSize: "10px", color: "#64748b" }}>{item.lineType}</span>
-                                  </td>
-                                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>{item.quantity}</td>
-                                  <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "monospace" }}>{item.unitPrice.toFixed(2)}</td>
-                                  <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{item.discountPercent || 0}%</td>
-                                  {finalizedVisit.billType === "GST" && <td style={{ padding: "8px 10px", textAlign: "center", fontFamily: "monospace" }}>{item.gstRate || 0}%</td>}
-                                  <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, fontFamily: "monospace" }}>{lineNet.toFixed(2)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                        {(() => {
+                          // Filter out take-home prescription medicines so only clinic-dispensed/billed items appear
+                          const invoiceItems = (finalizedVisit.items || []).filter((item: any) => {
+                            if (item.rxSection === "PRESCRIBED_MED") return false;
+                            if (item.sourceType === "RX_ITEM" && item.rxSection === "PRESCRIBED_MED") return false;
+                            if (item.lineType === "Prescription") return false;
+                            if (Number(item.unitPrice || 0) <= 0 && Number(item.lineTotal || 0) <= 0 && item.lineType !== "Consultation") return false;
+                            return true;
+                          });
 
-                    {/* Pinned Bottom Section: Financials, Terms & Signature */}
-                    <div className="invoice-footer-pinned" style={{ marginTop: "auto", paddingTop: "20px" }}>
-                      {/* Financial Summary & Split Settlement */}
-                      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-start pt-1 gap-3">
-                        {/* Left: Payment Mode Details */}
-                        <div className="rounded-xl border border-slate-200 p-3 text-xs flex-1 space-y-1.5 bg-slate-50" style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "12px 14px" }}>
-                          <p className="font-bold text-slate-700 uppercase text-[10px] tracking-wider">Payment Summary</p>
-                          <div className="flex justify-between text-slate-800">
-                            <span>Paid via {finalizedVisit.paymentMode || "UPI"}:</span>
-                            <span className="font-bold font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toFixed(2)}</span>
-                          </div>
-                          {finalizedVisit.paymentStatus === "Partial" && (finalizedVisit.pendingAmount || 0) > 0 && (
-                            <div className="flex justify-between text-amber-700 font-semibold">
-                              <span>Balance Due:</span>
-                              <span className="font-mono">₹{finalizedVisit.pendingAmount.toFixed(2)}</span>
-                            </div>
-                          )}
-                          <div
-                            className={cn(
-                              "flex justify-between font-bold pt-1.5 border-t border-slate-200",
-                              finalizedVisit.paymentStatus === "Partial" ? "text-amber-700" : "text-emerald-700"
-                            )}
-                          >
-                            <span>Payment Status:</span>
-                            <span>
-                              {finalizedVisit.paymentStatus === "Partial"
-                                ? `PARTIAL PAYMENT ⚠`
-                                : "PAID IN FULL ✓"}
-                            </span>
-                          </div>
-                        </div>
+                          let calculatedGross = 0;
+                          let calculatedDiscount = 0;
+                          let calculatedTaxable = 0;
+                          let calculatedGst = 0;
 
-                        {/* Right: Calculations */}
-                        <div className="w-full sm:w-52 md:w-56 space-y-1 text-xs text-right shrink-0">
-                          <div className="flex justify-between text-slate-600">
-                            <span>Subtotal:</span>
-                            <span className="font-mono">₹{(finalizedVisit.subtotal || 0).toFixed(2)}</span>
-                          </div>
-                          {finalizedVisit.billType === "GST" && (
-                            <div className="flex justify-between text-slate-600">
-                              <span>GST Amount:</span>
-                              <span className="font-mono">+₹{(finalizedVisit.gstAmount || 0).toFixed(2)}</span>
-                            </div>
-                          )}
-                          {finalizedVisit.roundOff !== 0 && (
-                            <div className="flex justify-between text-slate-600">
-                              <span>Round-off:</span>
-                              <span className="font-mono">{finalizedVisit.roundOff >= 0 ? `+₹${finalizedVisit.roundOff.toFixed(2)}` : `-₹${Math.abs(finalizedVisit.roundOff).toFixed(2)}`}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between font-black text-sm pt-2 border-t-2 border-slate-900 text-slate-900" style={{ borderTop: "2px solid #0f172a" }}>
-                            <span>Total Amount:</span>
-                            <span className="font-mono text-base text-primary">₹{(finalizedVisit.totalAmount || 0).toLocaleString("en-IN")}</span>
-                          </div>
-                          <div className="flex justify-between text-[11px] font-semibold text-slate-600">
-                            <span>Amount Received:</span>
-                            <span className="font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toLocaleString("en-IN")}</span>
-                          </div>
-                        </div>
+                          const processedRows = invoiceItems.map((item: any, idx: number) => {
+                            const qty = Math.max(1, Number(item.quantity) || 1);
+                            const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
+                            const gross = roundMoney(qty * unitPrice);
+
+                            const dType = (item.discountType === "fixed" || item.discountType === "₹") ? "fixed" : "percentage";
+                            const rawDisc = item.discountValue !== undefined && item.discountValue !== null ? Number(item.discountValue) : (Number(item.discountPercent) || 0);
+                            const discVal = Math.max(0, isNaN(rawDisc) ? 0 : rawDisc);
+
+                            const isGst = finalizedVisit.billType === "GST";
+                            const isLineGst = isGst ? (item.gstApplicable !== false) : (item.gstApplicable === true);
+                            const rate = isLineGst ? (Number(item.gstRate) || 0) : 0;
+
+                            const lineCalc = calcLineItem({
+                              quantity: qty,
+                              unitPrice,
+                              discountType: dType,
+                              discountValue: discVal,
+                              gstRate: rate,
+                              applyGst: isLineGst,
+                            });
+
+                            const discPercent = dType === "percentage" ? discVal : (gross > 0 ? Math.round((lineCalc.discountAmount / gross) * 100) : 0);
+                            const taxableAmt = lineCalc.taxableAmount;
+                            const gstAmt = lineCalc.gstAmount;
+                            const finalAmt = lineCalc.lineTotal;
+
+                            calculatedGross = addMoney(calculatedGross, gross);
+                            calculatedDiscount = addMoney(calculatedDiscount, lineCalc.discountAmount);
+                            calculatedTaxable = addMoney(calculatedTaxable, taxableAmt);
+                            calculatedGst = addMoney(calculatedGst, gstAmt);
+
+                            return {
+                              item,
+                              idx,
+                              qty,
+                              unitPrice,
+                              discPercent,
+                              discountAmount: lineCalc.discountAmount,
+                              taxableAmt,
+                              gstRate: rate,
+                              gstAmt,
+                              finalAmt,
+                            };
+                          });
+
+                          return (
+                            <>
+                              <table className="w-full text-xs border border-slate-200" style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #cbd5e1" }}>
+                                <thead>
+                                  <tr className="bg-slate-100 border-b border-slate-300 text-left font-bold text-slate-700 text-[10px] uppercase tracking-wider" style={{ backgroundColor: "#f1f5f9", borderBottom: "1.5px solid #cbd5e1", color: "#334155" }}>
+                                    <th style={{ padding: "8px 8px", width: "32px", textAlign: "center" }}>#</th>
+                                    <th style={{ padding: "8px 10px" }}>Description / Item</th>
+                                    <th style={{ padding: "8px 6px", textAlign: "center", width: "42px" }}>Qty</th>
+                                    <th style={{ padding: "8px 8px", textAlign: "right", width: "72px" }}>Rate (₹)</th>
+                                    <th style={{ padding: "8px 8px", textAlign: "center", width: "65px" }}>Disc (%)</th>
+                                    <th style={{ padding: "8px 8px", textAlign: "right", width: "85px" }}>Taxable Amt (₹)</th>
+                                    {finalizedVisit.billType === "GST" && (
+                                      <th style={{ padding: "8px 8px", textAlign: "center", width: "65px" }}>GST (%)</th>
+                                    )}
+                                    <th style={{ padding: "8px 10px", textAlign: "right", width: "90px" }}>Final Amt (₹)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {processedRows.map(({ item, idx, qty, unitPrice, discPercent, discountAmount, taxableAmt, gstRate, gstAmt, finalAmt }) => (
+                                    <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                      <td style={{ padding: "8px 8px", textAlign: "center", color: "#94a3b8" }}>{idx + 1}</td>
+                                      <td style={{ padding: "8px 10px" }}>
+                                        <p style={{ fontWeight: 600, color: "#0f172a", margin: 0 }}>{item.name}</p>
+                                        <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "2px" }}>
+                                          <span style={{ fontSize: "10px", color: "#64748b" }}>{item.lineType || "Service"}</span>
+                                          {item.batchNo && (
+                                            <span style={{ fontSize: "9px", color: "#94a3b8", fontFamily: "monospace" }}>Batch: {item.batchNo}</span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: "8px 6px", textAlign: "center", fontWeight: 600 }}>{qty}</td>
+                                      <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace" }}>{unitPrice.toFixed(2)}</td>
+                                      <td style={{ padding: "8px 8px", textAlign: "center" }}>
+                                        {discPercent > 0 ? (
+                                          <div>
+                                            <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#059669" }}>{discPercent}%</span>
+                                            <div style={{ fontSize: "9px", color: "#059669" }}>-₹{discountAmount.toFixed(2)}</div>
+                                          </div>
+                                        ) : (
+                                          <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>0%</span>
+                                        )}
+                                      </td>
+                                      <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 600, color: "#334155" }}>
+                                        {taxableAmt.toFixed(2)}
+                                      </td>
+                                      {finalizedVisit.billType === "GST" && (
+                                        <td style={{ padding: "8px 8px", textAlign: "center" }}>
+                                          {gstRate > 0 ? (
+                                            <div>
+                                              <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#334155" }}>{gstRate}%</span>
+                                              <div style={{ fontSize: "9px", color: "#64748b" }}>+₹{gstAmt.toFixed(2)}</div>
+                                            </div>
+                                          ) : (
+                                            <span style={{ color: "#94a3b8", fontSize: "10px" }}>0%</span>
+                                          )}
+                                        </td>
+                                      )}
+                                      <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, fontFamily: "monospace", color: "#0f172a" }}>
+                                        {finalAmt.toFixed(2)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+
+                              {/* Pinned Bottom Section: Financials, Terms & Signature */}
+                              <div className="invoice-footer-pinned" style={{ marginTop: "auto", paddingTop: "20px" }}>
+                                <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-start pt-1 gap-3">
+                                  {/* Left: Payment Mode Details */}
+                                  <div className="rounded-xl border border-slate-200 p-3 text-xs flex-1 space-y-1.5 bg-slate-50" style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "12px 14px" }}>
+                                    <p className="font-bold text-slate-700 uppercase text-[10px] tracking-wider">Payment Summary</p>
+                                    <div className="flex justify-between text-slate-800">
+                                      <span>Paid via {finalizedVisit.paymentMode || "UPI"}:</span>
+                                      <span className="font-bold font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toFixed(2)}</span>
+                                    </div>
+                                    {finalizedVisit.paymentStatus === "Partial" && (finalizedVisit.pendingAmount || 0) > 0 && (
+                                      <div className="flex justify-between text-amber-700 font-semibold">
+                                        <span>Balance Due:</span>
+                                        <span className="font-mono">₹{finalizedVisit.pendingAmount.toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                    <div
+                                      className={cn(
+                                        "flex justify-between font-bold pt-1.5 border-t border-slate-200",
+                                        finalizedVisit.paymentStatus === "Partial" ? "text-amber-700" : "text-emerald-700"
+                                      )}
+                                    >
+                                      <span>Payment Status:</span>
+                                      <span>
+                                        {finalizedVisit.paymentStatus === "Partial"
+                                          ? `PARTIAL PAYMENT ⚠`
+                                          : "PAID IN FULL ✓"}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Right: Calculations with complete transparency */}
+                                  <div className="w-full sm:w-56 md:w-64 space-y-1 text-xs text-right shrink-0">
+                                    <div className="flex justify-between text-slate-600">
+                                      <span>Subtotal (Gross):</span>
+                                      <span className="font-mono">₹{(finalizedVisit.subtotal || calculatedGross).toFixed(2)}</span>
+                                    </div>
+                                    {(finalizedVisit.billDiscount || calculatedDiscount) > 0 && (
+                                      <div className="flex justify-between text-emerald-700 font-medium">
+                                        <span>Total Discount:</span>
+                                        <span className="font-mono">-₹{(finalizedVisit.billDiscount || calculatedDiscount).toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                    <div className="flex justify-between text-slate-700 font-semibold pt-0.5 border-t border-slate-200">
+                                      <span>Taxable Amount:</span>
+                                      <span className="font-mono">₹{(finalizedVisit.taxableAmount || calculatedTaxable).toFixed(2)}</span>
+                                    </div>
+                                    {finalizedVisit.billType === "GST" && (
+                                      <div className="flex justify-between text-slate-600">
+                                        <span>GST Amount:</span>
+                                        <span className="font-mono">+₹{(finalizedVisit.gstAmount || calculatedGst).toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                    {finalizedVisit.roundOff !== 0 && finalizedVisit.roundOff !== undefined && (
+                                      <div className="flex justify-between text-slate-600">
+                                        <span>Round-off:</span>
+                                        <span className="font-mono">{finalizedVisit.roundOff >= 0 ? `+₹${finalizedVisit.roundOff.toFixed(2)}` : `-₹${Math.abs(finalizedVisit.roundOff).toFixed(2)}`}</span>
+                                      </div>
+                                    )}
+                                    <div className="flex justify-between font-black text-sm pt-2 border-t-2 border-slate-900 text-slate-900" style={{ borderTop: "2px solid #0f172a" }}>
+                                      <span>Total Amount:</span>
+                                      <span className="font-mono text-base text-primary">₹{(finalizedVisit.totalAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                    <div className="flex justify-between text-[11px] font-semibold text-slate-600">
+                                      <span>Amount Received:</span>
+                                      <span className="font-mono">₹{(finalizedVisit.amountPaid ?? finalizedVisit.totalAmount ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                    {finalizedVisit.paymentStatus === "Partial" && (finalizedVisit.pendingAmount || 0) > 0 && (
+                                      <div className="flex justify-between text-[11px] font-bold text-amber-700">
+                                        <span>Balance Due:</span>
+                                        <span className="font-mono">₹{finalizedVisit.pendingAmount.toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
 
                       {/* Footer Terms */}
