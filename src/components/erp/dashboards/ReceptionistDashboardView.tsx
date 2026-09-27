@@ -52,13 +52,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { formatDisplayDate, todayISO } from "@/lib/utils/dateUtils";
 import { useErp } from "@/lib/erp/store";
 import { listVisitsFn, admitPatientFn, deleteVisitFn, listPaymentRequestsFn, collectReceptionistPaymentFn } from "@/lib/mongodb/serverFns/clinical";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
 import { BookAppointmentModal } from "@/components/erp/appointments/BookAppointmentModal";
+import { Patient360Profile } from "@/components/erp/crm/Patient360Profile";
 
 interface Props {
   role?: any;
@@ -88,6 +89,7 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
 
   // Registered patients count & data
   const [existingPatients, setExistingPatients] = useState<any[]>([]);
+  const [selectedProfilePetId, setSelectedProfilePetId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadData();
@@ -142,7 +144,18 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
     }
   };
 
-  const filteredVisits = visits.filter((v) => {
+  // A visit counts as "today's" by its own admission date, not by when this
+  // page happens to load — falls back to createdAt for older rows saved
+  // before `date` was always set.
+  const isVisitToday = (v: any) => String(v.date || v.createdAt || "").slice(0, 10) === todayISO();
+  const isWaitingStatus = (v: any) =>
+    v.status !== "Paid" && v.status !== "Settled" && v.status !== "Completed";
+
+  // The lobby queue: today's admissions plus any older ticket that was never
+  // closed out (so a genuinely still-open case never silently disappears).
+  const queueVisits = visits.filter((v) => isVisitToday(v) || isWaitingStatus(v));
+
+  const filteredVisits = queueVisits.filter((v) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -202,12 +215,9 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
     );
   }, [currentTabBills, sidebarSearch]);
 
-  const waitingVisits = visits.filter(
-    (v) => v.status !== "Paid" && v.status !== "Settled" && v.status !== "Completed",
-  );
-  const completedVisits = visits.filter(
-    (v) => v.status === "Paid" || v.status === "Settled" || v.status === "Completed",
-  );
+  const waitingVisits = visits.filter(isWaitingStatus);
+  const todaysVisits = visits.filter(isVisitToday);
+  const todaysCompletedVisits = todaysVisits.filter((v) => !isWaitingStatus(v));
 
   const receptionistKpis = [
     {
@@ -218,9 +228,9 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
     },
     {
       label: "Today's Appointments",
-      value: String(visits.length),
-      trend: completedVisits.length > 0 ? `${completedVisits.length} completed` : "0 checked in",
-      trendTone: visits.length > 0 ? ("up" as const) : ("flat" as const),
+      value: String(todaysVisits.length),
+      trend: todaysCompletedVisits.length > 0 ? `${todaysCompletedVisits.length} completed` : "0 checked in",
+      trendTone: todaysVisits.length > 0 ? ("up" as const) : ("flat" as const),
     },
     {
       label: "Registered Patients",
@@ -558,14 +568,31 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
                 <div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-base">{v.species === "Feline" ? "🐱" : "🐶"}</span>
-                    <strong className="text-sm font-bold text-foreground">{v.petName}</strong>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProfilePetId(v.petId || null)}
+                      className={cn(
+                        "text-sm font-bold text-foreground text-left transition-colors",
+                        v.petId ? "hover:text-blue-600 hover:underline cursor-pointer" : ""
+                      )}
+                      title={v.petId ? "View Patient 360° Profile" : undefined}
+                    >
+                      {v.petName}
+                    </button>
                     {v.petId && (
-                      <Badge
-                        variant="outline"
-                        className="font-mono text-[9px] py-0 bg-blue-500/10 text-blue-700 border-blue-500/20"
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProfilePetId(v.petId)}
+                        className="cursor-pointer"
+                        title="View Patient 360° Profile"
                       >
-                        {v.petId}
-                      </Badge>
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-[9px] py-0 bg-blue-500/10 text-blue-700 border-blue-500/20 hover:bg-blue-500/20 transition-colors"
+                        >
+                          {v.petId}
+                        </Badge>
+                      </button>
                     )}
                   </div>
                   <p className="text-[11px] text-muted-foreground">
@@ -612,6 +639,17 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
               <div className="flex items-center justify-between pt-2 border-t border-border/50">
                 <span className="text-[11px] font-mono text-muted-foreground">{v.visitId}</span>
                 <div className="flex items-center gap-1.5">
+                  {v.petId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSelectedProfilePetId(v.petId)}
+                      className="h-7 px-2 text-xs text-primary hover:bg-primary/10 border-primary/30 gap-1 font-semibold"
+                      title="Open Patient 360° Profile"
+                    >
+                      <Eye className="size-3" /> Profile
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
@@ -637,8 +675,8 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
 
           {filteredVisits.length === 0 && (
             <div className="col-span-full py-10 text-center text-xs text-muted-foreground border border-dashed rounded-xl bg-muted/10">
-              No patients currently waiting in lobby. Click &ldquo;Quick Patient Intake&rdquo; to
-              admit a walk-in patient.
+              No patients admitted today and no older tickets still waiting. Click
+              &ldquo;Quick Patient Intake&rdquo; to admit a walk-in patient.
             </div>
           )}
         </div>
@@ -685,6 +723,27 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
         onRegistered={() => {
           void loadData();
         }}
+      />
+
+      {/* Patient 360° Profile Dialog */}
+      <Patient360Profile
+        open={Boolean(selectedProfilePetId)}
+        petId={selectedProfilePetId}
+        onClose={() => setSelectedProfilePetId(null)}
+        onStartConsultation={(pet, owner) => {
+          setSelectedProfilePetId(null);
+          onOpenConsultation?.({
+            petId: pet.petId,
+            petName: pet.name,
+            species: pet.species,
+            breed: pet.breed,
+            ownerId: owner?.ownerId,
+            ownerName: owner?.name,
+            ownerPhone: owner?.phone,
+            openedFromReception: true,
+          });
+        }}
+        onChanged={() => void loadData()}
       />
 
       </div>{/* end main content */}
