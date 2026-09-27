@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   CheckCircle2,
   Filter,
+  AlertTriangle,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ export function AdmitPatientPickerModal({
   const [crmOwners, setCrmOwners] = useState<any[]>([]);
   const [crmSearch, setCrmSearch] = useState("");
   const [searchingCrm, setSearchingCrm] = useState(false);
+  const [speciesCategoryFilter, setSpeciesCategoryFilter] = useState<"all" | "canine" | "feline" | "exotic">("all");
 
   // Walk-in form state
   const [walkinPetName, setWalkinPetName] = useState("");
@@ -117,6 +119,58 @@ export function AdmitPatientPickerModal({
       return matchSearch && matchStatus;
     });
   }, [appointments, searchQuery, statusFilter]);
+
+  // Flatten registered patients (Pet + Owner) into individual flashcards
+  const { allRegisteredPetCards, speciesCounts } = useMemo(() => {
+    const rawList: Array<{ pet: any; owner: any; isPlaceholder?: boolean }> = [];
+    crmOwners.forEach((owner) => {
+      if (Array.isArray(owner.pets) && owner.pets.length > 0) {
+        owner.pets.forEach((pet: any) => {
+          rawList.push({ pet, owner });
+        });
+      } else {
+        rawList.push({
+          pet: {
+            name: `${owner.name}'s Pet`,
+            species: "Canine",
+            breed: "General",
+            petId: owner.ownerId ? `P-${owner.ownerId.replace(/[^0-9]/g, "") || "01"}` : "P-01",
+          },
+          owner,
+          isPlaceholder: true,
+        });
+      }
+    });
+
+    const counts = {
+      all: rawList.length,
+      canine: rawList.filter((i) => {
+        const sp = String(i.pet.species || "").toLowerCase();
+        return sp.includes("canine") || sp.includes("dog");
+      }).length,
+      feline: rawList.filter((i) => {
+        const sp = String(i.pet.species || "").toLowerCase();
+        return sp.includes("feline") || sp.includes("cat");
+      }).length,
+      exotic: rawList.filter((i) => {
+        const sp = String(i.pet.species || "").toLowerCase();
+        return !sp.includes("canine") && !sp.includes("dog") && !sp.includes("feline") && !sp.includes("cat");
+      }).length,
+    };
+
+    const filtered = rawList.filter((item) => {
+      if (speciesCategoryFilter === "all") return true;
+      const sp = String(item.pet.species || "").toLowerCase();
+      if (speciesCategoryFilter === "canine") return sp.includes("canine") || sp.includes("dog");
+      if (speciesCategoryFilter === "feline") return sp.includes("feline") || sp.includes("cat");
+      if (speciesCategoryFilter === "exotic") {
+        return !sp.includes("canine") && !sp.includes("dog") && !sp.includes("feline") && !sp.includes("cat");
+      }
+      return true;
+    });
+
+    return { allRegisteredPetCards: filtered, speciesCounts: counts };
+  }, [crmOwners, speciesCategoryFilter]);
 
   // Handle admit from scheduled appointment
   const handleAdmitAppointment = async (apt: any) => {
@@ -237,7 +291,7 @@ export function AdmitPatientPickerModal({
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden bg-card border-border shadow-2xl">
+      <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] flex flex-col p-0 overflow-hidden bg-card border-border shadow-2xl">
         {/* ── Modal Top Header ────────────────────────────────────────────── */}
         <div className="border-b border-border bg-muted/30 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -293,7 +347,7 @@ export function AdmitPatientPickerModal({
               )}
             >
               <User className="size-3.5" />
-              2. Registered Patient Directory
+              2. Registered Patient Directory ({speciesCounts.all})
             </button>
 
             <button
@@ -433,66 +487,191 @@ export function AdmitPatientPickerModal({
             </div>
           )}
 
-          {/* TAB 2: CRM REGISTERED PATIENTS */}
+          {/* TAB 2: CRM REGISTERED PATIENTS — FLASH CARDS GRID */}
           {tab === "crm" && (
             <div className="space-y-4">
-              <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search registered owner name, phone, or pet name…"
-                  value={crmSearch}
-                  onChange={(e) => {
-                    setCrmSearch(e.target.value);
-                    void handleSearchCrm(e.target.value);
-                  }}
-                  className="pl-8 text-xs h-9 bg-card"
-                />
+              {/* Search & Species Filter Bar */}
+              <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                <div className="relative flex-1 w-full">
+                  <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    placeholder="Search registered owner name, phone, or pet name…"
+                    value={crmSearch}
+                    onChange={(e) => {
+                      setCrmSearch(e.target.value);
+                      void handleSearchCrm(e.target.value);
+                    }}
+                    className="pl-8 text-xs h-9 bg-card"
+                  />
+                  {crmSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCrmSearch("");
+                        void handleSearchCrm("");
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Species Filter Pills */}
+                <div className="flex items-center gap-1 w-full sm:w-auto overflow-x-auto shrink-0">
+                  {[
+                    { id: "all", label: `All (${speciesCounts.all})` },
+                    { id: "canine", label: `Dogs 🐶 (${speciesCounts.canine})` },
+                    { id: "feline", label: `Cats 🐱 (${speciesCounts.feline})` },
+                    { id: "exotic", label: `Exotics 🦎 (${speciesCounts.exotic})` },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setSpeciesCategoryFilter(f.id as any)}
+                      className={cn(
+                        "px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all whitespace-nowrap cursor-pointer",
+                        speciesCategoryFilter === f.id
+                          ? "bg-primary text-primary-foreground border-primary font-bold shadow-2xs"
+                          : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+                      )}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {searchingCrm ? (
-                <div className="py-10 text-center text-xs text-muted-foreground">Searching database…</div>
-              ) : crmOwners.length === 0 ? (
-                <div className="py-10 text-center text-xs text-muted-foreground">No registered pet owners found.</div>
+                <div className="py-14 text-center text-xs text-muted-foreground flex flex-col items-center justify-center gap-2">
+                  <Clock className="size-5 animate-spin text-primary" />
+                  <span>Searching registered patient database…</span>
+                </div>
+              ) : allRegisteredPetCards.length === 0 ? (
+                <div className="py-14 text-center text-xs text-muted-foreground bg-muted/20 border border-dashed border-border rounded-2xl p-6">
+                  <AlertCircle className="size-8 mx-auto mb-2 text-muted-foreground/60" />
+                  <p className="font-bold text-foreground text-sm">No registered patients found</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 max-w-sm mx-auto">
+                    {crmSearch
+                      ? `No patient or owner matched "${crmSearch}". Try another search or register as walk-in.`
+                      : "No registered patients in directory yet. Use Direct Walk-in tab to register."}
+                  </p>
+                </div>
               ) : (
-                <div className="space-y-3">
-                  {crmOwners.map((owner) => (
-                    <div key={owner.ownerId} className="erp-card p-4 bg-card space-y-3">
-                      <div className="flex items-center justify-between border-b border-border/50 pb-2">
-                        <div>
-                          <span className="font-bold text-sm text-foreground">{owner.name}</span>
-                          <span className="text-xs text-muted-foreground ml-2 font-mono">
-                            {owner.phone} · {owner.ownerId}
-                          </span>
-                        </div>
-                        <span className="text-[11px] text-muted-foreground">{owner.city || "Nagpur"}</span>
-                      </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {allRegisteredPetCards.map((item) => {
+                    const sp = String(item.pet.species || "").toLowerCase();
+                    const isCat = sp.includes("feline") || sp.includes("cat");
+                    const isDog = sp.includes("canine") || sp.includes("dog");
 
-                      {/* Owner's Pets List */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {(owner.pets || []).map((pet: any) => (
-                          <div
-                            key={pet.petId}
-                            className="rounded-xl border border-border/70 bg-muted/20 p-2.5 flex items-center justify-between gap-2 hover:border-primary/40 transition-all"
-                          >
-                            <div>
-                              <span className="font-bold text-xs text-foreground block">{pet.name}</span>
-                              <span className="text-[10px] text-muted-foreground block">
-                                {pet.species} · {pet.breed} ({pet.ageYears ? `${pet.ageYears}y` : "Adult"})
+                    const hasAllergy = Boolean(
+                      (Array.isArray(item.pet.allergies) && item.pet.allergies.length > 0) ||
+                      (item.pet.allergies && String(item.pet.allergies).trim().length > 0)
+                    );
+
+                    return (
+                      <div
+                        key={`${item.owner.ownerId}-${item.pet.petId || item.pet.name}`}
+                        className="group relative rounded-2xl border border-border/80 bg-card hover:border-primary/50 hover:shadow-md transition-all flex flex-col justify-between p-4 shadow-2xs overflow-hidden"
+                      >
+                        {/* Top species color accent bar */}
+                        <div
+                          className={cn(
+                            "absolute top-0 left-0 right-0 h-1 bg-gradient-to-r",
+                            isCat
+                              ? "from-amber-400 to-orange-500"
+                              : isDog
+                              ? "from-blue-500 to-indigo-600"
+                              : "from-emerald-400 to-teal-500"
+                          )}
+                        />
+
+                        <div className="space-y-3">
+                          {/* Pet Header */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={cn(
+                                  "size-10 rounded-xl flex items-center justify-center text-lg font-bold shadow-xs shrink-0",
+                                  isCat
+                                    ? "bg-amber-500/10 text-amber-600 border border-amber-500/20"
+                                    : isDog
+                                    ? "bg-blue-500/10 text-blue-600 border border-blue-500/20"
+                                    : "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
+                                )}
+                              >
+                                {isCat ? "🐱" : isDog ? "🐶" : "🦎"}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="font-extrabold text-sm text-foreground truncate group-hover:text-primary transition-colors">
+                                    {item.pet.name}
+                                  </h4>
+                                  {item.pet.petId && (
+                                    <span className="font-mono text-[9px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-bold">
+                                      {item.pet.petId}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground truncate leading-tight mt-0.5">
+                                  {item.pet.species} · {item.pet.breed}
+                                  {item.pet.ageYears ? ` (${item.pet.ageYears}y)` : ""}
+                                </p>
+                              </div>
+                            </div>
+
+                            <span
+                              className={cn(
+                                "text-[10px] font-extrabold px-2 py-0.5 rounded-full border shrink-0",
+                                isCat
+                                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20"
+                                  : isDog
+                                  ? "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20"
+                                  : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20"
+                              )}
+                            >
+                              {item.pet.species || "Pet"}
+                            </span>
+                          </div>
+
+                          {/* Owner & Contact Pill */}
+                          <div className="rounded-xl bg-muted/40 p-2.5 text-xs space-y-1 border border-border/50">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-foreground truncate flex items-center gap-1">
+                                <User className="size-3 text-muted-foreground shrink-0" />
+                                <span className="truncate">{item.owner.name}</span>
+                              </span>
+                              <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                                {item.owner.city || "Nagpur"}
                               </span>
                             </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleAdmitCrmPet(owner, pet)}
-                              className="h-7 text-[11px] font-bold text-primary hover:bg-primary hover:text-primary-foreground"
-                            >
-                              Admit →
-                            </Button>
+                            <p className="text-[11px] text-muted-foreground flex items-center gap-1 font-mono">
+                              <Phone className="size-2.5 text-primary shrink-0" /> {item.owner.phone}
+                            </p>
                           </div>
-                        ))}
+
+                          {/* Documented Allergies Tag */}
+                          {hasAllergy && (
+                            <div className="text-[10px] font-bold text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-2 py-0.5 flex items-center gap-1">
+                              <AlertTriangle className="size-3 shrink-0" />
+                              <span className="truncate">
+                                Allergy: {Array.isArray(item.pet.allergies) ? item.pet.allergies.join(", ") : String(item.pet.allergies)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Quick Admit Action Button */}
+                        <Button
+                          size="sm"
+                          onClick={() => handleAdmitCrmPet(item.owner, item.pet)}
+                          className="w-full h-8 text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 mt-3 shadow-2xs hover:shadow-xs group-hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer"
+                        >
+                          <Stethoscope className="size-3.5" /> Admit {item.pet.name} to OPD →
+                        </Button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
