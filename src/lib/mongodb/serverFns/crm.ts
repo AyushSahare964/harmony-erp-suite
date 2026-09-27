@@ -132,16 +132,30 @@ export const searchOwnersFn = createServerFn({ method: "GET" })
   .validator((query: unknown) => (typeof query === "string" ? query : ""))
   .handler(async ({ data: query }: { data: string }) => {
     await ensureCRMSeeded();
-    const filter = query.trim()
-      ? {
-          $or: [
-            { name: { $regex: query.trim(), $options: "i" } },
-            { phone: { $regex: query.trim(), $options: "i" } },
-            { email: { $regex: query.trim(), $options: "i" } },
-            { ownerId: { $regex: query.trim(), $options: "i" } },
-          ],
-        }
-      : {};
+    let filter: any = {};
+    if (query.trim()) {
+      const q = query.trim();
+      const petMatches = await Pet.find({
+        $or: [
+          { name: { $regex: q, $options: "i" } },
+          { breed: { $regex: q, $options: "i" } },
+          { species: { $regex: q, $options: "i" } },
+          { petId: { $regex: q, $options: "i" } },
+        ],
+      }).select("ownerId").lean();
+
+      const matchedOwnerIdsFromPets = petMatches.map((p: any) => p.ownerId).filter(Boolean);
+
+      filter = {
+        $or: [
+          { name: { $regex: q, $options: "i" } },
+          { phone: { $regex: q, $options: "i" } },
+          { email: { $regex: q, $options: "i" } },
+          { ownerId: { $regex: q, $options: "i" } },
+          ...(matchedOwnerIdsFromPets.length > 0 ? [{ ownerId: { $in: matchedOwnerIdsFromPets } }] : []),
+        ],
+      };
+    }
 
     const owners = await Owner.find(filter).sort({ createdAt: -1 }).limit(100).lean();
     const ownerIds = owners.map((o: any) => o.ownerId);

@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   Filter,
   AlertTriangle,
+  X,
+  Loader2,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -69,9 +71,20 @@ export function AdmitPatientPickerModal({
   useEffect(() => {
     if (open) {
       void fetchAppointments();
-      void handleSearchCrm("");
+      void handleSearchCrm("", true);
     }
   }, [open]);
+
+  // Debounced background sync for CRM search without UI blocking
+  useEffect(() => {
+    if (!open) return;
+    const timer = setTimeout(() => {
+      if (crmSearch.trim()) {
+        void handleSearchCrm(crmSearch, false);
+      }
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [crmSearch, open]);
 
   const fetchAppointments = async () => {
     setLoadingAppts(true);
@@ -85,15 +98,31 @@ export function AdmitPatientPickerModal({
     }
   };
 
-  const handleSearchCrm = async (q: string) => {
-    setSearchingCrm(true);
+  const handleSearchCrm = async (q: string, isInitial = false) => {
+    if (isInitial && crmOwners.length === 0) setSearchingCrm(true);
     try {
       const data = await searchOwnersFn({ data: q });
-      setCrmOwners(data);
+      if (Array.isArray(data)) {
+        if (!q.trim()) {
+          setCrmOwners(data);
+        } else {
+          // Merge newly found owners with existing state so nothing flickers or disappears
+          setCrmOwners((prev) => {
+            const map = new Map<string, any>();
+            data.forEach((o: any) => {
+              if (o.ownerId) map.set(o.ownerId, o);
+            });
+            prev.forEach((o: any) => {
+              if (o.ownerId && !map.has(o.ownerId)) map.set(o.ownerId, o);
+            });
+            return Array.from(map.values());
+          });
+        }
+      }
     } catch (e) {
       console.error(e);
     } finally {
-      setSearchingCrm(false);
+      if (isInitial) setSearchingCrm(false);
     }
   };
 
@@ -120,8 +149,8 @@ export function AdmitPatientPickerModal({
     });
   }, [appointments, searchQuery, statusFilter]);
 
-  // Flatten registered patients (Pet + Owner) into individual flashcards
-  const { allRegisteredPetCards, speciesCounts } = useMemo(() => {
+  // Flatten registered patients (Pet + Owner) into individual flashcards with instant dynamic filtering
+  const { allRegisteredPetCards, speciesCounts, totalAvailableCount } = useMemo(() => {
     const rawList: Array<{ pet: any; owner: any; isPlaceholder?: boolean }> = [];
     crmOwners.forEach((owner) => {
       if (Array.isArray(owner.pets) && owner.pets.length > 0) {
@@ -142,23 +171,52 @@ export function AdmitPatientPickerModal({
       }
     });
 
+    const q = crmSearch.toLowerCase().trim();
+
+    // Dynamic instant filtering across all patient & owner properties
+    const searchedList = rawList.filter((item) => {
+      if (!q) return true;
+      const petName = String(item.pet?.name || "").toLowerCase();
+      const petBreed = String(item.pet?.breed || "").toLowerCase();
+      const petSpecies = String(item.pet?.species || "").toLowerCase();
+      const petId = String(item.pet?.petId || "").toLowerCase();
+      const ownerName = String(item.owner?.name || "").toLowerCase();
+      const ownerPhone = String(item.owner?.phone || "").toLowerCase();
+      const ownerId = String(item.owner?.ownerId || "").toLowerCase();
+      const ownerCity = String(item.owner?.city || "").toLowerCase();
+      const microchip = String(item.pet?.microchipNumber || "").toLowerCase();
+
+      return (
+        petName.includes(q) ||
+        petBreed.includes(q) ||
+        petSpecies.includes(q) ||
+        petId.includes(q) ||
+        ownerName.includes(q) ||
+        ownerPhone.includes(q) ||
+        ownerId.includes(q) ||
+        ownerCity.includes(q) ||
+        microchip.includes(q)
+      );
+    });
+
+    // Dynamic category counts based on current search query
     const counts = {
-      all: rawList.length,
-      canine: rawList.filter((i) => {
+      all: searchedList.length,
+      canine: searchedList.filter((i) => {
         const sp = String(i.pet.species || "").toLowerCase();
         return sp.includes("canine") || sp.includes("dog");
       }).length,
-      feline: rawList.filter((i) => {
+      feline: searchedList.filter((i) => {
         const sp = String(i.pet.species || "").toLowerCase();
         return sp.includes("feline") || sp.includes("cat");
       }).length,
-      exotic: rawList.filter((i) => {
+      exotic: searchedList.filter((i) => {
         const sp = String(i.pet.species || "").toLowerCase();
         return !sp.includes("canine") && !sp.includes("dog") && !sp.includes("feline") && !sp.includes("cat");
       }).length,
     };
 
-    const filtered = rawList.filter((item) => {
+    const filtered = searchedList.filter((item) => {
       if (speciesCategoryFilter === "all") return true;
       const sp = String(item.pet.species || "").toLowerCase();
       if (speciesCategoryFilter === "canine") return sp.includes("canine") || sp.includes("dog");
@@ -169,8 +227,12 @@ export function AdmitPatientPickerModal({
       return true;
     });
 
-    return { allRegisteredPetCards: filtered, speciesCounts: counts };
-  }, [crmOwners, speciesCategoryFilter]);
+    return {
+      allRegisteredPetCards: filtered,
+      speciesCounts: counts,
+      totalAvailableCount: rawList.length,
+    };
+  }, [crmOwners, crmSearch, speciesCategoryFilter]);
 
   // Handle admit from scheduled appointment
   const handleAdmitAppointment = async (apt: any) => {
@@ -372,17 +434,36 @@ export function AdmitPatientPickerModal({
             <div className="space-y-4">
               {/* Search & Filter Controls */}
               <div className="flex flex-col sm:flex-row items-center gap-2.5">
-                <div className="relative flex-1 w-full">
-                  <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by pet name, owner name, phone, reason or token #…"
+                <div className="group relative flex items-center w-full flex-1 rounded-full bg-muted/30 hover:bg-muted/50 focus-within:bg-card focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 border border-border/60 transition-all duration-200 px-3.5 h-9 shadow-2xs">
+                  <Search className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-focus-within:text-primary mr-2.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search by pet name, owner, phone, reason, or token #…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-8 text-xs h-9 bg-card"
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setSearchQuery("");
+                    }}
+                    className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none border-none p-0 pr-2 font-normal"
                   />
+                  {searchQuery && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] font-medium text-muted-foreground/70 bg-background/80 px-2 py-0.5 rounded-full border border-border/40 select-none">
+                        {filteredAppointments.length} found
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        title="Clear search (Esc)"
+                        className="size-4.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-1 w-full sm:w-auto overflow-x-auto">
+                <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto shrink-0 py-0.5">
                   {[
                     { id: "all", label: "All Queue" },
                     { id: "waiting", label: "Waiting" },
@@ -392,10 +473,10 @@ export function AdmitPatientPickerModal({
                       key={f.id}
                       onClick={() => setStatusFilter(f.id)}
                       className={cn(
-                        "px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap",
+                        "px-3 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap cursor-pointer select-none",
                         statusFilter === f.id
-                          ? "bg-primary text-primary-foreground border-primary font-bold"
-                          : "bg-card text-muted-foreground border-border hover:border-primary/40"
+                          ? "bg-primary text-primary-foreground font-semibold shadow-2xs"
+                          : "bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-border/30"
                       )}
                     >
                       {f.label}
@@ -489,73 +570,143 @@ export function AdmitPatientPickerModal({
 
           {/* TAB 2: CRM REGISTERED PATIENTS — FLASH CARDS GRID */}
           {tab === "crm" && (
-            <div className="space-y-4">
-              {/* Search & Species Filter Bar */}
+            <div className="space-y-3.5">
+              {/* Minimalist Dynamic Search & Species Filter Bar */}
               <div className="flex flex-col sm:flex-row items-center gap-2.5">
-                <div className="relative flex-1 w-full">
-                  <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                  <Input
-                    placeholder="Search registered owner name, phone, or pet name…"
+                <div className="group relative flex items-center w-full flex-1 rounded-full bg-muted/30 hover:bg-muted/50 focus-within:bg-card focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 border border-border/60 transition-all duration-200 px-3.5 h-10 shadow-2xs">
+                  <Search className="size-4 shrink-0 text-muted-foreground/60 transition-colors group-focus-within:text-primary mr-2.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search registered pet, owner, phone, breed, or ID…"
                     value={crmSearch}
-                    onChange={(e) => {
-                      setCrmSearch(e.target.value);
-                      void handleSearchCrm(e.target.value);
+                    onChange={(e) => setCrmSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setCrmSearch("");
                     }}
-                    className="pl-8 text-xs h-9 bg-card"
+                    className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none border-none p-0 pr-2 font-normal"
                   />
-                  {crmSearch && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCrmSearch("");
-                        void handleSearchCrm("");
-                      }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
-                    >
-                      ×
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {searchingCrm && (
+                      <Loader2 className="size-3.5 animate-spin text-primary shrink-0" />
+                    )}
+                    {crmSearch && (
+                      <>
+                        <span className="text-[10px] font-medium text-muted-foreground/70 bg-background/80 px-2 py-0.5 rounded-full border border-border/40 select-none">
+                          {allRegisteredPetCards.length} found
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCrmSearch("")}
+                          title="Clear search (Esc)"
+                          className="size-5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </>
+                    )}
+                    {!crmSearch && (
+                      <kbd className="hidden sm:inline-block text-[10px] text-muted-foreground/40 font-mono px-1.5 py-0.5 rounded bg-background/60 border border-border/30 select-none">
+                        ESC
+                      </kbd>
+                    )}
+                  </div>
                 </div>
 
-                {/* Species Filter Pills */}
-                <div className="flex items-center gap-1 w-full sm:w-auto overflow-x-auto shrink-0">
+                {/* Minimalist Species Filter Pills */}
+                <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto shrink-0 py-0.5">
                   {[
-                    { id: "all", label: `All (${speciesCounts.all})` },
-                    { id: "canine", label: `Dogs 🐶 (${speciesCounts.canine})` },
-                    { id: "feline", label: `Cats 🐱 (${speciesCounts.feline})` },
-                    { id: "exotic", label: `Exotics 🦎 (${speciesCounts.exotic})` },
-                  ].map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => setSpeciesCategoryFilter(f.id as any)}
-                      className={cn(
-                        "px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all whitespace-nowrap cursor-pointer",
-                        speciesCategoryFilter === f.id
-                          ? "bg-primary text-primary-foreground border-primary font-bold shadow-2xs"
-                          : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-                      )}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
+                    { id: "all", label: "All", count: speciesCounts.all },
+                    { id: "canine", label: "Dogs 🐶", count: speciesCounts.canine },
+                    { id: "feline", label: "Cats 🐱", count: speciesCounts.feline },
+                    { id: "exotic", label: "Exotics 🦎", count: speciesCounts.exotic },
+                  ].map((f) => {
+                    const active = speciesCategoryFilter === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setSpeciesCategoryFilter(f.id as any)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer whitespace-nowrap select-none",
+                          active
+                            ? "bg-primary text-primary-foreground font-semibold shadow-2xs"
+                            : "bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-border/30"
+                        )}
+                      >
+                        <span>{f.label}</span>
+                        <span
+                          className={cn(
+                            "text-[10px] px-1.5 py-0.2 rounded-full font-mono font-semibold",
+                            active
+                              ? "bg-primary-foreground/20 text-primary-foreground"
+                              : "bg-muted/80 text-muted-foreground"
+                          )}
+                        >
+                          {f.count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {searchingCrm ? (
-                <div className="py-14 text-center text-xs text-muted-foreground flex flex-col items-center justify-center gap-2">
-                  <Clock className="size-5 animate-spin text-primary" />
-                  <span>Searching registered patient database…</span>
+              {/* Minimal Active Search Context Row */}
+              {(crmSearch.trim() || speciesCategoryFilter !== "all") && (
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1 py-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span>
+                      Showing <strong className="text-foreground font-semibold">{allRegisteredPetCards.length}</strong> of {totalAvailableCount} registered patients
+                    </span>
+                    {crmSearch.trim() && (
+                      <span className="text-muted-foreground/70">
+                        matching &ldquo;<span className="text-foreground font-medium">{crmSearch}</span>&rdquo;
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCrmSearch("");
+                      setSpeciesCategoryFilter("all");
+                    }}
+                    className="text-primary hover:underline font-medium text-[11px] cursor-pointer"
+                  >
+                    Reset filters
+                  </button>
                 </div>
-              ) : allRegisteredPetCards.length === 0 ? (
-                <div className="py-14 text-center text-xs text-muted-foreground bg-muted/20 border border-dashed border-border rounded-2xl p-6">
-                  <AlertCircle className="size-8 mx-auto mb-2 text-muted-foreground/60" />
-                  <p className="font-bold text-foreground text-sm">No registered patients found</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 max-w-sm mx-auto">
+              )}
+
+              {/* Patient Flashcards Grid / Minimal Empty State */}
+              {allRegisteredPetCards.length === 0 ? (
+                <div className="py-12 text-center text-xs text-muted-foreground bg-muted/15 border border-dashed border-border/60 rounded-2xl p-6">
+                  <Search className="size-7 mx-auto mb-2 text-muted-foreground/40" />
+                  <p className="font-semibold text-foreground text-sm">No matching patients found</p>
+                  <p className="text-[11px] text-muted-foreground/80 mt-1 max-w-sm mx-auto">
                     {crmSearch
-                      ? `No patient or owner matched "${crmSearch}". Try another search or register as walk-in.`
-                      : "No registered patients in directory yet. Use Direct Walk-in tab to register."}
+                      ? `We couldn't find any registered pet or owner matching "${crmSearch}".`
+                      : "No registered patients in this category."}
                   </p>
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs rounded-full"
+                      onClick={() => {
+                        setCrmSearch("");
+                        setSpeciesCategoryFilter("all");
+                      }}
+                    >
+                      Clear Search & Filters
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="h-7 text-xs rounded-full gap-1.5"
+                      onClick={() => setTab("walkin")}
+                    >
+                      <Plus className="size-3" /> Admit as Direct Walk-in
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
