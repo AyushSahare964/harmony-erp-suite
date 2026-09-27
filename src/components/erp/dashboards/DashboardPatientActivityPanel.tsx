@@ -37,6 +37,7 @@ import {
 import { cn } from "@/lib/utils";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { Patient360Profile } from "@/components/erp/crm/Patient360Profile";
 
 interface InventoryAlerts {
   lowStock: any[];
@@ -67,6 +68,7 @@ export function DashboardPatientActivityPanel({
   const [speciesFilter, setSpeciesFilter] = useState<"ALL" | "Canine" | "Feline" | "IN_OPD">("ALL");
   const [activeActivityTab, setActiveActivityTab] = useState<"FEED" | "ALERTS">("FEED");
   const [selectedPetForDetail, setSelectedPetForDetail] = useState<any | null>(null);
+  const [fullProfilePetId, setFullProfilePetId] = useState<string | null>(null);
 
   // Load pets on mount
   useEffect(() => {
@@ -867,10 +869,24 @@ export function DashboardPatientActivityPanel({
               </div>
 
               {/* Modal Actions */}
-              <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setSelectedPetForDetail(null)}>
-                  Close
-                </Button>
+              <div className="pt-2 border-t border-border flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedPetForDetail(null)}>
+                    Close
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const id = selectedPetForDetail?.petId;
+                      setSelectedPetForDetail(null);
+                      if (id) setFullProfilePetId(id);
+                    }}
+                    className="gap-1.5 text-xs font-semibold text-primary border-primary/30 hover:bg-primary/10"
+                  >
+                    <Eye className="size-3.5" /> Full 360° Profile
+                  </Button>
+                </div>
                 <Button
                   size="sm"
                   onClick={() => {
@@ -887,6 +903,30 @@ export function DashboardPatientActivityPanel({
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Patient 360° Profile Dialog */}
+      <Patient360Profile
+        open={Boolean(fullProfilePetId)}
+        petId={fullProfilePetId}
+        onClose={() => setFullProfilePetId(null)}
+        onStartConsultation={(pet, owner) => {
+          setFullProfilePetId(null);
+          onStartConsultation({
+            petId: pet.petId,
+            petName: pet.name,
+            species: pet.species,
+            breed: pet.breed,
+            gender: pet.gender,
+            ownerId: owner?.ownerId,
+            ownerName: owner?.name,
+            ownerPhone: owner?.phone,
+            vitals: {
+              weightKg: pet.weightKg,
+              complaint: pet.medicalNotes || "OPD Consultation",
+            },
+          });
+        }}
+      />
     </div>
   );
 }

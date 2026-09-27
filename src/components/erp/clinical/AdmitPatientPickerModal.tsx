@@ -93,6 +93,7 @@ export function AdmitPatientPickerModal({
   // Walk-in form comprehensive parameters (aligned with CRM registration)
   const [walkinPetName, setWalkinPetName] = useState("");
   const [walkinSpecies, setWalkinSpecies] = useState<"Canine" | "Feline" | "Avian" | "Rabbit" | "Exotic" | "Other">("Canine");
+  const [customSpecies, setCustomSpecies] = useState("");
   const [walkinBreed, setWalkinBreed] = useState("Labrador Retriever");
   const [walkinGender, setWalkinGender] = useState<"Male" | "Female" | "Neutered Male" | "Spayed Female">("Male");
   const [walkinDob, setWalkinDob] = useState("");
@@ -123,6 +124,9 @@ export function AdmitPatientPickerModal({
 
   const handleSpeciesChange = (newSpecies: "Canine" | "Feline" | "Avian" | "Rabbit" | "Exotic" | "Other") => {
     setWalkinSpecies(newSpecies);
+    if (newSpecies !== "Other") {
+      setCustomSpecies("");
+    }
     const defaults = COMMON_BREEDS_BY_SPECIES[newSpecies];
     if (defaults && defaults.length > 0 && (!walkinBreed || COMMON_BREEDS_BY_SPECIES[walkinSpecies]?.includes(walkinBreed))) {
       setWalkinBreed(defaults[0]);
@@ -424,6 +428,9 @@ export function AdmitPatientPickerModal({
 
     setIsSubmittingWalkin(true);
 
+    const finalSpecies =
+      walkinSpecies === "Other" && customSpecies.trim() ? customSpecies.trim() : walkinSpecies;
+
     try {
       // 1. Persist directly into MongoDB CRM with auto-generated sequential IDs
       const res = await createOwnerWithMultiplePetsFn({
@@ -442,7 +449,7 @@ export function AdmitPatientPickerModal({
           pets: [
             {
               name: walkinPetName.trim(),
-              species: walkinSpecies,
+              species: finalSpecies,
               breed: walkinBreed.trim() || "Mixed / Standard",
               gender: walkinGender,
               dob: walkinDob || undefined,
@@ -478,7 +485,7 @@ export function AdmitPatientPickerModal({
         billType: "GST",
         petId: createdPet?.petId || `PET-${Math.floor(1000 + Math.random() * 9000)}`,
         petName: createdPet?.name || walkinPetName.trim(),
-        species: createdPet?.species || walkinSpecies,
+        species: createdPet?.species || finalSpecies,
         breed: createdPet?.breed || walkinBreed.trim() || "Standard",
         gender: createdPet?.gender || walkinGender,
         dob: createdPet?.dob || walkinDob || undefined,
@@ -1091,6 +1098,20 @@ export function AdmitPatientPickerModal({
                         <SelectItem value="Other">🐾 Other Species</SelectItem>
                       </SelectContent>
                     </Select>
+                    {walkinSpecies === "Other" && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        className="mt-1.5"
+                      >
+                        <Input
+                          placeholder="Type species (e.g. Turtle, Guinea Pig, Hamster)…"
+                          value={customSpecies}
+                          onChange={(e) => setCustomSpecies(e.target.value)}
+                          className="h-8 text-xs bg-muted/30 border-primary/40 focus:border-primary"
+                        />
+                      </motion.div>
+                    )}
                   </div>
 
                   {/* Gender */}
