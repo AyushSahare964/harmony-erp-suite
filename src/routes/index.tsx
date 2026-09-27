@@ -59,6 +59,10 @@ function Dashboard() {
 
   useEffect(() => {
     void loadVisits();
+    const interval = setInterval(() => {
+      void loadVisits();
+    }, 5000);
+    return () => clearInterval(interval);
   }, [roleId]);
 
   const loadVisits = async () => {
@@ -298,6 +302,7 @@ function Dashboard() {
             onClose={() => {
               setShowVisitModal(false);
               setSelectedVisit(null);
+              void loadVisits();
             }}
             visit={selectedVisit}
             onVisitFinalized={(updatedVisit) => {

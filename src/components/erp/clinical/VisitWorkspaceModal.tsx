@@ -276,9 +276,12 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
           fresh.status === "PAID" ||
           fresh.status === "Settled" ||
           fresh.status === "Paid" ||
-          fresh.status === "Completed";
+          fresh.status === "Completed" ||
+          fresh.paymentRequestStatus === "collected" ||
+          (Number(fresh.totalAmount || 0) > 0 && Number(fresh.balanceDue ?? fresh.pendingAmount ?? 0) <= 0 && Number(fresh.amountPaid || 0) >= Number(fresh.totalAmount || 0));
         if (isCompleted) {
           setFinalizedVisit(fresh);
+          setTab("completed");
         }
       }
     } catch (e) {
@@ -288,6 +291,21 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
 
   useEffect(() => {
     if (open) {
+      const isCompleted =
+        visit?.status === "PAID" ||
+        visit?.status === "Settled" ||
+        visit?.status === "Paid" ||
+        visit?.status === "Completed" ||
+        visit?.paymentRequestStatus === "collected" ||
+        (Number(visit?.totalAmount || 0) > 0 && Number(visit?.balanceDue ?? visit?.pendingAmount ?? 0) <= 0 && Number(visit?.amountPaid || 0) >= Number(visit?.totalAmount || 0));
+
+      if (isCompleted) {
+        setFinalizedVisit(visit);
+        setTab("completed");
+      } else {
+        setTab("consultation");
+      }
+
       void loadCatalog();
       if (visit?.visitId) void loadFreshVisit(visit.visitId);
       if (visit?.petId) void loadPetDetails(visit.petId);
@@ -919,12 +937,14 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
         ]);
       }
 
-      // If visit is already settled / completed / paid, jump directly to final preview screen!
+      // If visit is already settled / completed / paid / collected, jump directly to final preview screen!
       const isAlreadyCompleted =
         visit.status === "PAID" ||
         visit.status === "Settled" ||
         visit.status === "Paid" ||
-        visit.status === "Completed";
+        visit.status === "Completed" ||
+        visit.paymentRequestStatus === "collected" ||
+        (Number(visit.totalAmount || 0) > 0 && Number(visit.balanceDue ?? visit.pendingAmount ?? 0) <= 0 && Number(visit.amountPaid || 0) >= Number(visit.totalAmount || 0));
 
       if (isAlreadyCompleted) {
         setFinalizedVisit(visit);
@@ -2048,9 +2068,18 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
                             });
                             setBillingTabSentToReceptionist(true);
                             toast.success(
-                              `Bill forwarded to Receptionist for ${activeVisit?.petName || visit?.petName} (₹${billSummary.totalAmount}). She will collect the payment at the front desk.`,
-                              { duration: 5000 },
+                              `Bill forwarded to Receptionist for ${activeVisit?.petName || visit?.petName} (₹${billSummary.totalAmount}). Returning to dashboard...`,
+                              { duration: 4000 },
                             );
+                            onVisitFinalized?.({
+                              ...(activeVisit || visit),
+                              paymentRequestStatus: "pending",
+                              totalAmount: billSummary.totalAmount,
+                              pendingAmount: billSummary.totalAmount,
+                            });
+                            setTimeout(() => {
+                              onClose();
+                            }, 700);
                           } catch (err: any) {
                             toast.error(err?.message || "Failed to send to receptionist");
                           } finally {
@@ -2164,9 +2193,16 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
                           });
                           setPaymentSentToReceptionist(true);
                           toast.success(
-                            `Payment request sent to Receptionist for ${finalizedVisit.petName} (${finalizedVisit.visitId}). The receptionist will see it in their Pending Collections tab.`,
-                            { duration: 5000 },
+                            `Payment request sent to Receptionist for ${finalizedVisit.petName} (${finalizedVisit.visitId}). Returning to dashboard...`,
+                            { duration: 4000 },
                           );
+                          onVisitFinalized?.({
+                            ...finalizedVisit,
+                            paymentRequestStatus: "pending",
+                          });
+                          setTimeout(() => {
+                            onClose();
+                          }, 700);
                         } catch (err: any) {
                           toast.error(err?.message || "Failed to send payment request to receptionist");
                         } finally {

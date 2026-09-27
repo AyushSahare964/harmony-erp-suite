@@ -12,6 +12,8 @@ import {
   PawPrint,
   Clock,
   Pill,
+  CheckCircle2,
+  Eye,
 } from "lucide-react";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { ModuleFlashcard } from "@/components/erp/Flashcard";
@@ -148,14 +150,17 @@ export function DoctorDashboardView({
 
             <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">
               {visits.map((v) => {
-                const isCompleted =
+                const isPaidOrSettled =
                   v.status === "PAID" ||
                   v.status === "Settled" ||
                   v.status === "Paid" ||
                   v.status === "Completed" ||
-                  v.status === "Partially Paid" ||
-                  (Number(v.totalAmount || 0) > 0 && Number(v.amountPaid || 0) >= Number(v.totalAmount || 0)) ||
-                  Boolean(v.diagnosis && Number(v.totalAmount || 0) > 0);
+                  v.paymentRequestStatus === "collected" ||
+                  (Number(v.totalAmount || 0) > 0 && Number(v.balanceDue ?? v.pendingAmount ?? 0) <= 0 && Number(v.amountPaid || 0) >= Number(v.totalAmount || 0));
+
+                const isAwaitingReception = v.paymentRequestStatus === "pending";
+                const isCollectedByReception = v.paymentRequestStatus === "collected" || (isPaidOrSettled && v.paymentRequestedAt);
+                const isCompleted = isPaidOrSettled || isCollectedByReception;
 
                 return (
                   <motion.div
@@ -163,7 +168,14 @@ export function DoctorDashboardView({
                     layout
                     initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="rounded-xl border border-border bg-card hover:border-primary/40 p-3.5 shadow-2xs space-y-3 transition-all"
+                    className={cn(
+                      "rounded-xl border p-3.5 shadow-2xs space-y-3 transition-all",
+                      isCollectedByReception
+                        ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50/20 dark:bg-emerald-950/10 hover:border-emerald-500"
+                        : isAwaitingReception
+                        ? "border-amber-300 dark:border-amber-800 bg-amber-50/25 dark:bg-amber-950/10 hover:border-amber-500"
+                        : "border-border bg-card hover:border-primary/40"
+                    )}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -182,13 +194,25 @@ export function DoctorDashboardView({
 
                       <span
                         className={cn(
-                          "text-[10px] font-bold px-2 py-0.5 rounded-full border",
-                          isCompleted
+                          "text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1",
+                          isCollectedByReception
+                            ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-500/30"
+                            : isPaidOrSettled
                             ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20"
+                            : isAwaitingReception
+                            ? "bg-amber-500/20 text-amber-900 dark:text-amber-200 border-amber-500/40 animate-pulse font-extrabold"
                             : "bg-blue-500/10 text-blue-700 border-blue-500/20"
                         )}
                       >
-                        {v.status || "Admitted"}
+                        {isCollectedByReception ? (
+                          <><span>Reception Collected ✓</span></>
+                        ) : isAwaitingReception ? (
+                          <><span>Sent to Reception ⏳</span></>
+                        ) : isPaidOrSettled ? (
+                          <><span>Bill Settled ✓</span></>
+                        ) : (
+                          v.status || "Admitted"
+                        )}
                       </span>
                     </div>
 
@@ -208,6 +232,19 @@ export function DoctorDashboardView({
                       </p>
                     </div>
 
+                    {isAwaitingReception && (
+                      <div className="rounded-lg bg-amber-500/10 border border-amber-400/30 p-2 text-xs flex items-center justify-between text-amber-800 dark:text-amber-300">
+                        <span className="flex items-center gap-1 font-semibold"><Clock className="size-3" /> With Receptionist</span>
+                        <span className="font-bold font-mono">Awaiting ₹{Number(v.pendingAmount ?? v.totalAmount ?? 0).toFixed(2)}</span>
+                      </div>
+                    )}
+                    {isCollectedByReception && (
+                      <div className="rounded-lg bg-emerald-500/10 border border-emerald-400/30 p-2 text-xs flex items-center justify-between text-emerald-800 dark:text-emerald-300">
+                        <span className="flex items-center gap-1 font-bold"><CheckCircle2 className="size-3" /> Collected by Receptionist</span>
+                        <span className="font-extrabold font-mono text-emerald-700 dark:text-emerald-300">Paid ₹{Number(v.amountPaid ?? v.totalAmount ?? 0).toFixed(2)}</span>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between pt-2 border-t border-border/50">
                       <span className="text-[11px] font-mono text-muted-foreground">{v.visitId}</span>
                       <div className="flex items-center gap-1.5">
@@ -226,12 +263,18 @@ export function DoctorDashboardView({
                             "h-7 text-xs font-semibold gap-1",
                             isCompleted
                               ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                              : isAwaitingReception
+                              ? "bg-amber-600 hover:bg-amber-700 text-white"
                               : "bg-primary text-primary-foreground"
                           )}
                         >
                           {isCompleted ? (
                             <>
                               <FileText className="size-3" /> View Final Rx &amp; Bill
+                            </>
+                          ) : isAwaitingReception ? (
+                            <>
+                              <Eye className="size-3" /> View Bill (Awaiting)
                             </>
                           ) : (
                             <>
