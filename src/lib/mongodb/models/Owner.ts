@@ -10,6 +10,11 @@ export interface IOwner extends Document {
   dob?: string | undefined;
   address?: string | undefined;
   city?: string | undefined;
+  state?: string | undefined;
+  country?: string | undefined;
+  occupation?: string | undefined;
+  /** Relationship of this person to their pets, e.g. "Owner", "Caretaker". */
+  relationship?: string | undefined;
   idProofType?: "Aadhaar" | "PAN" | "Driving License" | "Passport" | "Other" | undefined;
   idProofNo?: string | undefined;
   preferredPaymentMode?: "UPI" | "Cash" | "Card" | "Credit" | undefined;
@@ -50,6 +55,10 @@ const OwnerSchema = new Schema<IOwner>(
     dob: { type: String },
     address: { type: String },
     city: { type: String, default: "Nagpur" },
+    state: { type: String },
+    country: { type: String },
+    occupation: { type: String },
+    relationship: { type: String },
     idProofType: { type: String, enum: ["Aadhaar", "PAN", "Driving License", "Passport", "Other"] },
     idProofNo: { type: String },
     preferredPaymentMode: { type: String, enum: ["UPI", "Cash", "Card", "Credit"], default: "UPI" },
