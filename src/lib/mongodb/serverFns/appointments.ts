@@ -10,7 +10,10 @@ function toPlain<T>(v: any): T {
 
 const SEED_APPOINTMENTS: any[] = [];
 
-const appointmentCategoryEnum = z.enum(["call", "whatsapp", "social_media"]).nullable().optional();
+const appointmentCategoryEnum = z
+  .enum(["call", "whatsapp", "social_media", "walk_in", "online", "app", "referral", "other"])
+  .nullable()
+  .optional();
 
 export const listAppointmentsFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {

@@ -370,8 +370,9 @@ export function BookAppointmentModal({
       toast.error("Parent / Owner name is required");
       return;
     }
-    if (ownerPhone && ownerPhone.length !== 10) {
-      toast.error("Please enter a valid 10-digit mobile number");
+    // Phone is optional — only validate if the receptionist typed something
+    if (ownerPhone && ownerPhone.length > 0 && ownerPhone.length !== 10) {
+      toast.error("Please enter a valid 10-digit mobile number (or leave blank)");
       return;
     }
 
@@ -458,17 +459,23 @@ export function BookAppointmentModal({
         // Auto-admit to OPD if requested (e.g. from Receptionist Dashboard)
         if (autoAdmitToOPD) {
           try {
+            // Ensure ownerPhone is a valid non-empty string for the server schema
+            const safePhone =
+              formattedOwnerPhone && formattedOwnerPhone !== "N/A"
+                ? formattedOwnerPhone
+                : finalPet?.owner?.phone || "+91 00000 00000";
+
             await admitPatientFn({
               data: {
                 appointmentToken: token,
                 petName: finalPet?.name || effectivePetName,
                 petId: finalPet?.petId,
                 species: finalPet?.species || newPetSpecies,
-                breed: finalPet?.breed || newPetBreed.trim(),
-                ownerName: ownerName.trim(),
-                ownerPhone: formattedOwnerPhone,
+                breed: finalPet?.breed || newPetBreed.trim() || "Mix",
+                ownerName: ownerName.trim() || finalPet?.owner?.name || "Client",
+                ownerPhone: safePhone,
                 ownerId: finalPet?.ownerId,
-                doctorName: doctor || "Dr. Rohit Sharma",
+                doctorName: doctor || doctorsList[0]?.name || "Dr. Rohit Sharma",
                 allergies: allergyArray,
                 vitals: {
                   complaint: complaint.trim() || "General Clinical Health Review",
@@ -477,9 +484,14 @@ export function BookAppointmentModal({
                 },
               },
             });
-            toast.success(`Patient also admitted to ${doctor}'s OPD queue`);
-          } catch (admitErr) {
+            toast.success(`Patient admitted to ${doctor || doctorsList[0]?.name}'s OPD queue`);
+          } catch (admitErr: any) {
+            // Show a visible warning — don't silently fail
             console.warn("[BookModal] Auto-admit failed:", admitErr);
+            toast.warning(
+              `Appointment booked ✓ but OPD admission failed: ${admitErr?.message || "Unknown error"}. Please admit manually from the OPD queue.`,
+              { duration: 7000 }
+            );
           }
         }
 
