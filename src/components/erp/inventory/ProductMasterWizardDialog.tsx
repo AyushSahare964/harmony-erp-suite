@@ -45,6 +45,8 @@ import {
   Info,
   Sparkles,
   ShieldCheck,
+  Calendar,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -81,6 +83,21 @@ const UNITS: UnitOfMeasure[] = [
 
 const VALUATION_METHODS: ValuationMethod[] = ["FEFO", "FIFO", "Moving Average"];
 const GST_RATES = [0, 5, 12, 18, 28];
+
+export function getFutureDate(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+export function getExpiryDiffDays(dateStr: string): number | null {
+  if (!dateStr) return null;
+  const target = new Date(dateStr);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+  return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
 
 const STEPS = [
   { id: 1, title: "Identity & Specs", desc: "Core details & category profile" },
@@ -213,6 +230,9 @@ export interface WizardFormState {
   batchTracking: boolean;
   serialTracking: boolean;
   allowNegativeStock: boolean;
+  batchNo: string;
+  expiryDate: string;
+  manufacturingDate: string;
 
   // Pricing
   defaultPurchasePrice: string;
@@ -311,6 +331,9 @@ function getDefaultFormState(
       batchTracking: editing.batchTracking,
       serialTracking: editing.serialTracking,
       allowNegativeStock: editing.allowNegativeStock,
+      batchNo: editing.batchNo || editing.medicineDetails?.batchNo || editing.injectionDetails?.batchNo || "",
+      expiryDate: editing.expiryDate || editing.medicineDetails?.expiryDate || editing.injectionDetails?.expiryDate || "",
+      manufacturingDate: editing.manufacturingDate || editing.medicineDetails?.manufacturingDate || editing.injectionDetails?.manufacturingDate || "",
 
       // Pricing
       defaultPurchasePrice: String(editing.defaultPurchasePrice || ""),
@@ -407,6 +430,9 @@ function getDefaultFormState(
     batchTracking: defaultProductType === "MEDICINE" || defaultProductType === "INJECTION",
     serialTracking: false,
     allowNegativeStock: false,
+    batchNo: "",
+    expiryDate: "",
+    manufacturingDate: "",
 
     defaultPurchasePrice: "",
     defaultSalePrice: "",
@@ -607,12 +633,23 @@ export function ProductMasterWizardDialog({
       if (form.productType === "MEDICINE" && !form.strength.trim()) {
         toast.warning("Tip: Medicine strength (e.g. 250mg) is recommended for clarity.");
       }
+      if (form.expiryDate) {
+        const days = getExpiryDiffDays(form.expiryDate);
+        if (days !== null && days < 0) {
+          toast.warning("Selected expiry date is in the past. Ensure this is intentional.");
+        }
+      }
       return true;
     }
     if (step === 2) {
       if (!form.reorderLevel || isNaN(Number(form.reorderLevel))) {
         toast.error("Valid Minimum / Reorder level is required for alerts");
         return false;
+      }
+      if (Number(form.openingStock) > 0 && form.batchTracking && !form.expiryDate) {
+        const nextYear = getFutureDate(12);
+        updateField("expiryDate", nextYear);
+        toast.info("Opening stock tracked: Expiry Date automatically defaulted to 1 year ahead.");
       }
       return true;
     }
@@ -681,6 +718,9 @@ export function ProductMasterWizardDialog({
         batchTracking: form.batchTracking,
         serialTracking: form.serialTracking,
         allowNegativeStock: form.allowNegativeStock,
+        batchNo: form.batchNo.trim(),
+        expiryDate: form.expiryDate.trim(),
+        manufacturingDate: form.manufacturingDate.trim(),
 
         defaultPurchasePrice: Number(form.defaultPurchasePrice) || 0,
         defaultSalePrice: Number(form.defaultSalePrice) || 0,
@@ -721,6 +761,9 @@ export function ProductMasterWizardDialog({
                 storageCondition: form.storageCondition,
                 schedule: form.schedule,
                 controlledSubstance: form.controlledSubstance,
+                batchNo: form.batchNo.trim(),
+                expiryDate: form.expiryDate.trim(),
+                manufacturingDate: form.manufacturingDate.trim(),
               }
             : undefined,
 
@@ -759,6 +802,9 @@ export function ProductMasterWizardDialog({
                 storageCondition: form.storageCondition,
                 schedule: form.injSchedule,
                 controlledSubstance: form.injControlledSubstance,
+                batchNo: form.batchNo.trim(),
+                expiryDate: form.expiryDate.trim(),
+                manufacturingDate: form.manufacturingDate.trim(),
               }
             : undefined,
       };
@@ -839,6 +885,8 @@ export function ProductMasterWizardDialog({
                   taxableAmount: l.amount,
                   taxAmount: 0,
                   lineTotal: l.amount,
+                  batchNo: (l as any).batchNo || form.batchNo || undefined,
+                  expiryDate: (l as any).expiryDate || form.expiryDate || undefined,
                 })),
               },
             });
@@ -892,6 +940,9 @@ export function ProductMasterWizardDialog({
     }
     if (!form.defaultSalePrice) {
       setForm((prev) => ({ ...prev, defaultSalePrice: "0" }));
+    }
+    if (form.batchTracking && !form.expiryDate) {
+      setForm((prev) => ({ ...prev, expiryDate: getFutureDate(12) }));
     }
     await handleSaveProduct();
   };
@@ -1283,6 +1334,104 @@ export function ProductMasterWizardDialog({
                         Controlled Substance / Narcotic Register entry mandatory
                       </Label>
                     </div>
+
+                    {/* Batch & Expiry Date Configuration for Medicine */}
+                    <div className="col-span-full p-3.5 rounded-lg border bg-background/80 shadow-xs space-y-3 border-emerald-500/30">
+                      <div className="flex items-center justify-between pb-1.5 border-b">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          <span className="text-xs font-semibold text-foreground">
+                            Batch & Expiry Date Configuration
+                          </span>
+                          <Badge variant="outline" className="text-[10px] font-normal border-emerald-500/30 text-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/20">
+                            Required for Clinical FEFO & Near-Expiry Alerts
+                          </Badge>
+                        </div>
+                        {form.expiryDate && (
+                          (() => {
+                            const days = getExpiryDiffDays(form.expiryDate);
+                            if (days === null) return null;
+                            if (days < 0) {
+                              return (
+                                <Badge variant="destructive" className="text-[10px] flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" /> Expired {Math.abs(days)}d ago
+                                </Badge>
+                              );
+                            }
+                            if (days <= 60) {
+                              return (
+                                <Badge variant="outline" className="text-[10px] border-amber-500 text-amber-600 bg-amber-500/10 flex items-center gap-1">
+                                  <Clock className="h-3 w-3" /> Expiring soon ({days}d left)
+                                </Badge>
+                              );
+                            }
+                            return (
+                              <Badge variant="outline" className="text-[10px] border-emerald-500 text-emerald-600 bg-emerald-500/10 flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" /> Safe ({days}d / ~{Math.round(days / 30)}m left)
+                              </Badge>
+                            );
+                          })()
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Batch / Lot Number</Label>
+                          <Input
+                            placeholder="e.g. B-2026-001"
+                            value={form.batchNo}
+                            onChange={(e) => updateField("batchNo", e.target.value)}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-medium">
+                              Expiry Date <span className="text-destructive">*</span>
+                            </Label>
+                            <span className="text-[10px] text-muted-foreground">YYYY-MM-DD</span>
+                          </div>
+                          <Input
+                            type="date"
+                            value={form.expiryDate}
+                            onChange={(e) => updateField("expiryDate", e.target.value)}
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Manufacturing Date (Optional)</Label>
+                          <Input
+                            type="date"
+                            value={form.manufacturingDate}
+                            onChange={(e) => updateField("manufacturingDate", e.target.value)}
+                            className="text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Quick Duration Buttons */}
+                      <div className="flex items-center gap-1.5 pt-0.5">
+                        <span className="text-[11px] text-muted-foreground mr-1">Quick Expiry Preset:</span>
+                        {[
+                          { label: "+6 Months", months: 6 },
+                          { label: "+1 Year", months: 12 },
+                          { label: "+2 Years", months: 24 },
+                          { label: "+3 Years", months: 36 },
+                        ].map((preset) => (
+                          <Button
+                            key={preset.label}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-[10px] px-2 py-0 border-dashed hover:bg-emerald-500/10 hover:border-emerald-500 hover:text-emerald-600"
+                            onClick={() => updateField("expiryDate", getFutureDate(preset.months))}
+                          >
+                            {preset.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1592,6 +1741,104 @@ export function ProductMasterWizardDialog({
                         Controlled Substance / Narcotic Register entry mandatory
                       </Label>
                     </div>
+
+                    {/* Batch & Expiry Date Configuration for Injection */}
+                    <div className="col-span-full p-3.5 rounded-lg border bg-background/80 shadow-xs space-y-3 border-rose-500/30">
+                      <div className="flex items-center justify-between pb-1.5 border-b">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                          <span className="text-xs font-semibold text-foreground">
+                            Vial Batch & Expiry Date Configuration
+                          </span>
+                          <Badge variant="outline" className="text-[10px] font-normal border-rose-500/30 text-rose-600 bg-rose-50/50 dark:bg-rose-950/20">
+                            Required for Cold Chain & Injectable FEFO
+                          </Badge>
+                        </div>
+                        {form.expiryDate && (
+                          (() => {
+                            const days = getExpiryDiffDays(form.expiryDate);
+                            if (days === null) return null;
+                            if (days < 0) {
+                              return (
+                                <Badge variant="destructive" className="text-[10px] flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" /> Expired {Math.abs(days)}d ago
+                                </Badge>
+                              );
+                            }
+                            if (days <= 60) {
+                              return (
+                                <Badge variant="outline" className="text-[10px] border-amber-500 text-amber-600 bg-amber-500/10 flex items-center gap-1">
+                                  <Clock className="h-3 w-3" /> Expiring soon ({days}d left)
+                                </Badge>
+                              );
+                            }
+                            return (
+                              <Badge variant="outline" className="text-[10px] border-emerald-500 text-emerald-600 bg-emerald-500/10 flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" /> Safe ({days}d / ~{Math.round(days / 30)}m left)
+                              </Badge>
+                            );
+                          })()
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Batch / Lot Number</Label>
+                          <Input
+                            placeholder="e.g. INJ-2026-001"
+                            value={form.batchNo}
+                            onChange={(e) => updateField("batchNo", e.target.value)}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-medium">
+                              Expiry Date <span className="text-destructive">*</span>
+                            </Label>
+                            <span className="text-[10px] text-muted-foreground">YYYY-MM-DD</span>
+                          </div>
+                          <Input
+                            type="date"
+                            value={form.expiryDate}
+                            onChange={(e) => updateField("expiryDate", e.target.value)}
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Manufacturing Date (Optional)</Label>
+                          <Input
+                            type="date"
+                            value={form.manufacturingDate}
+                            onChange={(e) => updateField("manufacturingDate", e.target.value)}
+                            className="text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Quick Duration Buttons */}
+                      <div className="flex items-center gap-1.5 pt-0.5">
+                        <span className="text-[11px] text-muted-foreground mr-1">Quick Expiry Preset:</span>
+                        {[
+                          { label: "+6 Months", months: 6 },
+                          { label: "+1 Year", months: 12 },
+                          { label: "+2 Years", months: 24 },
+                          { label: "+3 Years", months: 36 },
+                        ].map((preset) => (
+                          <Button
+                            key={preset.label}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-[10px] px-2 py-0 border-dashed hover:bg-rose-500/10 hover:border-rose-500 hover:text-rose-600"
+                            onClick={() => updateField("expiryDate", getFutureDate(preset.months))}
+                          >
+                            {preset.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1729,6 +1976,106 @@ export function ProductMasterWizardDialog({
                     </p>
                   </div>
                 </div>
+
+                {/* Opening Batch & Expiry Card when initial stock > 0 or batch tracking active */}
+                {(!editing && (Number(form.openingStock) > 0 || form.batchTracking)) && (
+                  <div className="p-3.5 rounded-lg border bg-card/60 space-y-3 border-primary/20">
+                    <div className="flex items-center justify-between pb-1.5 border-b">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-semibold text-foreground">
+                          Initial Stock Batch & Expiry Allocation
+                        </span>
+                        <Badge variant="outline" className="text-[10px] border-primary/30 text-primary bg-primary/5">
+                          FEFO Allocation & Alerts
+                        </Badge>
+                      </div>
+                      {form.expiryDate && (
+                        (() => {
+                          const days = getExpiryDiffDays(form.expiryDate);
+                          if (days === null) return null;
+                          if (days < 0) {
+                            return (
+                              <Badge variant="destructive" className="text-[10px] flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3" /> Expired {Math.abs(days)}d ago
+                              </Badge>
+                            );
+                          }
+                          if (days <= 60) {
+                            return (
+                              <Badge variant="outline" className="text-[10px] border-amber-500 text-amber-600 bg-amber-500/10 flex items-center gap-1">
+                                <Clock className="h-3 w-3" /> Expiring soon ({days}d left)
+                              </Badge>
+                            );
+                          }
+                          return (
+                            <Badge variant="outline" className="text-[10px] border-emerald-500 text-emerald-600 bg-emerald-500/10 flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" /> Safe ({days}d / ~{Math.round(days / 30)}m left)
+                            </Badge>
+                          );
+                        })()
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Batch / Lot Number</Label>
+                        <Input
+                          placeholder="e.g. OPN-2026-001"
+                          value={form.batchNo}
+                          onChange={(e) => updateField("batchNo", e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-medium">
+                            Expiry Date <span className="text-destructive">*</span>
+                          </Label>
+                          <span className="text-[10px] text-muted-foreground">YYYY-MM-DD</span>
+                        </div>
+                        <Input
+                          type="date"
+                          value={form.expiryDate}
+                          onChange={(e) => updateField("expiryDate", e.target.value)}
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Manufacturing Date (Optional)</Label>
+                        <Input
+                          type="date"
+                          value={form.manufacturingDate}
+                          onChange={(e) => updateField("manufacturingDate", e.target.value)}
+                          className="text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Expiry Presets */}
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <span className="text-[11px] text-muted-foreground mr-1">Quick Expiry Preset:</span>
+                      {[
+                        { label: "+6 Months", months: 6 },
+                        { label: "+1 Year", months: 12 },
+                        { label: "+2 Years", months: 24 },
+                        { label: "+3 Years", months: 36 },
+                      ].map((preset) => (
+                        <Button
+                          key={preset.label}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-[10px] px-2 py-0 border-dashed hover:bg-primary/10 hover:border-primary hover:text-primary"
+                          onClick={() => updateField("expiryDate", getFutureDate(preset.months))}
+                        >
+                          {preset.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Policy Toggles */}
@@ -2005,6 +2352,10 @@ export function ProductMasterWizardDialog({
                   <div><strong>Type:</strong> {form.productType}</div>
                   <div><strong>Selling Price:</strong> ₹{form.defaultSalePrice || "0"}</div>
                   <div><strong>Reorder Level:</strong> {form.reorderLevel} {form.unit}s</div>
+                  <div><strong>Batch No:</strong> {form.batchNo || "Auto-assigned"}</div>
+                  <div><strong>Expiry Date:</strong> {form.expiryDate || "Not tracked"}</div>
+                  <div><strong>Opening Stock:</strong> {form.openingStock} {form.unit}s</div>
+                  <div><strong>GST Rate:</strong> {form.gstRate}%</div>
                 </div>
               </div>
             </div>

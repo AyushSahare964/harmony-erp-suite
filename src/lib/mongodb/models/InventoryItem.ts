@@ -27,6 +27,9 @@ export interface MedicineDetails {
   storageCondition?: string;
   schedule?: string;
   controlledSubstance?: boolean;
+  batchNo?: string;
+  expiryDate?: string;
+  manufacturingDate?: string;
 }
 
 export interface FoodDetails {
@@ -56,6 +59,9 @@ export interface InjectionDetails {
   storageCondition?: string;
   schedule?: string;
   controlledSubstance?: boolean;
+  batchNo?: string;
+  expiryDate?: string;
+  manufacturingDate?: string;
 }
 
 export interface IInventoryItem {
@@ -94,6 +100,9 @@ export interface IInventoryItem {
   batchTracking: boolean;
   serialTracking: boolean;
   allowNegativeStock: boolean;
+  batchNo?: string;
+  expiryDate?: string;
+  manufacturingDate?: string;
 
   // ── Pricing ───────────────────────────────────────────────────────────────
   defaultSalePrice: number;
@@ -161,6 +170,9 @@ const medicineDetailsSchema = new Schema<MedicineDetails>(
     storageCondition: { type: String, default: "" },
     schedule: { type: String, default: "" },
     controlledSubstance: { type: Boolean, default: false },
+    batchNo: { type: String, default: "" },
+    expiryDate: { type: String, default: "" },
+    manufacturingDate: { type: String, default: "" },
   },
   { _id: false },
 );
@@ -199,6 +211,9 @@ const injectionDetailsSchema = new Schema<InjectionDetails>(
     storageCondition: { type: String, default: "" },
     schedule: { type: String, default: "" },
     controlledSubstance: { type: Boolean, default: false },
+    batchNo: { type: String, default: "" },
+    expiryDate: { type: String, default: "" },
+    manufacturingDate: { type: String, default: "" },
   },
   { _id: false },
 );
@@ -248,6 +263,9 @@ const inventoryItemSchema = new Schema<InventoryItemDocument>(
     batchTracking: { type: Boolean, default: true },
     serialTracking: { type: Boolean, default: false },
     allowNegativeStock: { type: Boolean, default: false },
+    batchNo: { type: String, default: "" },
+    expiryDate: { type: String, default: "" },
+    manufacturingDate: { type: String, default: "" },
 
     // Pricing
     defaultSalePrice: { type: Number, required: true, default: 0 },

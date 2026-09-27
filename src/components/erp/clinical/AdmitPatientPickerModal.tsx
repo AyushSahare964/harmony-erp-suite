@@ -95,6 +95,7 @@ export function AdmitPatientPickerModal({
   const [walkinSpecies, setWalkinSpecies] = useState<"Canine" | "Feline" | "Avian" | "Rabbit" | "Exotic" | "Other">("Canine");
   const [walkinBreed, setWalkinBreed] = useState("Labrador Retriever");
   const [walkinGender, setWalkinGender] = useState<"Male" | "Female" | "Neutered Male" | "Spayed Female">("Male");
+  const [walkinDob, setWalkinDob] = useState("");
   const [walkinAgeYears, setWalkinAgeYears] = useState("2");
   const [walkinAgeMonths, setWalkinAgeMonths] = useState("0");
   const [walkinColor, setWalkinColor] = useState("");
@@ -125,6 +126,25 @@ export function AdmitPatientPickerModal({
     const defaults = COMMON_BREEDS_BY_SPECIES[newSpecies];
     if (defaults && defaults.length > 0 && (!walkinBreed || COMMON_BREEDS_BY_SPECIES[walkinSpecies]?.includes(walkinBreed))) {
       setWalkinBreed(defaults[0]);
+    }
+  };
+
+  const handleDobChange = (dobVal: string) => {
+    setWalkinDob(dobVal);
+    if (dobVal) {
+      const birth = new Date(dobVal);
+      const now = new Date();
+      let years = now.getFullYear() - birth.getFullYear();
+      let months = now.getMonth() - birth.getMonth();
+      if (now.getDate() < birth.getDate()) {
+        months--;
+      }
+      if (months < 0) {
+        years--;
+        months += 12;
+      }
+      if (years >= 0) setWalkinAgeYears(String(years));
+      if (months >= 0) setWalkinAgeMonths(String(months));
     }
   };
 
@@ -425,6 +445,7 @@ export function AdmitPatientPickerModal({
               species: walkinSpecies,
               breed: walkinBreed.trim() || "Mixed / Standard",
               gender: walkinGender,
+              dob: walkinDob || undefined,
               ageYears: walkinAgeYears ? Number(walkinAgeYears) : undefined,
               ageMonths: walkinAgeMonths ? Number(walkinAgeMonths) : undefined,
               color: walkinColor.trim() || undefined,
@@ -460,6 +481,7 @@ export function AdmitPatientPickerModal({
         species: createdPet?.species || walkinSpecies,
         breed: createdPet?.breed || walkinBreed.trim() || "Standard",
         gender: createdPet?.gender || walkinGender,
+        dob: createdPet?.dob || walkinDob || undefined,
         ownerId: createdOwner?.ownerId || `OWN-${Math.floor(1000 + Math.random() * 9000)}`,
         ownerName: createdOwner?.name || walkinOwnerName.trim(),
         ownerPhone: createdOwner?.phone || cleanPhone,
@@ -495,6 +517,7 @@ export function AdmitPatientPickerModal({
         species: walkinSpecies,
         breed: walkinBreed.trim() || "Standard",
         gender: walkinGender,
+        dob: walkinDob || undefined,
         ownerId: `OWN-${Math.floor(1000 + Math.random() * 9000)}`,
         ownerName: walkinOwnerName.trim(),
         ownerPhone: cleanPhone,
@@ -1118,9 +1141,28 @@ export function AdmitPatientPickerModal({
                     </div>
                   </div>
 
+                  {/* Date of Birth (DOB) */}
+                  <div>
+                    <Label className="text-xs font-semibold flex items-center gap-1">
+                      <span>Date of Birth</span>
+                      <span className="text-[10px] text-muted-foreground font-normal">(DOB)</span>
+                    </Label>
+                    <Input
+                      type="date"
+                      value={walkinDob}
+                      onChange={(e) => handleDobChange(e.target.value)}
+                      className="h-8.5 text-xs mt-1"
+                    />
+                  </div>
+
                   {/* Age (Years & Months) */}
                   <div>
-                    <Label className="text-xs font-semibold">Age (Years / Months)</Label>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold">Age (Years / Mos)</Label>
+                      {walkinDob && (
+                        <span className="text-[10px] text-primary font-semibold">Auto-computed</span>
+                      )}
+                    </div>
                     <div className="grid grid-cols-2 gap-1.5 mt-1">
                       <Input
                         type="number"
@@ -1128,7 +1170,14 @@ export function AdmitPatientPickerModal({
                         max="30"
                         placeholder="Yrs"
                         value={walkinAgeYears}
-                        onChange={(e) => setWalkinAgeYears(e.target.value)}
+                        onChange={(e) => {
+                          setWalkinAgeYears(e.target.value);
+                          if (e.target.value && !walkinDob) {
+                            const d = new Date();
+                            d.setFullYear(d.getFullYear() - Number(e.target.value));
+                            setWalkinDob(d.toISOString().slice(0, 10));
+                          }
+                        }}
                         className="h-8.5 text-xs"
                       />
                       <Input
@@ -1170,7 +1219,7 @@ export function AdmitPatientPickerModal({
                   </div>
 
                   {/* Microchip / Tag */}
-                  <div className="lg:col-span-3">
+                  <div className="lg:col-span-2">
                     <Label className="text-xs font-semibold">Microchip No. / Identification Tag (Optional)</Label>
                     <Input
                       placeholder="15-digit RFID microchip or municipal tag #"

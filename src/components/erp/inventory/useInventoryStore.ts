@@ -85,6 +85,9 @@ export interface Medicine {
   batchTracking: boolean;
   serialTracking: boolean;
   allowNegativeStock: boolean;
+  batchNo?: string | undefined;
+  expiryDate?: string | undefined;
+  manufacturingDate?: string | undefined;
 
   // Pricing
   defaultSalePrice: number;
@@ -251,6 +254,9 @@ function mapToMedicine(raw: InventoryItemRow): Medicine {
     batchTracking: raw.batchTracking,
     serialTracking: raw.serialTracking,
     allowNegativeStock: raw.allowNegativeStock,
+    batchNo: (raw as any).batchNo || raw.medicineDetails?.batchNo || raw.injectionDetails?.batchNo,
+    expiryDate: (raw as any).expiryDate || raw.medicineDetails?.expiryDate || raw.injectionDetails?.expiryDate,
+    manufacturingDate: (raw as any).manufacturingDate || raw.medicineDetails?.manufacturingDate || raw.injectionDetails?.manufacturingDate,
     defaultSalePrice: raw.defaultSalePrice,
     defaultPurchasePrice: raw.defaultPurchasePrice,
     minSalePrice: raw.minSalePrice,
@@ -568,14 +574,54 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         const newItem = mapToMedicine(raw);
         setMedicines((prev) => prev.map((x) => (x.id === tempId ? newItem : x)));
 
-        // If initial stock > 0, generate opening ledger
+        // If initial stock > 0, generate opening batch and ledger
         if ((m.currentStock ?? 0) > 0) {
+          const effectiveExpiry =
+            (m as any).expiryDate ||
+            new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10);
+          const effectiveBatchNo = (m as any).batchNo || `OPN-${newItem.itemCode}`;
+          const batchCode = `B-OPEN-${Date.now()}`;
+
+          const openBatch: Batch = {
+            id: batchCode,
+            batchCode,
+            medicineId: newItem.itemCode,
+            itemCode: newItem.itemCode,
+            itemName: newItem.name,
+            batchNo: effectiveBatchNo,
+            manufacturingDate: (m as any).manufacturingDate || "",
+            expiryDate: effectiveExpiry,
+            supplierId: m.defaultSupplierId || "",
+            supplierName: m.defaultSupplierName || "",
+            purchaseOrderRef: "OPENING-STOCK",
+            invoiceBillNo: "INITIAL-SETUP",
+            receivedDate: new Date().toISOString().slice(0, 10),
+            receivedQty: m.currentStock!,
+            acceptedQty: m.currentStock!,
+            rejectedQty: 0,
+            rejectionReason: "",
+            qty: m.currentStock!,
+            purchasePrice: m.defaultPurchasePrice || 0,
+            purchasePricePerUnit: m.defaultPurchasePrice || 0,
+            landingCost: 0,
+            landingCostPerUnit: 0,
+            gstOnPurchase: m.gstRate || 0,
+            totalValue: m.currentStock! * (m.defaultPurchasePrice || 0),
+            storageLocation: m.storageLocation || "",
+            qualityChecked: true,
+            qcInspectorName: "System",
+            remarks: "Opening stock balance",
+            status: "Active",
+            createdAt: new Date().toISOString().slice(0, 10),
+          };
+          setBatches((prev) => [openBatch, ...prev]);
+
           const openEntry: LedgerEntry = {
             id: `L-OPEN-${Date.now()}`,
             medicineId: newItem.itemCode,
             medicineName: newItem.name,
-            batchId: "OPENING",
-            batchNo: "OPENING-STOCK",
+            batchId: batchCode,
+            batchNo: effectiveBatchNo,
             movementType: "purchase_in",
             quantity: m.currentStock!,
             sourceType: "manual_adjustment",

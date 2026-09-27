@@ -269,6 +269,11 @@ export function StockView() {
                             date={worstBatch.expiryDate}
                             status={getExpiryStatus(worstBatch.expiryDate)}
                           />
+                        ) : med.expiryDate ? (
+                          <ExpiryChip
+                            date={med.expiryDate}
+                            status={getExpiryStatus(med.expiryDate)}
+                          />
                         ) : (
                           <span className="text-muted-foreground text-xs">{batches.length} batch{batches.length !== 1 ? "es" : ""}</span>
                         )}
