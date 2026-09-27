@@ -356,15 +356,45 @@ export function InvoicePrintView({ visit, open, onClose }: Props) {
             </div>
           )}
 
-          {/* Footer Terms */}
-          <div className="pt-6 border-t border-gray-200 flex justify-between items-end text-[10px] text-gray-500">
-            <div>
-              <p>• Goods once sold are not returnable after cold chain break.</p>
-              <p>• This is a computer-generated tax invoice.</p>
-            </div>
-            <div className="text-right">
-              <p className="font-bold text-gray-700">For Real Care Small Animal Clinic</p>
-              <p className="pt-6 text-gray-400">Authorized Signatory</p>
+          {/* Footer Terms + Signature */}
+          <div className="pt-6 border-t border-gray-200">
+            <div className="flex justify-between items-end gap-6">
+              {/* Left: Terms */}
+              <div className="text-[10px] text-gray-500 space-y-1">
+                <p>• Goods once sold are not returnable after cold chain break.</p>
+                <p>• This is a computer-generated tax invoice.</p>
+              </div>
+
+              {/* Right: Dual signature block */}
+              <div className="flex gap-10 items-end shrink-0">
+                {/* Doctor Signature */}
+                {visit?.doctorName && (
+                  <div className="text-center min-w-[140px]">
+                    <div className="mb-5">
+                      {/* Decorative signature line area */}
+                      <div className="relative">
+                        <div className="h-px bg-gray-300 w-full" />
+                        {/* Stylized cursive signature text */}
+                        <p
+                          className="absolute -top-4 left-0 right-0 text-center text-gray-600 text-[15px] leading-none"
+                          style={{ fontFamily: "'Dancing Script', 'Brush Script MT', cursive", letterSpacing: "0.5px" }}
+                        >
+                          {visit.doctorName}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-[11px] font-bold text-gray-800">{visit.doctorName}</p>
+                    <p className="text-[10px] text-gray-500">BVSc &amp; AH · Attending Veterinarian</p>
+                  </div>
+                )}
+
+                {/* Clinic Authorization */}
+                <div className="text-right min-w-[140px]">
+                  <p className="font-bold text-gray-700 text-[11px] mb-5">For Real Care Small Animal Clinic</p>
+                  <div className="h-px bg-gray-300 w-full" />
+                  <p className="pt-1 text-gray-400 text-[10px]">Authorized Signatory</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

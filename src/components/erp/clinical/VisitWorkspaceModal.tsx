@@ -2955,16 +2955,46 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
                         })()}
                       </div>
 
-                      {/* Footer Terms */}
-                      <div className="pt-4 border-t border-slate-200 flex justify-between items-end text-[10px] text-slate-500 mt-4" style={{ borderTop: "1px solid #cbd5e1", flexWrap: "wrap", rowGap: "10px" }}>
-                        <div style={{ flex: "1 1 180px", minWidth: "160px" }}>
-                          <p style={{ margin: "0 0 2px 0" }}>• Goods once sold are not returnable after cold chain break.</p>
-                          <p style={{ margin: 0 }}>• Computer-generated sales invoice and official receipt.</p>
-                        </div>
-                        <div className="text-center min-w-[160px]" style={{ marginLeft: "auto" }}>
-                          <p className="font-bold text-slate-700" style={{ margin: "0 0 4px 0" }}>For Real Care Small Animal Clinic</p>
-                          <div className="w-full border-b border-slate-300 pb-5 pt-1"></div>
-                          <p className="text-slate-400 pt-1 text-[10px]" style={{ margin: "4px 0 0 0" }}>Authorized Signatory</p>
+                      {/* Footer Terms + Signature */}
+                      <div className="pt-4 border-t border-slate-200 mt-4" style={{ borderTop: "1px solid #cbd5e1", marginTop: "16px", paddingTop: "16px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", rowGap: "12px" }}>
+                          {/* Left: Terms */}
+                          <div style={{ flex: "1 1 180px", minWidth: "160px", fontSize: "10px", color: "#64748b" }}>
+                            <p style={{ margin: "0 0 2px 0" }}>• Goods once sold are not returnable after cold chain break.</p>
+                            <p style={{ margin: 0 }}>• Computer-generated sales invoice and official receipt.</p>
+                          </div>
+
+                          {/* Right: Dual signature block */}
+                          <div style={{ display: "flex", gap: "40px", alignItems: "flex-end", marginLeft: "auto", flexWrap: "wrap" }}>
+                            {/* Doctor Signature */}
+                            {finalizedVisit.doctorName && (
+                              <div style={{ textAlign: "center", minWidth: "140px" }}>
+                                <div style={{ marginBottom: "20px", position: "relative" }}>
+                                  {/* Cursive signature over the line */}
+                                  <p style={{
+                                    fontFamily: "'Dancing Script', 'Brush Script MT', cursive",
+                                    fontSize: "16px",
+                                    color: "#334155",
+                                    margin: "0 0 2px 0",
+                                    letterSpacing: "0.5px",
+                                    lineHeight: 1,
+                                  }}>
+                                    {finalizedVisit.doctorName}
+                                  </p>
+                                  <div style={{ height: "1px", backgroundColor: "#cbd5e1", width: "100%" }} />
+                                </div>
+                                <p style={{ fontSize: "11px", fontWeight: 700, color: "#1e293b", margin: "0 0 1px 0" }}>{finalizedVisit.doctorName}</p>
+                                <p style={{ fontSize: "10px", color: "#64748b", margin: 0 }}>BVSc &amp; AH · Attending Veterinarian</p>
+                              </div>
+                            )}
+
+                            {/* Clinic Authorization */}
+                            <div style={{ textAlign: "right", minWidth: "140px" }}>
+                              <p style={{ fontWeight: 700, color: "#334155", fontSize: "11px", margin: "0 0 20px 0" }}>For Real Care Small Animal Clinic</p>
+                              <div style={{ height: "1px", backgroundColor: "#cbd5e1", width: "100%" }} />
+                              <p style={{ fontSize: "10px", color: "#94a3b8", margin: "4px 0 0 0" }}>Authorized Signatory</p>
+                            </div>
+                          </div>
                         </div>
                       </div>
 
