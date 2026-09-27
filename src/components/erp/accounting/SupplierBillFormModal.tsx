@@ -42,8 +42,14 @@ interface PurchaseLine {
   quantity: number;
   unit: string;
   purchasePrice: number;
-  amount: number;
+  amount: number; // taxable value (qty x price)
+  gstPct: number;
 }
+
+const GST_RATES = [0, 5, 12, 18, 28];
+// Clinic's home state: same-state purchase = CGST+SGST, otherwise IGST.
+const CLINIC_STATE = "Maharashtra";
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const COMMON_UOMS = [
   "PCS",
@@ -121,6 +127,9 @@ export function SupplierBillFormModal({
   const [uom, setUom] = useState("PCS");
   const [quantity, setQuantity] = useState<number>(1);
   const [purchasePrice, setPurchasePrice] = useState<number>(0);
+  const [gstPct, setGstPct] = useState<number>(18);
+  const isGst = purchaseType === "GST";
+  const isInterState = placeOfSupply !== CLINIC_STATE;
 
   // Custom Combobox Dropdown State for Product Name
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
@@ -201,13 +210,22 @@ export function SupplierBillFormModal({
     return Math.max(0, Math.round(qty * price * 100) / 100);
   }, [quantity, purchasePrice]);
 
+  const effectiveGstPct = isGst ? gstPct : 0;
+  const calculatedParticularsTax = r2((calculatedParticularsAmount * effectiveGstPct) / 100);
+
+  // Per-line GST, derived at render time so switching Purchase Type re-prices every line
+  const lineGst = (l: PurchaseLine) => (isGst ? l.gstPct : 0);
+  const lineTax = (l: PurchaseLine) => r2((l.amount * lineGst(l)) / 100);
+
   // Totals
-  const subTotal = useMemo(() => {
-    return lines.reduce((sum, l) => sum + (l.amount || 0), 0);
-  }, [lines]);
+  const subTotal = r2(lines.reduce((sum, l) => sum + (l.amount || 0), 0));
+  const gstTotal = r2(lines.reduce((sum, l) => sum + lineTax(l), 0));
+  const cgstTotal = isInterState ? 0 : r2(gstTotal / 2);
+  const sgstTotal = isInterState ? 0 : r2(gstTotal - cgstTotal);
+  const igstTotal = isInterState ? gstTotal : 0;
 
   const shipping = addShipping ? Math.max(0, shippingCost || 0) : 0;
-  const totalAmount = Math.round((subTotal + shipping) * 100) / 100;
+  const totalAmount = r2(subTotal + gstTotal + shipping);
 
   // Select an item from combobox
   const handleSelectProduct = (item: InventoryItemRow) => {
@@ -237,6 +255,7 @@ export function SupplierBillFormModal({
       unit: uom || "PCS",
       purchasePrice: purchasePrice || 0,
       amount: calculatedParticularsAmount,
+      gstPct: effectiveGstPct,
     };
 
     setLines((prev) => [...prev, newLine]);
@@ -281,13 +300,13 @@ export function SupplierBillFormModal({
           supplierName: sup?.name || "Supplier",
           billNumber: purchaseBillNo.trim(),
           billDate,
-          taxType: "INTRA",
+          taxType: isInterState ? "INTER" : "INTRA",
           subtotal: subTotal,
           discountTotal: 0,
           taxableTotal: subTotal,
-          cgstTotal: 0,
-          sgstTotal: 0,
-          igstTotal: 0,
+          cgstTotal,
+          sgstTotal,
+          igstTotal,
           otherCharges: shipping,
           roundOff: 0,
           grandTotal: totalAmount > 0 ? totalAmount : 1,
@@ -303,10 +322,10 @@ export function SupplierBillFormModal({
             purchaseRate: l.purchasePrice,
             mrp: l.purchasePrice * 1.25,
             discountPct: 0,
-            gstPct: 0,
+            gstPct: lineGst(l),
             taxableAmount: l.amount,
-            taxAmount: 0,
-            lineTotal: l.amount,
+            taxAmount: lineTax(l),
+            lineTotal: r2(l.amount + lineTax(l)),
           })),
         },
       });
@@ -528,7 +547,7 @@ export function SupplierBillFormModal({
                 {/* Main Particulars Inputs Grid matching Screenshot */}
                 <div className="grid grid-cols-12 gap-2 items-end">
                   {/* Product Name * with Decent Custom Combobox Dropdown */}
-                  <div className="col-span-12 md:col-span-4 space-y-1 relative" ref={productDropdownRef}>
+                  <div className="col-span-12 md:col-span-3 space-y-1 relative" ref={productDropdownRef}>
                     <Label className="text-xs text-slate-700 dark:text-slate-300">
                       Product Name <span className="text-rose-500">*</span>
                     </Label>
@@ -657,6 +676,27 @@ export function SupplierBillFormModal({
                     </div>
                   </div>
 
+                  {/* GST % (col-span-1) — only applies when Purchase Type is GST */}
+                  <div className="col-span-6 md:col-span-1 space-y-1">
+                    <Label className="text-xs text-slate-700 dark:text-slate-300">GST %</Label>
+                    <Select
+                      value={String(effectiveGstPct)}
+                      onValueChange={(v) => setGstPct(Number(v))}
+                      disabled={!isGst}
+                    >
+                      <SelectTrigger className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {GST_RATES.map((r) => (
+                          <SelectItem key={r} value={String(r)} className="text-xs">
+                            {r}%
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   {/* Amount * with Blue ₹ Box (col-span-2) */}
                   <div className="col-span-6 md:col-span-2 space-y-1">
                     <div className="flex items-center justify-between">
@@ -671,7 +711,8 @@ export function SupplierBillFormModal({
                         </div>
                         <Input
                           readOnly
-                          value={calculatedParticularsAmount || ""}
+                          value={r2(calculatedParticularsAmount + calculatedParticularsTax) || ""}
+                          title={effectiveGstPct ? `Incl. ${effectiveGstPct}% GST (₹${calculatedParticularsTax.toFixed(2)})` : undefined}
                           placeholder=""
                           className="h-7 rounded-l-none text-xs font-mono font-bold bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
                         />
@@ -711,6 +752,8 @@ export function SupplierBillFormModal({
                       <th className="py-2 px-4 w-28 text-center border-r border-blue-500/30">Quantity</th>
                       <th className="py-2 px-4 w-24 text-center border-r border-blue-500/30">Unit</th>
                       <th className="py-2 px-4 w-32 text-right border-r border-blue-500/30">Purchase Price</th>
+                      <th className="py-2 px-4 w-32 text-right border-r border-blue-500/30">Taxable</th>
+                      <th className="py-2 px-4 w-28 text-right border-r border-blue-500/30">GST</th>
                       <th className="py-2 px-4 w-32 text-right border-r border-blue-500/30">Amount</th>
                       <th className="py-2 px-2 w-12 text-center">Action</th>
                     </tr>
@@ -718,7 +761,7 @@ export function SupplierBillFormModal({
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400">
+                        <td colSpan={9} className="py-8 text-center text-slate-400">
                           No particulars added. Enter product details above and click the green [+] button.
                         </td>
                       </tr>
@@ -743,8 +786,15 @@ export function SupplierBillFormModal({
                           <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                             {line.purchasePrice.toFixed(2)}
                           </td>
-                          <td className="py-2 px-4 text-right font-mono font-bold text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-800">
+                          <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                             {line.amount.toFixed(2)}
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
+                            {lineTax(line).toFixed(2)}
+                            <span className="ml-1 text-[10px] text-slate-400">({lineGst(line)}%)</span>
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono font-bold text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-800">
+                            {r2(line.amount + lineTax(line)).toFixed(2)}
                           </td>
                           <td className="py-2 px-2 text-center">
                             <button
@@ -825,6 +875,25 @@ export function SupplierBillFormModal({
                     <span>Sub Total</span>
                     <span className="font-mono text-sm">₹ {subTotal.toFixed(2)}</span>
                   </div>
+
+                  {gstTotal > 0 &&
+                    (isInterState ? (
+                      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                        <span>IGST</span>
+                        <span className="font-mono">₹ {igstTotal.toFixed(2)}</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                          <span>CGST</span>
+                          <span className="font-mono">₹ {cgstTotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                          <span>SGST</span>
+                          <span className="font-mono">₹ {sgstTotal.toFixed(2)}</span>
+                        </div>
+                      </>
+                    ))}
 
                   {addShipping && shipping > 0 && (
                     <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
