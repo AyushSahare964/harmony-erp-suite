@@ -131,6 +131,8 @@ export function BookAppointmentModal({
   /* ── Section 5: Known Allergies ── */
   const [hasAllergies, setHasAllergies] = useState(false);
   const [allergiesInput, setAllergiesInput] = useState("");
+  // Track profile allergies already saved so we don't overwrite them
+  const [profileAllergies, setProfileAllergies] = useState<string[]>([]);
 
   /* ── State ── */
   const [submitting, setSubmitting] = useState(false);
@@ -163,6 +165,7 @@ export function BookAppointmentModal({
     setPriority("Normal");
     setHasAllergies(false);
     setAllergiesInput("");
+    setProfileAllergies([]);
   };
 
   /* ── Load data on open ──────────────────────────────────────────────── */
@@ -308,12 +311,16 @@ export function BookAppointmentModal({
     setOwnerPhone(phoneDigits);
     setOwnerEmail(p.owner?.email || p.ownerEmail || "");
 
-    const patientAllergies = p.allergies || [];
+    const patientAllergies: string[] = Array.isArray(p.allergies)
+      ? p.allergies.filter(Boolean)
+      : [];
+    // Save the patient's current profile allergies as a baseline (read-only reference)
+    setProfileAllergies(patientAllergies);
+    // Pre-fill the field as informational — user can extend it, but we do NOT
+    // overwrite the profile unless they add genuinely new allergens.
     if (patientAllergies.length > 0) {
       setHasAllergies(true);
-      setAllergiesInput(
-        Array.isArray(patientAllergies) ? patientAllergies.join(", ") : String(patientAllergies),
-      );
+      setAllergiesInput(patientAllergies.join(", "));
     } else {
       setHasAllergies(false);
       setAllergiesInput("");
@@ -380,17 +387,26 @@ export function BookAppointmentModal({
     try {
       const finalPet = selectedPet;
 
-      // Update allergies on the existing patient if they were changed at booking time
-      const existingAllergies: string[] = finalPet.allergies || [];
-      const allergiesChanged =
-        allergyArray.length !== existingAllergies.length ||
-        allergyArray.some((a: string, i: number) => a !== existingAllergies[i]);
-
-      if (allergiesChanged && finalPet.petId) {
-        await updatePetFn({
-          data: { petId: finalPet.petId, updates: { allergies: allergyArray } },
+      // Only merge GENUINELY NEW allergens into the patient's profile.
+      // We never overwrite or remove existing profile allergies from the booking form —
+      // the patient profile (CRM) is the single source of truth.
+      const existingProfileAllergies: string[] = profileAllergies.length
+        ? profileAllergies
+        : finalPet.allergies || [];
+      const normalise = (s: string) => s.trim().toLowerCase();
+      const netNewAllergies = allergyArray.filter(
+        (a: string) => !existingProfileAllergies.some((e) => normalise(e) === normalise(a)),
+      );
+      if (netNewAllergies.length > 0 && finalPet.petId) {
+        // Merge new allergens into the existing profile list (non-destructive)
+        const mergedAllergies = [
+          ...existingProfileAllergies,
+          ...netNewAllergies,
+        ];
+        updatePetFn({
+          data: { petId: finalPet.petId, updates: { allergies: mergedAllergies } },
         }).catch((err) =>
-          console.warn("[BookAppointmentModal] Could not save allergy update:", err),
+          console.warn("[BookAppointmentModal] Could not merge new allergens into profile:", err),
         );
       }
 
@@ -1071,11 +1087,11 @@ export function BookAppointmentModal({
             </div>
 
             {/* ══════════════════════════════════════════════════════════════
-             *  SECTION 5: Known Patient Drug & Food Allergies
+             *  SECTION 5: Drug & Food Allergies — Appointment Context
              * ══════════════════════════════════════════════════════════════ */}
             <div
               className={cn(
-                "rounded-xl border p-4 space-y-4 shadow-2xs",
+                "rounded-xl border p-4 space-y-3 shadow-2xs",
                 hasAllergies ? "border-destructive/40 bg-destructive/5" : "border-border bg-card",
               )}
             >
@@ -1092,13 +1108,38 @@ export function BookAppointmentModal({
                     hasAllergies ? "text-destructive" : "text-foreground",
                   )}
                 >
-                  5. Known Patient Drug &amp; Food Allergies
+                  5. Drug &amp; Food Allergies
                 </h3>
               </div>
 
+              {/* Show read-only profile allergies if the patient already has some saved */}
+              {profileAllergies.length > 0 && (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs">
+                  <p className="font-semibold text-destructive mb-1.5 flex items-center gap-1.5">
+                    <AlertTriangle className="size-3.5" />
+                    Saved on patient profile — allergies already on record:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {profileAllergies.map((a) => (
+                      <span
+                        key={a}
+                        className="inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-destructive/10 px-2.5 py-0.5 text-[11px] font-bold text-destructive"
+                      >
+                        ⚠ {a}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                    These are saved in the patient profile. Use the box below only to add new ones discovered today.
+                  </p>
+                </div>
+              )}
+
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-foreground flex-1">
-                  Does this patient have any known drug, food or vaccine allergies?
+                  {profileAllergies.length > 0
+                    ? "Are there any additional allergies to note for this visit?"
+                    : "Does this patient have any known drug, food or vaccine allergies?"}
                 </span>
                 <div className="flex gap-2">
                   <Button
@@ -1131,7 +1172,9 @@ export function BookAppointmentModal({
               {hasAllergies && (
                 <div className="space-y-2 pt-2 border-t border-destructive/20">
                   <Label className="text-[11px] font-bold text-destructive">
-                    Specific Allergy Details:
+                    {profileAllergies.length > 0
+                      ? "Additional / New Allergies (will be merged into patient profile):"
+                      : "Specific Allergy Details (will be saved to patient profile):"}
                   </Label>
                   <Input
                     placeholder="Enter allergy details (comma separated, e.g. Penicillin, NSAIDs, Egg protein)..."
@@ -1150,25 +1193,29 @@ export function BookAppointmentModal({
                       "Egg Protein",
                       "Flea Allergy",
                       "Booster Vaccines",
-                    ].map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => {
-                          if (allergiesInput.includes(preset)) return;
-                          setAllergiesInput(
-                            allergiesInput ? `${allergiesInput}, ${preset}` : preset,
-                          );
-                        }}
-                        className="text-[10px] px-2 py-0.5 rounded-full border border-destructive/30 bg-destructive/10 text-destructive font-bold hover:bg-destructive hover:text-white transition-colors"
-                      >
-                        + {preset}
-                      </button>
-                    ))}
+                    ]
+                      .filter((preset) => !profileAllergies.some(
+                        (e) => e.toLowerCase() === preset.toLowerCase()
+                      ))
+                      .map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            if (allergiesInput.includes(preset)) return;
+                            setAllergiesInput(
+                              allergiesInput ? `${allergiesInput}, ${preset}` : preset,
+                            );
+                          }}
+                          className="text-[10px] px-2 py-0.5 rounded-full border border-destructive/30 bg-destructive/10 text-destructive font-bold hover:bg-destructive hover:text-white transition-colors"
+                        >
+                          + {preset}
+                        </button>
+                      ))}
                   </div>
                   {allergiesInput.trim() && (
                     <p className="text-[10px] font-semibold text-destructive">
-                      ⚠ Will show as a bold allergy alert on the doctor&apos;s prescription screen.
+                      ⚠ New allergens will be merged into this patient&apos;s permanent profile and shown as safety alerts in clinical screens.
                     </p>
                   )}
                 </div>

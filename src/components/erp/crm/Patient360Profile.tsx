@@ -435,7 +435,12 @@ export function Patient360Profile({
       setData(await getPatient360Fn({ data: { petId: id } }));
     } catch (err: any) {
       console.error(err);
-      setFatal(err?.message || "Unable to load patient profile");
+      const rawMsg = String(err?.message || "");
+      const cleanMsg =
+        rawMsg.includes("<!doctype") || rawMsg.includes("<html")
+          ? "Unable to connect to patient records. The server was refreshing dependencies."
+          : rawMsg || "Unable to load patient profile";
+      setFatal(cleanMsg);
     } finally {
       setLoading(false);
     }

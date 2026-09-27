@@ -216,7 +216,11 @@ export const admitPatientFn = createServerFn({ method: "POST" })
             weightKg: data.vitals?.weightKg,
             status: "Active",
           },
-          ...(data.allergies && data.allergies.length > 0 ? { $set: { allergies: data.allergies } } : {}),
+          // Use $addToSet so admission-time allergies MERGE into the existing list
+          // rather than overwriting what was already saved during registration.
+          ...(data.allergies && data.allergies.length > 0
+            ? { $addToSet: { allergies: { $each: data.allergies } } }
+            : {}),
         },
         { upsert: true }
       );

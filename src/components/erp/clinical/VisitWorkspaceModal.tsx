@@ -1474,29 +1474,38 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
         {/* ── Main Scrollable Body ──────────────────────────────────────── */}
         <div ref={scrollContainerRef} className={cn("flex-1 overflow-y-auto space-y-6", tab === "completed" ? "p-3 sm:p-5 md:p-6" : "p-6")}>
           <div className={cn("space-y-5", tab !== "consultation" && "hidden")}>
-            {/* Prominent Bold Highlighted Allergies Warning Banner */}
+            {/* Allergy Safety Alert Banner – static, prominent, no pulse */}
             {Boolean(
               (visit?.allergies && (Array.isArray(visit.allergies) ? visit.allergies.length > 0 : String(visit.allergies).trim().length > 0)) ||
               (petDetails?.allergies && (Array.isArray(petDetails.allergies) ? petDetails.allergies.length > 0 : String(petDetails.allergies).trim().length > 0))
             ) && (
-              <div className="rounded-2xl p-4 bg-destructive text-destructive-foreground border-2 border-destructive shadow-lg flex items-start gap-3.5 animate-pulse">
-                <AlertTriangle className="size-6 text-white shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <h4 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
-                    <span>⚠ CRITICAL ALLERGY ALERT</span>
-                    <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-mono font-bold">SAFETY WARNING</span>
+              <div className="rounded-xl border-2 border-destructive/70 bg-destructive/10 px-4 py-3 flex items-start gap-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-destructive/15 mt-0.5">
+                  <AlertTriangle className="size-4 text-destructive" />
+                </div>
+                <div className="space-y-1 min-w-0">
+                  <h4 className="text-sm font-extrabold text-destructive tracking-tight flex items-center gap-2">
+                    ⚠ Allergy Alert – Check Before Prescribing
+                    <span className="text-[10px] bg-destructive/15 text-destructive px-2 py-0.5 rounded-full font-mono font-bold border border-destructive/30">CLINICAL SAFETY</span>
                   </h4>
-                  <p className="text-xs font-bold text-white/95 leading-relaxed">
-                    Patient has documented allergies:{" "}
-                    <span className="underline decoration-wavy font-extrabold text-yellow-300 text-sm">
-                      {Array.isArray(visit?.allergies) && visit.allergies.length > 0
-                        ? visit.allergies.join(", ")
-                        : Array.isArray(petDetails?.allergies)
-                        ? petDetails.allergies.join(", ")
-                        : String(visit?.allergies || petDetails?.allergies)}
-                    </span>
-                  </p>
-                  <p className="text-[10px] font-semibold text-white/80">
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {(() => {
+                      const raw = Array.isArray(visit?.allergies) && visit.allergies.length > 0
+                        ? visit.allergies
+                        : Array.isArray(petDetails?.allergies) && petDetails.allergies.length > 0
+                        ? petDetails.allergies
+                        : [String(visit?.allergies || petDetails?.allergies)];
+                      return raw.filter(Boolean).map((a: string) => (
+                        <span
+                          key={a}
+                          className="inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-destructive px-2.5 py-0.5 text-[11px] font-bold text-destructive-foreground"
+                        >
+                          {a}
+                        </span>
+                      ));
+                    })()}
+                  </div>
+                  <p className="text-[11px] text-destructive/80 font-medium">
                     Check contraindications before prescribing NSAIDs, specific antibiotics, or anaesthetics.
                   </p>
                 </div>
