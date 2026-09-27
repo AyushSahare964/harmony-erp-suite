@@ -282,6 +282,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
         if (isCompleted) {
           setFinalizedVisit(fresh);
           setTab("completed");
+        } else if (isReceptionist || visit?.openedFromReception || fresh.paymentRequestStatus === "pending") {
+          setTab("billing");
         }
       }
     } catch (e) {
@@ -302,6 +304,8 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
       if (isCompleted) {
         setFinalizedVisit(visit);
         setTab("completed");
+      } else if (isReceptionist || visit?.openedFromReception || visit?.paymentRequestStatus === "pending") {
+        setTab("billing");
       } else {
         setTab("consultation");
       }

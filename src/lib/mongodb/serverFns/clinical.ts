@@ -1351,6 +1351,7 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     visit.balanceDue = balanceDue;
     visit.pendingAmount = pendingAmount;
     visit.paymentStatus = paymentStatus;
+    visit.paymentMode = data.paymentMode;
     
     if (data.amountPaid > 0) {
       const existingPayments = visit.payments || [];
@@ -1371,7 +1372,7 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
 
     visit.status = status;
     visit.inventoryDeducted = true;
-    if (visit.paymentRequestStatus === "pending") {
+    if (balanceDue === 0 || visit.paymentRequestStatus === "pending") {
       visit.paymentRequestStatus = balanceDue === 0 ? "collected" : "partial";
     }
     if (data.appointmentToken && !visit.appointmentToken) {
@@ -1690,6 +1691,7 @@ export const collectReceptionistPaymentFn = createServerFn({ method: "POST" })
           paymentStatus: newPaymentStatus,
           status: newBalanceDue <= 0 ? "Paid" : "Billed",
           paymentRequestStatus: "collected",
+          paymentMode: data.paymentMode,
         },
         $push: { payments: paymentRecord },
       },

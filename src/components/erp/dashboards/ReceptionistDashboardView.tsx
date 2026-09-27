@@ -836,15 +836,24 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
                 const total = Number(v.totalAmount ?? 0);
                 const paid = Number(v.amountPaid ?? (due <= 0 && total > 0 ? total : 0));
                 const pctPaid = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : (due <= 0 ? 100 : 0);
-                const isPaid = due <= 0 && (v.paymentStatus === "Full" || v.status === "Paid" || v.status === "Settled");
+                const isPaid =
+                  (due <= 0 && (total > 0 || paid > 0)) ||
+                  v.paymentStatus === "Full" ||
+                  v.status === "Paid" ||
+                  v.status === "Settled" ||
+                  v.paymentRequestStatus === "collected";
                 const isPartial = !isPaid && (v.paymentStatus === "Partial" || paid > 0);
+                const effectiveMode =
+                  v.paymentMode ||
+                  (Array.isArray(v.payments) && v.payments.length > 0 ? v.payments[v.payments.length - 1]?.mode : null) ||
+                  null;
 
                 return (
                   <div
                     key={v.visitId || idx}
                     className="px-3 py-3 hover:bg-muted/30 transition-colors group cursor-default"
                   >
-                    {/* Row header: serial + patient + badge */}
+                    {/* Row header: serial + patient + badges */}
                     <div className="flex items-start gap-2">
                       {/* Serial number */}
                       <span className={cn(
@@ -858,16 +867,32 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-1">
                           <p className="text-xs font-bold text-foreground truncate">{v.petName}</p>
-                          <span className={cn(
-                            "shrink-0 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full",
-                            isPaid
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                              : isPartial
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-                              : "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                          )}>
-                            {isPaid ? "PAID ✓" : isPartial ? "PARTIAL" : "UNPAID"}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                            {effectiveMode && isPaid && (
+                              <span className={cn(
+                                "text-[9px] font-extrabold px-1.5 py-0.5 rounded font-mono uppercase tracking-wider",
+                                effectiveMode === "UPI"
+                                  ? "bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                  : effectiveMode === "Card"
+                                  ? "bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
+                                  : effectiveMode === "Cash"
+                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                                  : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                              )}>
+                                {effectiveMode}
+                              </span>
+                            )}
+                            <span className={cn(
+                              "shrink-0 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full",
+                              isPaid
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                : isPartial
+                                ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                : "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                            )}>
+                              {isPaid ? "PAID ✓" : isPartial ? "PARTIAL" : "UNPAID"}
+                            </span>
+                          </div>
                         </div>
                         <p className="text-[10px] text-muted-foreground truncate">{v.ownerName} · {v.ownerPhone}</p>
                       </div>
@@ -889,7 +914,9 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
                     <div className="mt-2 ml-7 space-y-1">
                       <div className="flex justify-between text-[10px]">
                         <span className="text-muted-foreground">
-                          {isPaid ? `Paid ₹${(paid || total).toFixed(2)}` : `Paid ₹${paid.toFixed(2)} / ₹${total.toFixed(2)}`}
+                          {isPaid
+                            ? `Paid ₹${(paid || total).toFixed(2)}${effectiveMode ? ` · ${effectiveMode}` : ""}`
+                            : `Paid ₹${paid.toFixed(2)} / ₹${total.toFixed(2)}`}
                         </span>
                         <span className={cn(
                           "font-bold",
@@ -911,51 +938,17 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
                       </div>
                     </div>
 
-                    {/* Action Button: Quick Collect (if due) OR View Bill / Rx (if paid) */}
+                    {/* Action Button: Settle Bill & Collect (opens Bill Settlement page) OR View Bill / Rx (if paid) */}
                     <div className="mt-2 ml-7">
                       {!isPaid && due > 0 ? (
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => onOpenConsultation?.({ ...v, openedFromReception: true })}
-                            className="flex-1 h-7 text-[11px] font-bold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                            title="Open full bill settlement workspace to view items, discount, GST and collect"
-                          >
-                            <Receipt className="size-3" /> View &amp; Settle
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              setCollectingVisitId(v.visitId);
-                              try {
-                                await collectReceptionistPaymentFn({
-                                  data: {
-                                    visitId: v.visitId,
-                                    paymentMode: "Cash" as any,
-                                    amountPaid: due,
-                                    recordedBy: currentUser?.name || "Receptionist",
-                                  },
-                                });
-                                toast.success(`₹${due.toFixed(2)} cash collected for ${v.petName}!`);
-                                void loadData();
-                              } catch (err: any) {
-                                toast.error(err?.message || "Failed to collect payment");
-                              } finally {
-                                setCollectingVisitId(null);
-                              }
-                            }}
-                            disabled={collectingVisitId === v.visitId}
-                            className="h-7 px-2 text-[10px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1 shadow-xs cursor-pointer shrink-0"
-                            title="Quick Cash Collect"
-                          >
-                            {collectingVisitId === v.visitId ? (
-                              <Timer className="size-3 animate-spin" />
-                            ) : (
-                              <><Banknote className="size-3" /> Cash</>
-                            )}
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onOpenConsultation?.({ ...v, openedFromReception: true })}
+                          className="w-full h-7 text-[11px] font-bold rounded-lg bg-violet-600 hover:bg-violet-700 active:scale-[0.99] text-white transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                          title="Open bill settlement page to choose payment method (UPI, Card, Cash, NetBanking, etc.)"
+                        >
+                          <Receipt className="size-3.5" /> Settle Bill &amp; Collect
+                        </button>
                       ) : (
                         <button
                           type="button"
