@@ -16,11 +16,19 @@ export interface IPet extends Document {
   sterilizationStatus: "Intact" | "Sterilized" | "Unknown";
   bloodGroup?: string | undefined;
   allergies: string[];
+  foodAllergies?: string[] | undefined;
+  otherAllergies?: string[] | undefined;
+  clinicalAlerts?: string[] | undefined;
+  tagNumber?: string | undefined;
+  /** How this patient first entered the system — set once at registration, never changed. */
+  registrationSource?: "Walk-In" | "Appointment" | "Reception" | "Other" | undefined;
+  registeredBy?: string | undefined;
   chronicConditions: string[];
   dietPreference?: string | undefined;
   medicalNotes?: string | undefined;
   photoUrl?: string | undefined;
-  status: "Active" | "Vaccination due" | "Under treatment" | "Deceased" | "Transferred" | "Inactive";
+  status:
+    "Active" | "Vaccination due" | "Under treatment" | "Deceased" | "Transferred" | "Inactive";
   lastVisitDate?: string | undefined;
   nextVaccineDate?: string | undefined;
   nextDewormingDate?: string | undefined;
@@ -33,29 +41,53 @@ const PetSchema = new Schema<IPet>(
     petId: { type: String, required: true, unique: true, index: true },
     ownerId: { type: String, required: true, index: true },
     name: { type: String, required: true, index: true },
-    species: { type: String, required: true, enum: ["Canine", "Feline", "Avian", "Rabbit", "Exotic", "Other"], default: "Canine" },
+    species: {
+      type: String,
+      required: true,
+      enum: ["Canine", "Feline", "Avian", "Rabbit", "Exotic", "Other"],
+      default: "Canine",
+    },
     breed: { type: String, required: true },
-    gender: { type: String, required: true, enum: ["Male", "Female", "Neutered Male", "Spayed Female"], default: "Male" },
+    gender: {
+      type: String,
+      required: true,
+      enum: ["Male", "Female", "Neutered Male", "Spayed Female"],
+      default: "Male",
+    },
     dob: { type: String },
     ageYears: { type: Number },
     ageMonths: { type: Number },
     color: { type: String },
     weightKg: { type: Number },
     microchipNo: { type: String },
-    sterilizationStatus: { type: String, enum: ["Intact", "Sterilized", "Unknown"], default: "Unknown" },
+    sterilizationStatus: {
+      type: String,
+      enum: ["Intact", "Sterilized", "Unknown"],
+      default: "Unknown",
+    },
     bloodGroup: { type: String },
     allergies: { type: [String], default: [] },
+    foodAllergies: { type: [String], default: [] },
+    otherAllergies: { type: [String], default: [] },
+    clinicalAlerts: { type: [String], default: [] },
+    tagNumber: { type: String },
+    registrationSource: { type: String, enum: ["Walk-In", "Appointment", "Reception", "Other"] },
+    registeredBy: { type: String },
     chronicConditions: { type: [String], default: [] },
     dietPreference: { type: String },
     medicalNotes: { type: String },
     photoUrl: { type: String },
-    status: { type: String, enum: ["Active", "Vaccination due", "Under treatment", "Deceased", "Transferred", "Inactive"], default: "Active" },
+    status: {
+      type: String,
+      enum: ["Active", "Vaccination due", "Under treatment", "Deceased", "Transferred", "Inactive"],
+      default: "Active",
+    },
     lastVisitDate: { type: String },
     nextVaccineDate: { type: String },
     nextDewormingDate: { type: String },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-export const Pet = (mongoose.models["Pet"] || mongoose.model<IPet>("Pet", PetSchema)) as mongoose.Model<IPet>;
-
+export const Pet = (mongoose.models["Pet"] ||
+  mongoose.model<IPet>("Pet", PetSchema)) as mongoose.Model<IPet>;

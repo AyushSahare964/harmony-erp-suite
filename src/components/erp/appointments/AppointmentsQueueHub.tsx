@@ -32,6 +32,7 @@ import {
   Share2,
   Edit,
   Activity,
+  UserCheck,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { KpiCard } from "@/components/erp/KpiCard";
@@ -93,6 +94,13 @@ function renderCategoryBadge(category?: string | null) {
     return (
       <Badge variant="outline" className="bg-purple-500/10 text-purple-600 border-purple-500/30 text-[10px] font-semibold gap-1">
         <Share2 className="size-3" /> Social Media
+      </Badge>
+    );
+  }
+  if (cat === "walk_in" || cat === "walk-in" || cat === "walkin") {
+    return (
+      <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] font-semibold gap-1">
+        <UserCheck className="size-3" /> Walk-in
       </Badge>
     );
   }
@@ -631,6 +639,7 @@ export function AppointmentsQueueHub() {
                 <SelectItem value="call">Call</SelectItem>
                 <SelectItem value="whatsapp">WhatsApp</SelectItem>
                 <SelectItem value="social_media">Social Media</SelectItem>
+                <SelectItem value="walk_in">Walk-in</SelectItem>
               </SelectContent>
             </Select>
 

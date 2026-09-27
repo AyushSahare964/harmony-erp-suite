@@ -54,6 +54,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { OwnerPetRegistrationModal } from "./OwnerPetRegistrationModal";
+import { Patient360Profile } from "./Patient360Profile";
 import { VisitWorkspaceModal } from "@/components/erp/clinical/VisitWorkspaceModal";
 import {
   listPetsWithOwnersFn,
@@ -773,139 +774,18 @@ export function PetOwnerCrmHub() {
           </motion.div>
         )}
 
-        {/* ── Patient Medical Profile Modal / Drawer ─────────────────────────── */}
-        <Dialog open={Boolean(selectedPetDetail) && !showVisitModal} onOpenChange={(v) => !v && setSelectedPetDetail(null)}>
-          {selectedPetDetail && (
-            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl border-border bg-card shadow-2xl p-0">
-              <div className="border-b border-border bg-primary-soft/40 p-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground text-xl shadow-xs">
-                      {selectedPetDetail.species === "Feline" ? "🐱" : selectedPetDetail.species === "Avian" ? "🦜" : "🐶"}
-                    </span>
-                    <div>
-                      <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
-                        {selectedPetDetail.name}
-                        <Badge className="font-mono bg-primary text-primary-foreground text-xs">
-                          {selectedPetDetail.petId}
-                        </Badge>
-                      </DialogTitle>
-                      <DialogDescription className="text-xs text-muted-foreground">
-                        {selectedPetDetail.species} · {selectedPetDetail.breed} · {selectedPetDetail.gender}
-                      </DialogDescription>
-                    </div>
-                  </div>
-
-                  <StatusPill value={selectedPetDetail.status || "Active"} />
-                </div>
-              </div>
-
-              <div className="p-6 space-y-4 text-xs">
-                {/* Critical Allergies Alert */}
-                {selectedPetDetail.allergies && selectedPetDetail.allergies.length > 0 && (
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 flex items-start gap-2.5">
-                    <ShieldAlert className="size-4 text-destructive shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-bold text-destructive">Drug Allergies &amp; Clinical Alerts</p>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {selectedPetDetail.allergies.map((a: string) => (
-                          <span key={a} className="bg-destructive text-destructive-foreground px-2 py-0.5 rounded text-[11px] font-bold">
-                            ⚠ {a}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Vitals / Identity Matrix */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 rounded-xl border border-border bg-muted/20 p-3.5">
-                  <div>
-                    <span className="text-muted-foreground block text-[11px]">Weight</span>
-                    <strong className="text-foreground text-sm">
-                      {selectedPetDetail.weightKg ? `${selectedPetDetail.weightKg} kg` : "N/A"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[11px]">Age / DOB</span>
-                    <strong className="text-foreground text-sm">
-                      {selectedPetDetail.ageYears ? `${selectedPetDetail.ageYears} yrs` : selectedPetDetail.dob || "N/A"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[11px]">Sterilization</span>
-                    <strong className="text-foreground text-sm">
-                      {selectedPetDetail.sterilizationStatus || "Unknown"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[11px]">Microchip No</span>
-                    <strong className="text-foreground text-xs font-mono">
-                      {selectedPetDetail.microchipNo || "Not Tagged"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[11px]">Coat / Color</span>
-                    <strong className="text-foreground text-xs">
-                      {selectedPetDetail.color || "Standard"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[11px]">Blood Group</span>
-                    <strong className="text-foreground text-xs font-mono">
-                      {selectedPetDetail.bloodGroup || "N/A"}
-                    </strong>
-                  </div>
-                </div>
-
-                {/* Linked Owner Card */}
-                <div className="rounded-xl border border-border p-3 space-y-1.5 bg-card">
-                  <div className="flex items-center justify-between border-b border-border pb-1.5">
-                    <span className="font-bold text-foreground flex items-center gap-1.5">
-                      <User className="size-3.5 text-primary" /> Pet Parent Information
-                    </span>
-                    <span className="font-mono text-[10px] text-muted-foreground">
-                      {selectedPetDetail.ownerId || selectedPetDetail.owner?.ownerId}
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold text-foreground">
-                    {selectedPetDetail.owner?.name || "Client"}
-                  </p>
-                  <p className="text-muted-foreground flex items-center gap-2">
-                    <Phone className="size-3" /> {selectedPetDetail.owner?.phone || "N/A"}
-                    {selectedPetDetail.owner?.city && ` · ${selectedPetDetail.owner.city}`}
-                  </p>
-                </div>
-
-                {/* Medical Notes */}
-                {selectedPetDetail.medicalNotes && (
-                  <div className="rounded-xl border border-border p-3 bg-muted/20">
-                    <span className="font-bold text-muted-foreground block mb-1">Clinical / Medical Notes</span>
-                    <p className="text-foreground">{selectedPetDetail.medicalNotes}</p>
-                  </div>
-                )}
-
-                {/* Direct OPD Action */}
-                <div className="pt-2 border-t border-border flex items-center justify-between">
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedPetDetail(null)}>
-                    Close
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      const p = selectedPetDetail;
-                      setSelectedPetDetail(null);
-                      handleStartConsultation(p);
-                    }}
-                    className="gap-1.5 font-bold bg-primary text-primary-foreground shadow-xs"
-                  >
-                    <Stethoscope className="size-4" /> Start OPD Consultation &amp; Rx →
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          )}
-        </Dialog>
+        {/* ── Patient 360° Profile ─────────────────────────────────────────── */}
+        <Patient360Profile
+          open={Boolean(selectedPetDetail) && !showVisitModal}
+          petId={selectedPetDetail?.petId ?? null}
+          initialPet={selectedPetDetail}
+          onClose={() => setSelectedPetDetail(null)}
+          onStartConsultation={(p, o) => {
+            setSelectedPetDetail(null);
+            handleStartConsultation(p, o);
+          }}
+          onChanged={() => void loadData()}
+        />
 
         {/* ── Multi-Pet Registration Modal ─────────────────────────────────────── */}
         <OwnerPetRegistrationModal

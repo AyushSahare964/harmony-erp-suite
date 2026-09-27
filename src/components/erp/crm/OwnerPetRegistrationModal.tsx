@@ -22,12 +22,28 @@ import {
   Hash,
   AlertTriangle,
   Info,
+  Camera,
+  ImageIcon,
+  MapPin,
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
@@ -38,7 +54,45 @@ import {
   peekNextOwnerIdFn,
   peekNextPetIdFn,
 } from "@/lib/mongodb/serverFns/crm";
+import { readAsDataUrl, resizeImage } from "@/lib/utils/imageUpload";
+import { useErp } from "@/lib/erp/store";
 import { cn } from "@/lib/utils";
+
+const INDIAN_STATES = [
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chhattisgarh",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+  "Delhi NCR",
+  "Jammu & Kashmir",
+  "Ladakh",
+  "Other",
+];
+const RELATIONSHIP_OPTIONS = ["Owner", "Co-owner", "Family Member", "Caretaker", "Foster", "Other"];
 
 export interface PetDraft {
   id: string;
@@ -54,7 +108,12 @@ export interface PetDraft {
   microchipNo?: string | undefined;
   sterilizationStatus: "Intact" | "Sterilized" | "Unknown";
   bloodGroup?: string | undefined;
+  tagNumber?: string | undefined;
+  photoUrl?: string | undefined;
   allergies: string[];
+  foodAllergies: string[];
+  otherAllergies: string[];
+  clinicalAlerts: string[];
   chronicConditions: string[];
   dietPreference?: string | undefined;
   medicalNotes?: string | undefined;
@@ -74,13 +133,26 @@ export const DEFAULT_PET_DRAFT = (): PetDraft => ({
   microchipNo: "",
   sterilizationStatus: "Intact",
   bloodGroup: "",
+  tagNumber: "",
+  photoUrl: "",
   allergies: [],
+  foodAllergies: [],
+  otherAllergies: [],
+  clinicalAlerts: [],
   chronicConditions: [],
   dietPreference: "",
   medicalNotes: "",
 });
 
-const COMMON_ALLERGIES = ["Penicillin", "NSAIDs", "Sulfa Drugs", "Vaccine Reaction", "Chicken/Poultry", "Flea Allergy", "Beef"];
+const COMMON_ALLERGIES = [
+  "Penicillin",
+  "NSAIDs",
+  "Sulfa Drugs",
+  "Vaccine Reaction",
+  "Chicken/Poultry",
+  "Flea Allergy",
+  "Beef",
+];
 
 interface Props {
   open: boolean;
@@ -89,6 +161,12 @@ interface Props {
   preselectedOwner?: any;
   onRegistered?: (result: { owner: any; pets: any[] }) => void;
   onAdmitToOpd?: (pet: any, owner: any) => void;
+  /** How this registration was triggered — stored once on each new patient (never edited later). */
+  registrationSource?: "Walk-In" | "Appointment" | "Reception" | "Other" | undefined;
+  /** Pre-fills the first pet's name, e.g. from a search box the receptionist already typed into. */
+  prefillPetName?: string | undefined;
+  /** Pre-fills the owner's name when starting a brand-new owner + pet registration. */
+  prefillOwnerName?: string | undefined;
 }
 
 export function OwnerPetRegistrationModal({
@@ -98,7 +176,11 @@ export function OwnerPetRegistrationModal({
   preselectedOwner = null,
   onRegistered,
   onAdmitToOpd,
+  registrationSource = "Walk-In",
+  prefillPetName,
+  prefillOwnerName,
 }: Props) {
+  const { currentUser } = useErp();
   const [step, setStep] = useState<"owner" | "pets" | "success">("owner");
   const [mode, setMode] = useState<"new-all" | "new-pet-only">(initialMode);
   const [searchQuery, setSearchQuery] = useState("");
@@ -118,9 +200,17 @@ export function OwnerPetRegistrationModal({
   const [ownerDob, setOwnerDob] = useState("");
   const [ownerAddress, setOwnerAddress] = useState("");
   const [ownerCity, setOwnerCity] = useState("Nagpur");
-  const [idProofType, setIdProofType] = useState<"Aadhaar" | "PAN" | "Driving License" | "Passport" | "Other">("Aadhaar");
+  const [ownerState, setOwnerState] = useState("Maharashtra");
+  const [ownerPin, setOwnerPin] = useState("");
+  const [ownerCountry, setOwnerCountry] = useState("India");
+  const [ownerRelationship, setOwnerRelationship] = useState("Owner");
+  const [idProofType, setIdProofType] = useState<
+    "Aadhaar" | "PAN" | "Driving License" | "Passport" | "Other"
+  >("Aadhaar");
   const [idProofNo, setIdProofNo] = useState("");
-  const [preferredPaymentMode, setPreferredPaymentMode] = useState<"UPI" | "Cash" | "Card" | "Credit">("UPI");
+  const [preferredPaymentMode, setPreferredPaymentMode] = useState<
+    "UPI" | "Cash" | "Card" | "Credit"
+  >("UPI");
   const [openingBalance, setOpeningBalance] = useState("0");
   const [referredBy, setReferredBy] = useState("");
   const [ownerNotes, setOwnerNotes] = useState("");
@@ -130,7 +220,9 @@ export function OwnerPetRegistrationModal({
   const [activePetIndex, setActivePetIndex] = useState(0);
 
   // Registered results
-  const [registeredResult, setRegisteredResult] = useState<{ owner: any; pets: any[] } | null>(null);
+  const [registeredResult, setRegisteredResult] = useState<{ owner: any; pets: any[] } | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -141,12 +233,15 @@ export function OwnerPetRegistrationModal({
         setSelectedOwner(preselectedOwner);
         setMode("new-pet-only");
         setStep("pets");
+        if (prefillPetName) setPets([{ ...DEFAULT_PET_DRAFT(), name: prefillPetName }]);
       } else if (initialMode === "new-pet-only") {
         setMode("new-pet-only");
         setStep("owner");
       } else {
         setMode("new-all");
         setStep("owner");
+        if (prefillOwnerName) setOwnerName(prefillOwnerName);
+        if (prefillPetName) setPets([{ ...DEFAULT_PET_DRAFT(), name: prefillPetName }]);
       }
     }
   }, [open, preselectedOwner, initialMode]);
@@ -200,6 +295,14 @@ export function OwnerPetRegistrationModal({
       toast.error("Please enter a valid mobile number (at least 8–10 digits).");
       return;
     }
+    if (!ownerAddress.trim()) {
+      toast.error("Billing address is required.");
+      return;
+    }
+    if (!ownerState.trim()) {
+      toast.error("State is required.");
+      return;
+    }
     setSelectedOwner(null);
     setStep("pets");
   };
@@ -241,6 +344,25 @@ export function OwnerPetRegistrationModal({
     updateCurrentPet("allergies", updated);
   };
 
+  const csvToList = (s: string) =>
+    s
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+  const pickPetPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file");
+      return;
+    }
+    try {
+      updateCurrentPet("photoUrl", await resizeImage(await readAsDataUrl(file), 360));
+    } catch (e: any) {
+      toast.error(e?.message || "Could not read image");
+    }
+  };
+
   // Calculate projected Pet ID for index
   const getProjectedPetId = (index: number) => {
     const prefix = previewBasePetId.split("-")[0] || "PET";
@@ -250,6 +372,34 @@ export function OwnerPetRegistrationModal({
   };
 
   // ── Save & Register Flow ─────────────────────────────────────────────────
+
+  /** Shared by both save paths so a patient registered either way ends up with the same fields. */
+  const toPetPayload = (p: PetDraft) => ({
+    name: p.name.trim(),
+    species: p.species,
+    breed: p.breed.trim(),
+    gender: p.gender,
+    dob: p.dob || undefined,
+    ageYears: p.ageYears || undefined,
+    ageMonths: p.ageMonths || undefined,
+    color: p.color?.trim() || undefined,
+    weightKg: p.weightKg ? Number(p.weightKg) : undefined,
+    microchipNo: p.microchipNo?.trim() || undefined,
+    sterilizationStatus: p.sterilizationStatus,
+    bloodGroup: p.bloodGroup?.trim() || undefined,
+    tagNumber: p.tagNumber?.trim() || undefined,
+    photoUrl: p.photoUrl?.trim() || undefined,
+    allergies: p.allergies,
+    foodAllergies: p.foodAllergies,
+    otherAllergies: p.otherAllergies,
+    clinicalAlerts: p.clinicalAlerts,
+    chronicConditions: p.chronicConditions,
+    dietPreference: p.dietPreference?.trim() || undefined,
+    medicalNotes: p.medicalNotes?.trim() || undefined,
+    registrationSource,
+    registeredBy: currentUser?.fullName || undefined,
+    status: "Active" as const,
+  });
 
   const handleCompleteRegistration = async () => {
     // Validate all pets in list
@@ -265,6 +415,11 @@ export function OwnerPetRegistrationModal({
         toast.error(`Pet #${i + 1} (${p.name || "Untitled"}) breed is required`);
         return;
       }
+      if (!p.weightKg || Number(p.weightKg) <= 0) {
+        setActivePetIndex(i);
+        toast.error(`Pet #${i + 1} (${p.name || "Untitled"}) weight is required`);
+        return;
+      }
     }
 
     setSaving(true);
@@ -274,26 +429,7 @@ export function OwnerPetRegistrationModal({
         const createdPetsList = [];
         for (const p of pets) {
           const newPet = await createPetFn({
-            data: {
-              ownerId: selectedOwner.ownerId,
-              name: p.name.trim(),
-              species: p.species,
-              breed: p.breed.trim(),
-              gender: p.gender,
-              dob: p.dob || undefined,
-              ageYears: p.ageYears || undefined,
-              ageMonths: p.ageMonths || undefined,
-              color: p.color?.trim() || undefined,
-              weightKg: p.weightKg ? Number(p.weightKg) : undefined,
-              microchipNo: p.microchipNo?.trim() || undefined,
-              sterilizationStatus: p.sterilizationStatus,
-              bloodGroup: p.bloodGroup?.trim() || undefined,
-              allergies: p.allergies,
-              chronicConditions: p.chronicConditions,
-              dietPreference: p.dietPreference?.trim() || undefined,
-              medicalNotes: p.medicalNotes?.trim() || undefined,
-              status: "Active",
-            },
+            data: { ownerId: selectedOwner.ownerId, ...toPetPayload(p) },
           });
           createdPetsList.push(newPet);
         }
@@ -301,12 +437,20 @@ export function OwnerPetRegistrationModal({
         const res = { owner: selectedOwner, pets: createdPetsList };
         setRegisteredResult(res);
         setStep("success");
-        toast.success(`Successfully registered ${createdPetsList.length} pet(s) under ${selectedOwner.name}!`);
+        toast.success(
+          `Successfully registered ${createdPetsList.length} pet(s) under ${selectedOwner.name}!`,
+        );
         onRegistered?.(res);
       } else {
         // Mode 2: Create new Owner + all Pets atomically
-        const formattedPhone = ownerPhone.length === 10 ? `+91 ${ownerPhone.slice(0, 5)} ${ownerPhone.slice(5)}` : ownerPhone.trim();
-        const formattedAltPhone = ownerAltPhone.length === 10 ? `+91 ${ownerAltPhone.slice(0, 5)} ${ownerAltPhone.slice(5)}` : (ownerAltPhone.trim() || undefined);
+        const formattedPhone =
+          ownerPhone.length === 10
+            ? `+91 ${ownerPhone.slice(0, 5)} ${ownerPhone.slice(5)}`
+            : ownerPhone.trim();
+        const formattedAltPhone =
+          ownerAltPhone.length === 10
+            ? `+91 ${ownerAltPhone.slice(0, 5)} ${ownerAltPhone.slice(5)}`
+            : ownerAltPhone.trim() || undefined;
 
         const ownerPayload = {
           name: ownerName.trim(),
@@ -316,7 +460,12 @@ export function OwnerPetRegistrationModal({
           gender: ownerGender,
           dob: ownerDob || undefined,
           address: ownerAddress.trim() || undefined,
+          billingAddress: ownerAddress.trim() || undefined,
           city: ownerCity.trim() || "Nagpur",
+          state: ownerState.trim() || undefined,
+          pin: ownerPin.trim() || undefined,
+          country: ownerCountry.trim() || "India",
+          relationship: ownerRelationship,
           idProofType,
           idProofNo: idProofNo.trim() || undefined,
           preferredPaymentMode,
@@ -325,25 +474,7 @@ export function OwnerPetRegistrationModal({
           notes: ownerNotes.trim() || undefined,
         };
 
-        const petsPayload = pets.map((p) => ({
-          name: p.name.trim(),
-          species: p.species,
-          breed: p.breed.trim(),
-          gender: p.gender,
-          dob: p.dob || undefined,
-          ageYears: p.ageYears || undefined,
-          ageMonths: p.ageMonths || undefined,
-          color: p.color?.trim() || undefined,
-          weightKg: p.weightKg ? Number(p.weightKg) : undefined,
-          microchipNo: p.microchipNo?.trim() || undefined,
-          sterilizationStatus: p.sterilizationStatus,
-          bloodGroup: p.bloodGroup?.trim() || undefined,
-          allergies: p.allergies,
-          chronicConditions: p.chronicConditions,
-          dietPreference: p.dietPreference?.trim() || undefined,
-          medicalNotes: p.medicalNotes?.trim() || undefined,
-          status: "Active" as const,
-        }));
+        const petsPayload = pets.map(toPetPayload);
 
         const res = await createOwnerWithMultiplePetsFn({
           data: {
@@ -375,6 +506,10 @@ export function OwnerPetRegistrationModal({
     setOwnerAltPhone("");
     setOwnerEmail("");
     setOwnerAddress("");
+    setOwnerState("Maharashtra");
+    setOwnerPin("");
+    setOwnerCountry("India");
+    setOwnerRelationship("Owner");
     setPets([DEFAULT_PET_DRAFT()]);
     setActivePetIndex(0);
     setRegisteredResult(null);
@@ -411,15 +546,15 @@ export function OwnerPetRegistrationModal({
                         ? "Register New Pet & Owner"
                         : "Select Existing Owner"
                       : step === "pets"
-                      ? "Patient Registration"
-                      : "Registration Complete"}
+                        ? "Patient Registration"
+                        : "Registration Complete"}
                   </DialogTitle>
                   <DialogDescription className="text-xs text-muted-foreground mt-0.5">
                     {step === "owner"
                       ? "Onboard a new client or attach new patients to an existing account."
                       : step === "pets"
-                      ? `Registering patient(s) under ${selectedOwner?.name || ownerName || "Client"}. One owner can have multiple pets.`
-                      : "Client & patient records have been successfully saved."}
+                        ? `Registering patient(s) under ${selectedOwner?.name || ownerName || "Client"}. One owner can have multiple pets.`
+                        : "Client & patient records have been successfully saved."}
                   </DialogDescription>
                 </div>
               </div>
@@ -430,7 +565,9 @@ export function OwnerPetRegistrationModal({
                     onClick={() => setMode("new-all")}
                     className={cn(
                       "px-3 py-1 font-semibold rounded-md transition-all",
-                      mode === "new-all" ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                      mode === "new-all"
+                        ? "bg-card text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                   >
                     + New Pet &amp; Owner
@@ -439,7 +576,9 @@ export function OwnerPetRegistrationModal({
                     onClick={() => setMode("new-pet-only")}
                     className={cn(
                       "px-3 py-1 font-semibold rounded-md transition-all",
-                      mode === "new-pet-only" ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                      mode === "new-pet-only"
+                        ? "bg-card text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                   >
                     + New Pet Only
@@ -456,8 +595,12 @@ export function OwnerPetRegistrationModal({
             {mode === "new-pet-only" ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold text-foreground">Search Existing Pet Parent</Label>
-                  <span className="text-[11px] text-muted-foreground font-mono">Select client to link new pets</span>
+                  <Label className="text-xs font-bold text-foreground">
+                    Search Existing Pet Parent
+                  </Label>
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    Select client to link new pets
+                  </span>
                 </div>
                 <div className="relative">
                   <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
@@ -490,7 +633,10 @@ export function OwnerPetRegistrationModal({
                             <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">
                               {o.name}
                             </span>
-                            <Badge variant="outline" className="font-mono text-[10px] bg-primary/10 text-primary border-primary/20">
+                            <Badge
+                              variant="outline"
+                              className="font-mono text-[10px] bg-primary/10 text-primary border-primary/20"
+                            >
                               {o.ownerId}
                             </Badge>
                           </div>
@@ -507,12 +653,23 @@ export function OwnerPetRegistrationModal({
                               {o.pets?.length || 0} pet(s) registered
                             </span>
                             {o.outstandingBalance !== undefined && o.outstandingBalance !== 0 && (
-                              <p className={cn("text-[10px] font-bold mt-0.5", o.outstandingBalance < 0 ? "text-destructive" : "text-emerald-600")}>
+                              <p
+                                className={cn(
+                                  "text-[10px] font-bold mt-0.5",
+                                  o.outstandingBalance < 0
+                                    ? "text-destructive"
+                                    : "text-emerald-600",
+                                )}
+                              >
                                 A/C: ₹{o.outstandingBalance}
                               </p>
                             )}
                           </div>
-                          <Button size="sm" variant="ghost" className="h-7 text-xs font-semibold group-hover:bg-primary group-hover:text-primary-foreground">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs font-semibold group-hover:bg-primary group-hover:text-primary-foreground"
+                          >
                             Select →
                           </Button>
                         </div>
@@ -528,16 +685,22 @@ export function OwnerPetRegistrationModal({
                   <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                     <Hash className="size-3.5" />
                     <span>Auto-Generated Client UID:</span>
-                    <Badge className="font-mono bg-primary text-primary-foreground text-xs shadow-2xs">{previewOwnerId}</Badge>
+                    <Badge className="font-mono bg-primary text-primary-foreground text-xs shadow-2xs">
+                      {previewOwnerId}
+                    </Badge>
                   </div>
-                  <span className="text-[11px] text-muted-foreground">Assigned automatically on save</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    Assigned automatically on save
+                  </span>
                 </div>
 
                 {/* Section 1: Client & Contact */}
                 <div className="rounded-xl border border-border bg-card p-4 space-y-3.5 shadow-2xs">
                   <div className="flex items-center gap-2 pb-1 border-b border-border/50">
                     <User className="size-3.5 text-primary" />
-                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">1. Personal &amp; Contact Details</h4>
+                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">
+                      1. Personal &amp; Contact Details
+                    </h4>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -560,8 +723,12 @@ export function OwnerPetRegistrationModal({
                     {/* Primary Mobile Number (10 digits Indian) */}
                     <div className="space-y-1">
                       <Label className="text-xs font-bold text-foreground flex items-center justify-between">
-                        <span>Primary Mobile Number <span className="text-destructive">*</span></span>
-                        <span className="text-[10px] text-muted-foreground font-mono">{ownerPhone.length}/10 digits</span>
+                        <span>
+                          Primary Mobile Number <span className="text-destructive">*</span>
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          {ownerPhone.length}/10 digits
+                        </span>
                       </Label>
                       <div className="flex items-center rounded-md border border-input bg-background overflow-hidden focus-within:ring-1 focus-within:ring-primary">
                         <span className="bg-muted/60 px-2.5 py-1 text-xs font-bold font-mono text-muted-foreground border-r border-input select-none flex items-center gap-1">
@@ -578,14 +745,18 @@ export function OwnerPetRegistrationModal({
                           required
                         />
                       </div>
-                      <p className="text-[10px] text-muted-foreground">Primary contact for OTP, bills &amp; reminders</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Primary contact for OTP, bills &amp; reminders
+                      </p>
                     </div>
 
                     {/* WhatsApp / Alternate Number */}
                     <div className="space-y-1">
                       <Label className="text-xs font-semibold text-foreground flex items-center justify-between">
                         <span>WhatsApp / Alternate Mobile</span>
-                        <span className="text-[10px] text-muted-foreground font-mono">{ownerAltPhone.length}/10 digits</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          {ownerAltPhone.length}/10 digits
+                        </span>
                       </Label>
                       <div className="flex items-center rounded-md border border-input bg-background overflow-hidden focus-within:ring-1 focus-within:ring-primary">
                         <span className="bg-muted/60 px-2.5 py-1 text-xs font-bold font-mono text-muted-foreground border-r border-input select-none flex items-center gap-1">
@@ -601,7 +772,9 @@ export function OwnerPetRegistrationModal({
                           className="text-sm h-9 border-0 bg-transparent font-mono tracking-wider focus-visible:ring-0"
                         />
                       </div>
-                      <p className="text-[10px] text-muted-foreground">For WhatsApp prescriptions &amp; updates</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        For WhatsApp prescriptions &amp; updates
+                      </p>
                     </div>
 
                     {/* Email Address */}
@@ -617,7 +790,9 @@ export function OwnerPetRegistrationModal({
                           className="text-sm h-9 pl-8"
                         />
                       </div>
-                      <p className="text-[10px] text-muted-foreground">For digital tax invoices, diagnostic lab reports &amp; history</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        For digital tax invoices, diagnostic lab reports &amp; history
+                      </p>
                     </div>
 
                     {/* Gender & DOB */}
@@ -636,7 +811,9 @@ export function OwnerPetRegistrationModal({
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-foreground">Date of Birth (Optional)</Label>
+                      <Label className="text-xs font-semibold text-foreground">
+                        Date of Birth (Optional)
+                      </Label>
                       <Input
                         type="date"
                         value={ownerDob}
@@ -651,7 +828,9 @@ export function OwnerPetRegistrationModal({
                 <div className="rounded-xl border border-border bg-card p-4 space-y-3.5 shadow-2xs">
                   <div className="flex items-center gap-2 pb-1 border-b border-border/50">
                     <Building className="size-3.5 text-primary" />
-                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">2. Location &amp; Address</h4>
+                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">
+                      2. Location &amp; Address
+                    </h4>
                   </div>
 
                   <div className="space-y-3">
@@ -664,32 +843,96 @@ export function OwnerPetRegistrationModal({
                         className="text-sm h-9 bg-background"
                       />
                       <div className="flex flex-wrap gap-1 pt-0.5">
-                        {["Nagpur", "Hyderabad", "Pune", "Mumbai", "Bengaluru", "Delhi NCR"].map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            onClick={() => setOwnerCity(c)}
-                            className={cn(
-                              "text-[10px] px-2 py-0.5 rounded-md border transition-colors",
-                              ownerCity === c
-                                ? "bg-primary text-primary-foreground border-primary font-semibold"
-                                : "bg-muted/40 hover:bg-muted text-muted-foreground border-border"
-                            )}
-                          >
-                            {c}
-                          </button>
-                        ))}
+                        {["Nagpur", "Hyderabad", "Pune", "Mumbai", "Bengaluru", "Delhi NCR"].map(
+                          (c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => setOwnerCity(c)}
+                              className={cn(
+                                "text-[10px] px-2 py-0.5 rounded-md border transition-colors",
+                                ownerCity === c
+                                  ? "bg-primary text-primary-foreground border-primary font-semibold"
+                                  : "bg-muted/40 hover:bg-muted text-muted-foreground border-border",
+                              )}
+                            >
+                              {c}
+                            </button>
+                          ),
+                        )}
                       </div>
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-foreground">Residential Address / Landmark</Label>
-                      <Input
+                      <Label className="text-xs font-bold text-foreground">
+                        Billing Address <span className="text-destructive">*</span>
+                      </Label>
+                      <Textarea
                         placeholder="e.g. Flat 302, Dharampeth Extension, Near Coffee House"
                         value={ownerAddress}
                         onChange={(e) => setOwnerAddress(e.target.value)}
-                        className="text-sm h-9 bg-background"
+                        rows={2}
+                        className="text-sm bg-background"
                       />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold text-foreground">
+                          State <span className="text-destructive">*</span>
+                        </Label>
+                        <Select value={ownerState} onValueChange={setOwnerState}>
+                          <SelectTrigger className="text-xs h-9 bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {INDIAN_STATES.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-semibold text-foreground">PIN Code</Label>
+                        <Input
+                          placeholder="e.g. 440001"
+                          value={ownerPin}
+                          inputMode="numeric"
+                          maxLength={6}
+                          onChange={(e) =>
+                            setOwnerPin(e.target.value.replace(/\D/g, "").slice(0, 6))
+                          }
+                          className="text-sm h-9 bg-background font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-semibold text-foreground">Country</Label>
+                        <Input
+                          value={ownerCountry}
+                          onChange={(e) => setOwnerCountry(e.target.value)}
+                          className="text-sm h-9 bg-background"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs font-bold text-foreground">
+                        Relationship with Pet <span className="text-destructive">*</span>
+                      </Label>
+                      <Select value={ownerRelationship} onValueChange={setOwnerRelationship}>
+                        <SelectTrigger className="text-xs h-9 bg-background w-full sm:w-56">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RELATIONSHIP_OPTIONS.map((r) => (
+                            <SelectItem key={r} value={r}>
+                              {r}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>
@@ -698,7 +941,9 @@ export function OwnerPetRegistrationModal({
                 <div className="rounded-xl border border-border bg-card p-4 space-y-3.5 shadow-2xs">
                   <div className="flex items-center gap-2 pb-1 border-b border-border/50">
                     <CreditCard className="size-3.5 text-primary" />
-                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">3. ID Proof &amp; Billing Preference</h4>
+                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">
+                      3. ID Proof &amp; Billing Preference
+                    </h4>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
@@ -719,9 +964,17 @@ export function OwnerPetRegistrationModal({
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-foreground">ID Proof Number</Label>
+                      <Label className="text-xs font-semibold text-foreground">
+                        ID Proof Number
+                      </Label>
                       <Input
-                        placeholder={idProofType === "Aadhaar" ? "XXXX-XXXX-XXXX" : idProofType === "PAN" ? "ABCDE1234F" : "Document ID No."}
+                        placeholder={
+                          idProofType === "Aadhaar"
+                            ? "XXXX-XXXX-XXXX"
+                            : idProofType === "PAN"
+                              ? "ABCDE1234F"
+                              : "Document ID No."
+                        }
                         value={idProofNo}
                         onChange={(e) => setIdProofNo(e.target.value)}
                         className="text-sm h-9 font-mono bg-background"
@@ -729,7 +982,9 @@ export function OwnerPetRegistrationModal({
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-foreground">Opening Balance (₹)</Label>
+                      <Label className="text-xs font-semibold text-foreground">
+                        Opening Balance (₹)
+                      </Label>
                       <Input
                         type="number"
                         placeholder="0"
@@ -742,10 +997,19 @@ export function OwnerPetRegistrationModal({
                 </div>
 
                 <div className="flex items-center justify-between pt-4 border-t border-border">
-                  <Button variant="ghost" size="sm" onClick={() => setMode("new-pet-only")} className="text-xs">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMode("new-pet-only")}
+                    className="text-xs"
+                  >
                     Search Existing Client Instead
                   </Button>
-                  <Button size="sm" onClick={handleProceedNewOwner} className="gap-1.5 font-bold shadow-xs bg-primary hover:bg-primary/90 text-primary-foreground">
+                  <Button
+                    size="sm"
+                    onClick={handleProceedNewOwner}
+                    className="gap-1.5 font-bold shadow-xs bg-primary hover:bg-primary/90 text-primary-foreground"
+                  >
                     Next: Add Patient Details →
                   </Button>
                 </div>
@@ -766,7 +1030,10 @@ export function OwnerPetRegistrationModal({
                 <div>
                   <p className="text-xs font-bold text-foreground flex items-center gap-2">
                     Linked Owner: {selectedOwner?.name || ownerName}
-                    <Badge variant="outline" className="text-[10px] font-mono py-0 bg-background text-primary">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-mono py-0 bg-background text-primary"
+                    >
                       {selectedOwner?.ownerId || previewOwnerId}
                     </Badge>
                   </p>
@@ -821,15 +1088,19 @@ export function OwnerPetRegistrationModal({
                       "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all shadow-2xs",
                       activePetIndex === idx
                         ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                        : "bg-card text-foreground border-border hover:border-primary/40 hover:bg-muted/50"
+                        : "bg-card text-foreground border-border hover:border-primary/40 hover:bg-muted/50",
                     )}
                   >
-                    <span>{p.species === "Feline" ? "🐱" : p.species === "Avian" ? "🦜" : "🐶"}</span>
+                    <span>
+                      {p.species === "Feline" ? "🐱" : p.species === "Avian" ? "🦜" : "🐶"}
+                    </span>
                     <span>{p.name.trim() || `Pet #${idx + 1}`}</span>
                     <span
                       className={cn(
                         "text-[10px] font-mono px-1 rounded",
-                        activePetIndex === idx ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+                        activePetIndex === idx
+                          ? "bg-primary-foreground/20 text-primary-foreground"
+                          : "bg-muted text-muted-foreground",
                       )}
                     >
                       {getProjectedPetId(idx)}
@@ -844,7 +1115,9 @@ export function OwnerPetRegistrationModal({
                         }}
                         className={cn(
                           "ml-1 p-0.5 rounded hover:bg-destructive hover:text-destructive-foreground transition-colors",
-                          activePetIndex === idx ? "text-primary-foreground/80 hover:text-white" : "text-muted-foreground"
+                          activePetIndex === idx
+                            ? "text-primary-foreground/80 hover:text-white"
+                            : "text-muted-foreground",
                         )}
                         title="Remove this pet"
                       >
@@ -871,7 +1144,9 @@ export function OwnerPetRegistrationModal({
                   <Badge variant="secondary" className="text-xs font-bold">
                     Pet #{activePetIndex + 1} of {pets.length}
                   </Badge>
-                  <span className="text-xs font-semibold text-foreground">{activePet.name || "Unnamed Pet"}</span>
+                  <span className="text-xs font-semibold text-foreground">
+                    {activePet.name || "Unnamed Pet"}
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -880,6 +1155,46 @@ export function OwnerPetRegistrationModal({
                   <Badge className="font-mono bg-primary/10 text-primary border-primary/30 text-xs font-bold">
                     {getProjectedPetId(activePetIndex)}
                   </Badge>
+                </div>
+              </div>
+
+              {/* Patient Photo */}
+              <div className="flex items-center gap-3 pb-1">
+                <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40">
+                  {activePet.photoUrl ? (
+                    <img src={activePet.photoUrl} alt="" className="size-full object-cover" />
+                  ) : (
+                    <ImageIcon className="size-6 text-muted-foreground" />
+                  )}
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-semibold hover:bg-muted">
+                    <Camera className="size-3.5" />{" "}
+                    {activePet.photoUrl ? "Change Photo" : "Upload Photo"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      hidden
+                      onChange={(e) => {
+                        void pickPetPhoto(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {activePet.photoUrl && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 text-xs text-destructive"
+                      onClick={() => updateCurrentPet("photoUrl", "")}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                  <p className="w-full text-[10px] text-muted-foreground">
+                    Optional — a default avatar is shown if no photo is uploaded
+                  </p>
                 </div>
               </div>
 
@@ -902,7 +1217,10 @@ export function OwnerPetRegistrationModal({
                   <Label className="text-xs font-bold text-foreground">
                     Species <span className="text-destructive">*</span>
                   </Label>
-                  <Select value={activePet.species} onValueChange={(v) => updateCurrentPet("species", v)}>
+                  <Select
+                    value={activePet.species}
+                    onValueChange={(v) => updateCurrentPet("species", v)}
+                  >
                     <SelectTrigger className="text-xs h-9">
                       <SelectValue />
                     </SelectTrigger>
@@ -933,7 +1251,10 @@ export function OwnerPetRegistrationModal({
                   <Label className="text-xs font-bold text-foreground">
                     Gender <span className="text-destructive">*</span>
                   </Label>
-                  <Select value={activePet.gender} onValueChange={(v) => updateCurrentPet("gender", v)}>
+                  <Select
+                    value={activePet.gender}
+                    onValueChange={(v) => updateCurrentPet("gender", v)}
+                  >
                     <SelectTrigger className="text-xs h-9">
                       <SelectValue />
                     </SelectTrigger>
@@ -947,7 +1268,9 @@ export function OwnerPetRegistrationModal({
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">Weight (kg)</Label>
+                  <Label className="text-xs font-bold text-foreground">
+                    Weight (kg) <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     type="number"
                     step="0.1"
@@ -978,7 +1301,9 @@ export function OwnerPetRegistrationModal({
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">Coat Color / Markings</Label>
+                  <Label className="text-xs font-semibold text-foreground">
+                    Coat Color / Markings
+                  </Label>
                   <Input
                     placeholder="e.g. Golden, Black & Tan, Fawn"
                     value={activePet.color || ""}
@@ -988,7 +1313,9 @@ export function OwnerPetRegistrationModal({
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">Microchip / RFID No</Label>
+                  <Label className="text-xs font-semibold text-foreground">
+                    Microchip / RFID No
+                  </Label>
                   <Input
                     placeholder="e.g. 981098123456789"
                     value={activePet.microchipNo || ""}
@@ -998,7 +1325,9 @@ export function OwnerPetRegistrationModal({
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">Sterilization Status</Label>
+                  <Label className="text-xs font-semibold text-foreground">
+                    Sterilization Status
+                  </Label>
                   <Select
                     value={activePet.sterilizationStatus}
                     onValueChange={(v) => updateCurrentPet("sterilizationStatus", v)}
@@ -1015,11 +1344,25 @@ export function OwnerPetRegistrationModal({
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">Blood Group / Type</Label>
+                  <Label className="text-xs font-semibold text-foreground">
+                    Blood Group / Type
+                  </Label>
                   <Input
                     placeholder="e.g. DEA 1.1+ / Type A"
                     value={activePet.bloodGroup || ""}
                     onChange={(e) => updateCurrentPet("bloodGroup", e.target.value)}
+                    className="text-sm h-9 font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold text-foreground">
+                    Identification / Tag Number
+                  </Label>
+                  <Input
+                    placeholder="e.g. Collar tag TAG-102"
+                    value={activePet.tagNumber || ""}
+                    onChange={(e) => updateCurrentPet("tagNumber", e.target.value)}
                     className="text-sm h-9 font-mono"
                   />
                 </div>
@@ -1030,14 +1373,19 @@ export function OwnerPetRegistrationModal({
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
                     <ShieldAlert className="size-3.5 text-destructive" />
-                    Does the patient have any known allergies? <span className="text-destructive">*</span>
+                    Does the patient have any known allergies?{" "}
+                    <span className="text-destructive">*</span>
                   </Label>
-                  <span className="text-[11px] text-muted-foreground font-medium">Select Yes/No to set safety alert</span>
+                  <span className="text-[11px] text-muted-foreground font-medium">
+                    Select Yes/No to set safety alert
+                  </span>
                 </div>
 
                 {/* Prominent Yes/No Allergy Toggle */}
                 <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3">
-                  <span className="text-xs font-bold text-foreground flex-1">Does this patient have any drug, food or environmental allergies?</span>
+                  <span className="text-xs font-bold text-foreground flex-1">
+                    Does this patient have any drug, food or environmental allergies?
+                  </span>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -1050,10 +1398,12 @@ export function OwnerPetRegistrationModal({
                         "px-4 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-2xs",
                         activePet.allergies && activePet.allergies.length > 0
                           ? "bg-destructive text-destructive-foreground border-destructive font-extrabold shadow-xs"
-                          : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-destructive"
+                          : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-destructive",
                       )}
                     >
-                      {activePet.allergies && activePet.allergies.length > 0 ? "⚠ Yes (Has Allergies)" : "Yes"}
+                      {activePet.allergies && activePet.allergies.length > 0
+                        ? "⚠ Yes (Has Allergies)"
+                        : "Yes"}
                     </button>
                     <button
                       type="button"
@@ -1062,7 +1412,7 @@ export function OwnerPetRegistrationModal({
                         "px-4 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-2xs",
                         !activePet.allergies || activePet.allergies.length === 0
                           ? "bg-emerald-600 text-white border-emerald-600 font-extrabold shadow-xs"
-                          : "bg-card text-muted-foreground border-border hover:border-emerald-500/40 hover:text-emerald-700"
+                          : "bg-card text-muted-foreground border-border hover:border-emerald-500/40 hover:text-emerald-700",
                       )}
                     >
                       No Allergies
@@ -1075,7 +1425,8 @@ export function OwnerPetRegistrationModal({
                   <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 space-y-3">
                     <div className="space-y-1">
                       <Label className="text-xs font-bold text-destructive flex items-center gap-1.5">
-                        <AlertTriangle className="size-3.5" /> Enter Specific Allergy Details &amp; Reactions:
+                        <AlertTriangle className="size-3.5" /> Enter Specific Allergy Details &amp;
+                        Reactions:
                       </Label>
                       <Input
                         placeholder="e.g. Severe swelling from Penicillin G, Anaphylaxis to Egg Protein, Flea Allergy Dermatitis..."
@@ -1086,7 +1437,9 @@ export function OwnerPetRegistrationModal({
                     </div>
 
                     <div className="space-y-1.5">
-                      <p className="text-[11px] font-bold text-destructive">Quick Allergy Category Badges (Click to toggle):</p>
+                      <p className="text-[11px] font-bold text-destructive">
+                        Quick Allergy Category Badges (Click to toggle):
+                      </p>
                       <div className="flex flex-wrap gap-1.5">
                         {COMMON_ALLERGIES.map((allergy) => {
                           const isSelected = activePet.allergies?.includes(allergy);
@@ -1099,7 +1452,7 @@ export function OwnerPetRegistrationModal({
                                 "px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
                                 isSelected
                                   ? "bg-destructive text-destructive-foreground border-destructive shadow-xs font-bold"
-                                  : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-foreground"
+                                  : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-foreground",
                               )}
                             >
                               {isSelected && "✓ "}
@@ -1111,6 +1464,40 @@ export function OwnerPetRegistrationModal({
                     </div>
                   </div>
                 )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-foreground">Food Allergies</Label>
+                    <Input
+                      placeholder="Comma separated, e.g. Chicken, Dairy"
+                      value={(activePet.foodAllergies || []).join(", ")}
+                      onChange={(e) => updateCurrentPet("foodAllergies", csvToList(e.target.value))}
+                      className="text-xs h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-foreground">Other Allergies</Label>
+                    <Input
+                      placeholder="Comma separated"
+                      value={(activePet.otherAllergies || []).join(", ")}
+                      onChange={(e) =>
+                        updateCurrentPet("otherAllergies", csvToList(e.target.value))
+                      }
+                      className="text-xs h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-foreground">Clinical Alerts</Label>
+                    <Input
+                      placeholder="e.g. Aggressive, Cardiac patient"
+                      value={(activePet.clinicalAlerts || []).join(", ")}
+                      onChange={(e) =>
+                        updateCurrentPet("clinicalAlerts", csvToList(e.target.value))
+                      }
+                      className="text-xs h-9"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1137,7 +1524,9 @@ export function OwnerPetRegistrationModal({
                   disabled={saving}
                   className="h-9 gap-1.5 text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs px-5"
                 >
-                  {saving ? "Saving Records..." : `Complete Registration (${pets.length} Pet${pets.length > 1 ? "s" : ""}) ✓`}
+                  {saving
+                    ? "Saving Records..."
+                    : `Complete Registration (${pets.length} Pet${pets.length > 1 ? "s" : ""}) ✓`}
                 </Button>
               </div>
             </div>
@@ -1159,7 +1548,8 @@ export function OwnerPetRegistrationModal({
             <div className="space-y-1">
               <h3 className="text-xl font-bold text-foreground">Registration Successful!</h3>
               <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                Client profile &amp; patient records have been permanently assigned and indexed in the CRM.
+                Client profile &amp; patient records have been permanently assigned and indexed in
+                the CRM.
               </p>
             </div>
 
@@ -1169,11 +1559,15 @@ export function OwnerPetRegistrationModal({
                 <div className="flex items-center gap-2">
                   <User className="size-4 text-primary" />
                   <div>
-                    <p className="text-sm font-bold text-foreground">{registeredResult.owner.name}</p>
+                    <p className="text-sm font-bold text-foreground">
+                      {registeredResult.owner.name}
+                    </p>
                     <p className="text-xs text-muted-foreground">{registeredResult.owner.phone}</p>
                   </div>
                 </div>
-                <Badge className="font-mono bg-primary text-primary-foreground">{registeredResult.owner.ownerId}</Badge>
+                <Badge className="font-mono bg-primary text-primary-foreground">
+                  {registeredResult.owner.ownerId}
+                </Badge>
               </div>
 
               <div className="space-y-2">
@@ -1190,9 +1584,13 @@ export function OwnerPetRegistrationModal({
                       <div>
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-sm text-foreground flex items-center gap-1.5">
-                            {p.species === "Feline" ? "🐱" : p.species === "Avian" ? "🦜" : "🐶"} {p.name}
+                            {p.species === "Feline" ? "🐱" : p.species === "Avian" ? "🦜" : "🐶"}{" "}
+                            {p.name}
                           </span>
-                          <Badge variant="outline" className="font-mono text-[10px] bg-primary/10 text-primary border-primary/20">
+                          <Badge
+                            variant="outline"
+                            className="font-mono text-[10px] bg-primary/10 text-primary border-primary/20"
+                          >
                             {p.petId}
                           </Badge>
                         </div>
@@ -1202,7 +1600,10 @@ export function OwnerPetRegistrationModal({
                         {p.allergies?.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {p.allergies.map((a: string) => (
-                              <span key={a} className="text-[10px] bg-destructive/10 text-destructive px-1.5 py-0.2 rounded font-semibold">
+                              <span
+                                key={a}
+                                className="text-[10px] bg-destructive/10 text-destructive px-1.5 py-0.2 rounded font-semibold"
+                              >
                                 ⚠ {a}
                               </span>
                             ))}
@@ -1233,7 +1634,12 @@ export function OwnerPetRegistrationModal({
 
             {/* Success Bottom Actions */}
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-              <Button variant="outline" size="sm" onClick={handleAddMorePetsToSameOwner} className="gap-1.5 text-xs font-bold">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddMorePetsToSameOwner}
+                className="gap-1.5 text-xs font-bold"
+              >
                 <Plus className="size-3.5" /> + Add Another Pet to this Client
               </Button>
               <Button size="sm" onClick={handleResetAndClose} className="px-6 font-bold shadow-xs">
