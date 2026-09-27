@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { KpiCard } from "@/components/erp/KpiCard";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -397,6 +398,14 @@ export function AppointmentsQueueHub() {
     URL.revokeObjectURL(url);
     toast.success("Appointments CSV exported");
   };
+
+  if (loading && appointments.length === 0) {
+    return (
+      <Shell title="Appointments &amp; Queue">
+        <HubSkeleton withChart />
+      </Shell>
+    );
+  }
 
   return (
     <Shell title="Appointments &amp; Queue">

@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { Button } from "@/components/ui/button";
@@ -124,6 +125,14 @@ export function FoodNutritionHub() {
     URL.revokeObjectURL(url);
     toast.success("Feeding plans CSV exported");
   };
+
+  if (loading && plans.length === 0) {
+    return (
+      <Shell title="Food &amp; Nutrition">
+        <HubSkeleton />
+      </Shell>
+    );
+  }
 
   return (
     <Shell title="Food &amp; Nutrition">

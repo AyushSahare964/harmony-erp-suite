@@ -29,6 +29,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { Button } from "@/components/ui/button";
@@ -265,6 +266,14 @@ export function BoardingSwimmingHub() {
     }
     toast.success("CSV exported");
   };
+
+  if (loading && boardings.length === 0 && swimmings.length === 0) {
+    return (
+      <Shell title="Pet Boarding &amp; Swimming">
+        <HubSkeleton withChart />
+      </Shell>
+    );
+  }
 
   return (
     <Shell title="Pet Boarding &amp; Swimming">

@@ -64,3 +64,6 @@ playwright/.cache/
 # Local tool outputs & scratch
 graphify-out/
 new-project/
+landing_test.html
+skiil.md
+vet-promo-landing/

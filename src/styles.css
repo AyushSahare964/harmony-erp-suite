@@ -129,6 +129,9 @@
     border-color: var(--color-border);
     scrollbar-width: thin;
     scrollbar-color: oklch(0.85 0.01 258.3) transparent;
+    /* So every internal scroll container (sidebar nav, tables, dropdowns,
+       modals) eases anchor/programmatic jumps too, not just the window. */
+    scroll-behavior: smooth;
   }
 
   /* Custom sleek scrollbars */
@@ -163,6 +166,19 @@
   h3 {
     color: var(--color-navy);
     letter-spacing: -0.015em;
+  }
+
+  /* Respect the OS-level motion preference: keep state changes instant
+     instead of skipping them, so the UI stays usable, just not animated. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 

@@ -22,6 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { Button } from "@/components/ui/button";
@@ -190,6 +191,14 @@ export function LaboratoryHub() {
     URL.revokeObjectURL(url);
     toast.success("Laboratory orders CSV exported");
   };
+
+  if (loading && orders.length === 0) {
+    return (
+      <Shell title="Laboratory &amp; Diagnostics">
+        <HubSkeleton />
+      </Shell>
+    );
+  }
 
   return (
     <Shell title="Laboratory &amp; Diagnostics">

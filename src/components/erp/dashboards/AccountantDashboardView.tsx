@@ -43,6 +43,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 import { listInvoicesFn, recordInvoicePaymentFn } from "@/lib/mongodb/serverFns/billing";
 import { getJournalsFn, createJournalFn } from "@/lib/mongodb/serverFns/finance";
 
@@ -193,6 +194,10 @@ export function AccountantDashboardView({ role }: Props) {
       toast.error(err?.message || "Failed to settle payment");
     }
   };
+
+  if (loading && invoices.length === 0 && transactions.length === 0) {
+    return <HubSkeleton />;
+  }
 
   return (
     <div className="space-y-7">

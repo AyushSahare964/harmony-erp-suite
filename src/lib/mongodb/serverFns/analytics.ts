@@ -219,9 +219,34 @@ function resolveDateRange(range: string, customStart?: string, customEnd?: strin
   }
 }
 
+// ponytail: process-wide cache, fine for this single-tenant clinic deployment;
+// key by tenant too if this ever serves multiple clinics from one instance.
+const ANALYTICS_CACHE_TTL_MS = 30_000;
+const analyticsCache = new Map<string, { at: number; data: AnalyticsResponse }>();
+
+// Rows in the shared "erp_rows" collection only carry a date inside `data`,
+// under different field names per module. Filtering here (instead of after
+// fetching every row) lets Mongo return just the rows in range.
+function erpRowDateFilter(moduleId: string, dateFields: string[], dateRange: string, startIso: string, endIso: string) {
+  if (dateRange === "all") return { moduleId };
+  const upperBound = `${endIso}T23:59:59.999`;
+  return { moduleId, $or: dateFields.map((f) => ({ [f]: { $gte: startIso, $lte: upperBound } })) };
+}
+
+const PET_FIELDS = "petId ownerId name species gender breed ageYears status createdAt";
+const OWNER_FIELDS = "ownerId name phone outstandingBalance";
+const VISIT_FIELDS = "petId ownerId date totalAmount amountPaid balanceDue status items payments";
+const ITEM_FIELDS = "itemCode name category productType currentStock minStockLevel unitCost";
+
 export const getCentralAnalyticsFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) => analyticsQuerySchema.parse(raw))
   .handler(async ({ data }): Promise<AnalyticsResponse> => {
+    const cacheKey = JSON.stringify(data);
+    const hit = analyticsCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < ANALYTICS_CACHE_TTL_MS) {
+      return hit.data;
+    }
+
     await connectDB();
 
     const { start, end, label: dateRangeLabel } = resolveDateRange(
@@ -232,6 +257,7 @@ export const getCentralAnalyticsFn = createServerFn({ method: "POST" })
 
     const startIso = start.toISOString().slice(0, 10);
     const endIso = end.toISOString().slice(0, 10);
+    const dr = data.dateRange || "all";
 
     // Fetch existing live records in parallel
     const [
@@ -243,13 +269,13 @@ export const getCentralAnalyticsFn = createServerFn({ method: "POST" })
       labRows,
       clinicalReportRows,
     ] = await Promise.all([
-      Pet.find({}).lean(),
-      Owner.find({}).lean(),
-      ClinicalVisit.find({}).lean(),
-      InventoryItem.find({}).lean(),
-      ErpRow.find({ moduleId: "appointments" }).lean(),
-      ErpRow.find({ moduleId: "laboratory" }).lean(),
-      ErpRow.find({ moduleId: "clinical-reports" }).lean(),
+      Pet.find({}).select(PET_FIELDS).lean(),
+      Owner.find({}).select(OWNER_FIELDS).lean(),
+      ClinicalVisit.find({}).select(VISIT_FIELDS).lean(),
+      InventoryItem.find({}).select(ITEM_FIELDS).lean(),
+      ErpRow.find(erpRowDateFilter("appointments", ["data.appointment_date", "data.date"], dr, startIso, endIso)).lean(),
+      ErpRow.find(erpRowDateFilter("laboratory", ["data.date"], dr, startIso, endIso)).lean(),
+      ErpRow.find(erpRowDateFilter("clinical_reports", ["data.date"], dr, startIso, endIso)).lean(),
     ]);
 
     const pets = petsDocs as any[];
@@ -827,7 +853,7 @@ export const getCentralAnalyticsFn = createServerFn({ method: "POST" })
       description: `Returning clients represent ~65% of all active appointments, indicating solid customer retention and clinic trust.`,
     });
 
-    return toPlain({
+    const result = toPlain<AnalyticsResponse>({
       dateRangeLabel,
       startDate: startIso,
       endDate: endIso,
@@ -919,4 +945,7 @@ export const getCentralAnalyticsFn = createServerFn({ method: "POST" })
       },
       insights,
     });
+
+    analyticsCache.set(cacheKey, { at: Date.now(), data: result });
+    return result;
   });

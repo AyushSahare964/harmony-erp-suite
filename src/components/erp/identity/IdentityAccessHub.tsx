@@ -21,6 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,6 +159,14 @@ export function IdentityAccessHub() {
     URL.revokeObjectURL(url);
     toast.success("Staff directory exported to CSV");
   };
+
+  if (loading && staffList.length === 0) {
+    return (
+      <Shell title="Identity, Role & Access Management">
+        <HubSkeleton />
+      </Shell>
+    );
+  }
 
   return (
     <Shell title="Identity, Role & Access Management">

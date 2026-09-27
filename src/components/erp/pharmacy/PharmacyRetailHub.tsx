@@ -25,6 +25,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { Button } from "@/components/ui/button";
@@ -131,6 +132,14 @@ function PharmacyRetailHubInner() {
     URL.revokeObjectURL(url);
     toast.success("Retail sales CSV exported");
   };
+
+  if (loading && bills.length === 0) {
+    return (
+      <Shell title="Pharmacy &amp; Retail">
+        <HubSkeleton withChart />
+      </Shell>
+    );
+  }
 
   return (
     <Shell title="Pharmacy &amp; Retail">

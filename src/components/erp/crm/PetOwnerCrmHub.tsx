@@ -38,6 +38,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { Button } from "@/components/ui/button";
@@ -312,6 +313,14 @@ export function PetOwnerCrmHub() {
     }
     toast.success("CSV file exported");
   };
+
+  if (loading && pets.length === 0 && owners.length === 0) {
+    return (
+      <Shell title="Pet &amp; Owner CRM">
+        <HubSkeleton withChart />
+      </Shell>
+    );
+  }
 
   return (
     <Shell title="Pet &amp; Owner CRM">

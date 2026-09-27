@@ -211,6 +211,15 @@ async function main() {
     ]),
   );
 
+  // Supports the central analytics date-range queries (getCentralAnalyticsFn),
+  // which filter the shared erp_rows collection by moduleId + an in-`data` date.
+  all = all.concat(
+    await ensure("erp_rows", [
+      { key: { moduleId: 1, "data.date": 1 } },
+      { key: { moduleId: 1, "data.appointment_date": 1 } },
+    ]),
+  );
+
   const failed = all.filter((r) => r.status !== "ok");
   console.table(all);
   console.log(`\n${all.length - failed.length}/${all.length} indexes confirmed.`);

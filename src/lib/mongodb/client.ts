@@ -30,9 +30,6 @@ if (!global.__mongooseCache) {
   global.__mongooseCache = cached;
 }
 
-const DEFAULT_URI =
-  "mongodb+srv://ayushsahare899_db_user:Sanskruti%4012@cluster0.d5k2cce.mongodb.net/vetos_erp?retryWrites=true&w=majority&appName=Cluster0";
-
 function getMongoUri(): string {
   if (typeof process !== "undefined" && typeof (process as unknown as { loadEnvFile?: () => void }).loadEnvFile === "function") {
     try {
@@ -42,14 +39,13 @@ function getMongoUri(): string {
     }
   }
 
-  let raw =
-    (typeof process !== "undefined" && (process.env["MONGODB_URI"] || process.env["VITE_MONGODB_URI"])) ||
-    DEFAULT_URI;
+  const raw = typeof process !== "undefined" && (process.env["MONGODB_URI"] || process.env["VITE_MONGODB_URI"]);
+  if (!raw) {
+    throw new Error("MONGODB_URI (or VITE_MONGODB_URI) is not set. Add it to .env or the deployment's environment variables.");
+  }
 
   // Clean any extraneous whitespace or enclosing quotes
-  raw = raw.trim().replace(/^["']|["']$/g, "").trim();
-
-  return raw || DEFAULT_URI;
+  return raw.trim().replace(/^["']|["']$/g, "").trim();
 }
 
 export async function connectDB(): Promise<typeof mongoose> {
@@ -68,7 +64,7 @@ export async function connectDB(): Promise<typeof mongoose> {
     const uri = getMongoUri();
     const isWin = typeof process !== "undefined" && process.platform === "win32";
     const opts: mongooseModule.ConnectOptions = {
-      maxPoolSize: 5,
+      maxPoolSize: 15,
       serverSelectionTimeoutMS: 8000,
       socketTimeoutMS: 30000,
       connectTimeoutMS: 8000,

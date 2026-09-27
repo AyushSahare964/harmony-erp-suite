@@ -44,6 +44,7 @@ import { getRowsFn } from "@/lib/mongodb/serverFns/rows";
 import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import type { Kpi } from "@/lib/erp/config";
+import { HubSkeleton } from "@/components/erp/LoadingSkeletons";
 
 interface Props {
   role: any;
@@ -366,6 +367,10 @@ export function AdminDashboardView({
 
     return c;
   };
+
+  if (loadingFacilities) {
+    return <HubSkeleton withChart />;
+  }
 
   return (
     <div className="space-y-6">

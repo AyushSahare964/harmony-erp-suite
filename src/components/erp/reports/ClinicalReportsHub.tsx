@@ -29,7 +29,6 @@ import {
   Package,
   Stethoscope,
   Link2,
-  Loader2,
 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { KpiCard } from "@/components/erp/KpiCard";
@@ -45,6 +44,7 @@ import { PatientSpecificDossier } from "./PatientSpecificDossier";
 import { UploadedDocumentsView } from "./UploadedDocumentsView";
 import { listClinicalReportsFn, deleteClinicalReportFn } from "@/lib/mongodb/serverFns/reports";
 import { getCentralAnalyticsFn, type AnalyticsResponse } from "@/lib/mongodb/serverFns/analytics";
+import { SectionSkeleton, TableSkeleton } from "@/components/erp/LoadingSkeletons";
 import { cn } from "@/lib/utils";
 
 // Analytics Sub-Components
@@ -341,10 +341,7 @@ export function ClinicalReportsHub() {
 
             {/* Active Analytics Sub-Tab Content */}
             {analyticsLoading ? (
-              <div className="h-96 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                <Loader2 className="size-8 animate-spin text-primary" />
-                <p className="text-xs font-medium">Aggregating live ERP records from MongoDB...</p>
-              </div>
+              <SectionSkeleton rows={6} withChart />
             ) : !analyticsData ? (
               <div className="erp-card p-12 text-center space-y-3">
                 <p className="text-sm font-semibold text-foreground">No data available for the selected period</p>
@@ -572,6 +569,9 @@ export function ClinicalReportsHub() {
                 </div>
 
                 {/* Reports Table */}
+                {loading && reports.length === 0 ? (
+                  <TableSkeleton rows={6} cols={8} />
+                ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
@@ -691,6 +691,7 @@ export function ClinicalReportsHub() {
                     </tbody>
                   </table>
                 </div>
+                )}
               </motion.div>
             )}
 
