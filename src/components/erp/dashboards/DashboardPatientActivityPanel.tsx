@@ -136,7 +136,7 @@ export function DashboardPatientActivityPanel({
         v.paymentRequestStatus === "collected" ||
         (Number(v.totalAmount || 0) > 0 && Number(v.amountPaid || 0) >= Number(v.totalAmount || 0));
 
-      const isAwaitingReception = v.paymentRequestStatus === "pending";
+      const isAwaitingReception = v.paymentRequestStatus === "pending" || v.status === "Awaiting Payment";
       const isCollectedByReception =
         v.paymentRequestStatus === "collected" || (isPaidOrSettled && Boolean(v.paymentRequestedAt));
       const isConsulting = v.status === "In Consultation";

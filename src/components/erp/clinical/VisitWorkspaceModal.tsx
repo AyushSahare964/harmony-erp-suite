@@ -1346,9 +1346,9 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
             gstRate: applyGst ? (Number(l.gstRate) || 0) : 0,
             gstApplicable: applyGst,
             lineTotal: calc.lineTotal,
-            sourceType: l.sourceType || null,
-            sourceId: l.sourceId || null,
-            rxSection: l.rxSection || null,
+            sourceType: l.sourceType || undefined,
+            sourceId: l.sourceId || undefined,
+            rxSection: l.rxSection || undefined,
           };
         }),
         subtotal: billSummary.grossTotal,

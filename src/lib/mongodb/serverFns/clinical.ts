@@ -63,29 +63,26 @@ const AdmitPatientInputZ = z.object({
 });
 
 const PrescriptionLineZ = z.object({
+  id: z.string().optional().nullable(),
   lineType: z.enum(["Vaccine", "Consultation", "Pharmacy", "Procedure", "Diagnostic", "Service", "Food", "Accessory"]),
-  itemCode: z.string().optional(),
-  batchNo: z.string().optional(),
+  itemCode: z.string().optional().nullable(),
+  batchNo: z.string().optional().nullable(),
   name: z.string().min(1),
-  dosageInstructions: z.string().optional(),
+  dosageInstructions: z.string().optional().nullable(),
   quantity: z.number().positive(),
   unitPrice: z.number().min(0),
   discountPercent: z.number().min(0).max(100).default(0),
   // Per-line discount audit fields (REQ-DISC)
-  discountType: z.enum(["percentage", "fixed"]).optional(),
-  discountValue: z.number().min(0).optional(),
-  discountAmount: z.number().min(0).optional(),
-  taxableAmount: z.number().min(0).optional(),
+  discountType: z.enum(["percentage", "fixed"]).optional().nullable(),
+  discountValue: z.number().min(0).optional().nullable(),
+  discountAmount: z.number().min(0).optional().nullable(),
+  taxableAmount: z.number().min(0).optional().nullable(),
   gstRate: z.number().min(0).max(100).default(0),
-  gstApplicable: z.boolean().optional(),
+  gstApplicable: z.boolean().optional().nullable(),
   lineTotal: z.number().min(0),
-  // Provenance tags — savePrescriptionSectionFn's per-section save uses these to find and
-  // replace a section's previously-saved lines. Without them (they were missing from this
-  // schema), Zod silently stripped both fields from every wholesale save, so the section-save
-  // filter could never match the old rows and just kept appending duplicates on top of them.
-  sourceType: z.string().optional(),
-  sourceId: z.string().optional(),
-  rxSection: z.string().optional(),
+  sourceType: z.string().optional().nullable(),
+  sourceId: z.string().optional().nullable(),
+  rxSection: z.string().optional().nullable(),
 });
 
 const SavePrescriptionInputZ = z.object({
@@ -1606,6 +1603,7 @@ export const requestPaymentFn = createServerFn({ method: "POST" })
     const updateFields: any = {
       paymentRequestedAt: new Date().toISOString(),
       paymentRequestStatus: "pending",
+      status: "Awaiting Payment",
     };
     if (data.totalAmount !== undefined) {
       updateFields.totalAmount = data.totalAmount;

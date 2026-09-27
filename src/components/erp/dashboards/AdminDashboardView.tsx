@@ -23,6 +23,8 @@ import {
   Syringe,
   Pill,
   RefreshCw,
+  Eye,
+  CheckCircle2,
 } from "lucide-react";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { ModuleFlashcard } from "@/components/erp/Flashcard";
@@ -153,9 +155,21 @@ export function AdminDashboardView({
   const outOfStock = inventory.filter(i => getStockStatus(i.currentStock, i.reorderLevel) === "Out of Stock");
   const expiringSoon = inventory.filter(i => i.medicineDetails?.expiryDate && isExpiringSoon(i.medicineDetails.expiryDate));
 
+  const isAwaitingReception = (v: any) =>
+    v.paymentRequestStatus === "pending" || v.status === "Awaiting Payment";
+
+  const isCollectedByReception = (v: any) =>
+    v.paymentRequestStatus === "collected" || (isCompleted(v) && Boolean(v.paymentRequestedAt));
+
   const isCompleted = (v: any) =>
-    v.status === "PAID" || v.status === "Settled" || v.status === "Paid" || v.status === "Completed" || v.status === "Partially Paid" ||
-    (Number(v.totalAmount || 0) > 0 && Number(v.amountPaid || 0) >= Number(v.totalAmount || 0));
+    v.status === "PAID" ||
+    v.status === "Settled" ||
+    v.status === "Paid" ||
+    v.status === "Completed" ||
+    v.paymentRequestStatus === "collected" ||
+    (Number(v.totalAmount || 0) > 0 &&
+      Number(v.balanceDue ?? v.pendingAmount ?? 0) <= 0 &&
+      Number(v.amountPaid || 0) >= Number(v.totalAmount || 0));
 
   const todayStr = useMemo(() => {
     const d = new Date();
@@ -231,11 +245,40 @@ export function AdminDashboardView({
   ], [appointmentsCount, appointmentsTrend, revTotal, visits, boardingPct, boardingOccupied, boardingTotal, totalLowStock, outOfStock.length, lowStock.length, activeStaffCount, onLeaveStaff]);
 
   const statusBadge = (v: any) => {
-    if (isCompleted(v)) return { label: "Completed", cls: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" };
-    if (v.status === "In Consultation") return { label: "In Consultation", cls: "bg-blue-500/10 text-blue-700 border-blue-500/20" };
-    if (v.prescriptionData?.laboratoryRequired || String(v.status || "").toLowerCase().includes("lab"))
-      return { label: "Lab Ready", cls: "bg-amber-500/10 text-amber-700 border-amber-500/20" };
-    return { label: "Waiting", cls: "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600" };
+    if (isCollectedByReception(v)) {
+      return {
+        label: "Reception Collected ✓",
+        cls: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-500/30 font-bold",
+      };
+    }
+    if (isAwaitingReception(v)) {
+      return {
+        label: "Awaiting Payment Collection ⏳",
+        cls: "bg-amber-500/20 text-amber-900 dark:text-amber-200 border-amber-500/40 animate-pulse font-extrabold",
+      };
+    }
+    if (isCompleted(v)) {
+      return {
+        label: "Completed",
+        cls: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 font-semibold",
+      };
+    }
+    if (v.status === "In Consultation") {
+      return {
+        label: "In Consultation",
+        cls: "bg-blue-500/10 text-blue-700 border-blue-500/20 font-semibold",
+      };
+    }
+    if (v.prescriptionData?.laboratoryRequired || String(v.status || "").toLowerCase().includes("lab")) {
+      return {
+        label: "Lab Ready",
+        cls: "bg-purple-500/10 text-purple-700 border-purple-500/20 font-semibold",
+      };
+    }
+    return {
+      label: "Waiting",
+      cls: "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600",
+    };
   };
 
   const pharmacySales = useMemo(() => {
@@ -604,8 +647,31 @@ export function AdminDashboardView({
                         <td className="py-2.5 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button size="sm" variant="ghost" onClick={() => onDeleteVisit(v)} className="h-6 px-1.5 text-destructive hover:bg-destructive/10"><Trash2 className="size-3" /></Button>
-                            <Button size="sm" onClick={() => onStartConsultation(v)} className={cn("h-6 px-2 text-[10px] font-semibold gap-1", isCompleted(v) ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-primary text-primary-foreground")}>
-                              {isCompleted(v) ? <><FileText className="size-3" /> View</> : <>Treat <ArrowRight className="size-3" /></>}
+                            <Button
+                              size="sm"
+                              onClick={() => onStartConsultation(v)}
+                              className={cn(
+                                "h-6 px-2.5 text-[10px] font-bold gap-1 shadow-2xs transition-all",
+                                isCompleted(v)
+                                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                  : isAwaitingReception(v)
+                                  ? "bg-amber-600 hover:bg-amber-700 text-white"
+                                  : "bg-primary text-primary-foreground"
+                              )}
+                            >
+                              {isCompleted(v) ? (
+                                <>
+                                  <FileText className="size-3" /> View
+                                </>
+                              ) : isAwaitingReception(v) ? (
+                                <>
+                                  <Eye className="size-3" /> View (Awaiting)
+                                </>
+                              ) : (
+                                <>
+                                  Treat <ArrowRight className="size-3" />
+                                </>
+                              )}
                             </Button>
                           </div>
                         </td>
