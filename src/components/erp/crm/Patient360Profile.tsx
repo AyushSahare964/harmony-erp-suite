@@ -7,15 +7,18 @@ import {
   CalendarPlus,
   Camera,
   Cat,
+  ChevronDown,
   ClipboardList,
   CreditCard,
   Dog,
   Download,
   Edit2,
   Eye,
+  FileHeart,
   FileText,
   FolderOpen,
   Image as ImageIcon,
+  LayoutDashboard,
   Loader2,
   Mail,
   MapPin,
@@ -744,98 +747,89 @@ export function Patient360Profile({
               </div>
             </div>
 
-            {/* Quick actions */}
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 bg-primary text-xs font-bold text-primary-foreground shadow-xs"
-                disabled={!pet.petId}
-                onClick={() => onStartConsultation(petForWorkflow())}
-              >
-                <Stethoscope className="size-3.5" /> Start OPD Consultation &amp; Rx →
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1 text-xs"
-                disabled={!bookingPrefill}
-                onClick={() => {
-                  setApptToEdit(null);
-                  setBookOpen(true);
-                }}
-              >
-                <CalendarPlus className="size-3.5" /> Book Appointment
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1 text-xs"
-                disabled={!data}
-                onClick={() => setEditPetOpen(true)}
-              >
-                <Edit2 className="size-3.5" /> Edit Patient
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1 text-xs"
-                disabled={!owner?.ownerId}
-                onClick={() => setEditOwnerOpen(true)}
-              >
-                <User className="size-3.5" /> Edit Owner
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1 text-xs"
-                disabled={!data}
-                onClick={() => photoInputRef.current?.click()}
-              >
-                <Camera className="size-3.5" /> Upload Photo
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1 text-xs"
-                disabled={!data}
-                onClick={() => setUploadKind("document")}
-              >
-                <Upload className="size-3.5" /> Upload Document
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1 text-xs text-primary"
-                onClick={() => setTab("medical")}
-              >
-                <ClipboardList className="size-3.5" /> Medical Records
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1 text-xs text-primary"
-                onClick={() => setTab("consultations")}
-              >
-                <FileText className="size-3.5" /> Reports
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1 text-xs text-primary"
-                onClick={() => setTab("billing")}
-              >
-                <Receipt className="size-3.5" /> Previous Bills
-              </Button>
+            {/* Quick actions toolbar */}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5 bg-primary px-3 text-xs font-bold text-primary-foreground shadow-xs hover:bg-primary/90"
+                  disabled={!pet.petId}
+                  onClick={() => onStartConsultation(petForWorkflow())}
+                >
+                  <Stethoscope className="size-3.5" /> Start OPD Consultation &amp; Rx →
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1 text-xs"
+                  disabled={!bookingPrefill}
+                  onClick={() => {
+                    setApptToEdit(null);
+                    setBookOpen(true);
+                  }}
+                >
+                  <CalendarPlus className="size-3.5 text-primary" /> Book Appointment
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1 text-xs"
+                  disabled={!data}
+                  onClick={() => setEditPetOpen(true)}
+                >
+                  <Edit2 className="size-3.5" /> Edit Patient
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline" className="h-8 gap-1 text-xs">
+                      <span>Manage Patient</span>
+                      <ChevronDown className="size-3 text-muted-foreground" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48 text-xs">
+                    <DropdownMenuItem
+                      disabled={!owner?.ownerId}
+                      onClick={() => setEditOwnerOpen(true)}
+                    >
+                      <User className="mr-2 size-3.5" /> Edit Owner Details
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={!data}
+                      onClick={() => photoInputRef.current?.click()}
+                    >
+                      <Camera className="mr-2 size-3.5" /> Upload Pet Photo
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={!data}
+                      onClick={() => setUploadKind("document")}
+                    >
+                      <Upload className="mr-2 size-3.5" /> Upload Document
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setTab("medical")}>
+                      <ClipboardList className="mr-2 size-3.5 text-primary" /> Medical Records
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setTab("billing")}>
+                      <Receipt className="mr-2 size-3.5 text-primary" /> Billing History
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </div>
 
-          {/* ── Allergy banner: pinned above every tab so it is never scrolled away ── */}
+          {/* ── Allergy banner: sleek and compact ── */}
           <div className="shrink-0 px-4 pt-3 sm:px-6">
             {hasAlerts ? (
-              <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5">
-                <ShieldAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
-                <div className="min-w-0 space-y-1 text-xs">
-                  <p className="font-bold text-destructive">Drug Allergies &amp; Clinical Alerts</p>
+              <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2 text-xs shadow-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5 font-bold text-destructive">
+                    <ShieldAlert className="size-4 shrink-0 text-destructive" />
+                    <span>Clinical Alerts &amp; Allergies:</span>
+                  </div>
                   {[
                     ["Drug", drugAllergies],
                     ["Food", foodAllergies],
@@ -843,28 +837,26 @@ export function Patient360Profile({
                     ["Alert", clinicalAlerts],
                   ].map(([label, items]) =>
                     (items as string[]).length ? (
-                      <div key={label as string} className="flex flex-wrap items-center gap-1">
-                        <span className="w-10 shrink-0 text-[11px] font-semibold text-destructive/80">
-                          {label as string}
-                        </span>
+                      <span key={label as string} className="inline-flex flex-wrap items-center gap-1.5">
                         {(items as string[]).map((a) => (
                           <span
                             key={a}
-                            className="rounded bg-destructive px-2 py-0.5 text-[11px] font-bold text-destructive-foreground"
+                            className="inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-destructive px-2.5 py-0.5 text-[11px] font-bold text-destructive-foreground shadow-xs"
                           >
-                            ⚠ {a}
+                            <AlertTriangle className="size-3" />
+                            {label}: {a}
                           </span>
                         ))}
-                      </div>
+                      </span>
                     ) : null,
                   )}
                 </div>
               </div>
             ) : (
-              <p className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                <ShieldCheck className="size-4 text-success" /> No known allergies or clinical
-                alerts
-              </p>
+              <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-1.5 text-xs text-muted-foreground">
+                <ShieldCheck className="size-3.5 text-emerald-500" />
+                <span>No known drug allergies or clinical alerts recorded</span>
+              </div>
             )}
           </div>
 
@@ -883,30 +875,50 @@ export function Patient360Profile({
               className="flex min-h-0 flex-1 flex-col"
             >
               <div className="shrink-0 overflow-x-auto px-4 pt-3 sm:px-6">
-                <TabsList className="h-9 w-max">
-                  <TabsTrigger value="overview" className="text-xs">
-                    Overview
+                <TabsList className="h-9 w-max gap-1 bg-muted/60 p-1">
+                  <TabsTrigger value="overview" className="gap-1.5 px-3 text-xs font-medium">
+                    <LayoutDashboard className="size-3.5" /> Overview
                   </TabsTrigger>
-                  <TabsTrigger value="appointments" className="text-xs">
-                    Appointments
+                  <TabsTrigger value="appointments" className="gap-1.5 px-3 text-xs font-medium">
+                    <Calendar className="size-3.5" /> Appointments
+                    {(data?.appointments ?? []).length > 0 && (
+                      <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.2 text-[10px] font-semibold text-primary">
+                        {(data?.appointments ?? []).length}
+                      </span>
+                    )}
                   </TabsTrigger>
-                  <TabsTrigger value="medical" className="text-xs">
-                    Medical History
+                  <TabsTrigger value="medical" className="gap-1.5 px-3 text-xs font-medium">
+                    <FileHeart className="size-3.5" /> Medical History
+                    {visits.length > 0 && (
+                      <span className="ml-1 rounded-full bg-muted px-1.5 py-0.2 text-[10px] font-medium text-muted-foreground">
+                        {visits.length}
+                      </span>
+                    )}
                   </TabsTrigger>
-                  <TabsTrigger value="consultations" className="text-xs">
-                    Consultations &amp; Reports
+                  <TabsTrigger value="consultations" className="gap-1.5 px-3 text-xs font-medium">
+                    <Stethoscope className="size-3.5" /> Consultations &amp; Reports
                   </TabsTrigger>
-                  <TabsTrigger value="prescriptions" className="text-xs">
-                    Prescriptions
+                  <TabsTrigger value="prescriptions" className="gap-1.5 px-3 text-xs font-medium">
+                    <Pill className="size-3.5" /> Prescriptions
+                    {derived.rxLines.length > 0 && (
+                      <span className="ml-1 rounded-full bg-muted px-1.5 py-0.2 text-[10px] font-medium text-muted-foreground">
+                        {derived.rxLines.length}
+                      </span>
+                    )}
                   </TabsTrigger>
-                  <TabsTrigger value="preventive" className="text-xs">
-                    Preventive Care
+                  <TabsTrigger value="preventive" className="gap-1.5 px-3 text-xs font-medium">
+                    <ShieldCheck className="size-3.5" /> Preventive Care
                   </TabsTrigger>
-                  <TabsTrigger value="documents" className="text-xs">
-                    Documents &amp; Photos
+                  <TabsTrigger value="documents" className="gap-1.5 px-3 text-xs font-medium">
+                    <FolderOpen className="size-3.5" /> Documents &amp; Photos
+                    {((data?.documents ?? []).length + (data?.photos ?? []).length) > 0 && (
+                      <span className="ml-1 rounded-full bg-muted px-1.5 py-0.2 text-[10px] font-medium text-muted-foreground">
+                        {(data?.documents ?? []).length + (data?.photos ?? []).length}
+                      </span>
+                    )}
                   </TabsTrigger>
-                  <TabsTrigger value="billing" className="text-xs">
-                    Billing
+                  <TabsTrigger value="billing" className="gap-1.5 px-3 text-xs font-medium">
+                    <Receipt className="size-3.5" /> Billing
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -914,7 +926,64 @@ export function Patient360Profile({
               <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-3 sm:px-6">
                 {/* ── OVERVIEW ── */}
                 <TabsContent value="overview" className="mt-0 space-y-4">
-                  <Section title="Patient Information" icon={PawPrint}>
+                  {/* Compact Patient Summary Strip */}
+                  <div className="flex flex-wrap items-center gap-0 divide-x divide-border rounded-xl border border-border/60 bg-muted/30 text-xs overflow-hidden">
+                    {[
+                      {
+                        label: "Weight",
+                        value: weight ? `${weight} kg` : "—",
+                        dim: weight ? "Last recorded" : "Not recorded",
+                      },
+                      {
+                        label: "Age",
+                        value: ageLabel(pet),
+                        dim: pet.dob ? `DOB: ${fd(pet.dob)}` : "DOB not on record",
+                      },
+                      {
+                        label: "Species",
+                        value: pet.species || "—",
+                        dim: pet.breed || "Breed unknown",
+                      },
+                      {
+                        label: "Gender",
+                        value: pet.gender || "—",
+                        dim: pet.sterilizationStatus || "Intact",
+                      },
+                      {
+                        label: "Blood Group",
+                        value: pet.bloodGroup || "—",
+                        dim: pet.microchipNo ? `Chip: ${pet.microchipNo}` : "No microchip",
+                      },
+                      {
+                        label: "Patient ID",
+                        value: pet.petId || "—",
+                        dim: pet.status || "Active",
+                        mono: true,
+                      },
+                    ].map(({ label, value, dim, mono }) => (
+                      <div key={label} className="flex flex-col px-4 py-2.5 min-w-0 flex-1 basis-1/3 sm:basis-auto">
+                        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide leading-none mb-1">{label}</span>
+                        <span className={`font-bold text-foreground text-sm leading-tight truncate ${mono ? "font-mono" : ""}`}>{value}</span>
+                        <span className="text-[10px] text-muted-foreground truncate mt-0.5">{dim}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Patient Information Card */}
+                  <Section
+                    title="Patient Information"
+                    icon={PawPrint}
+                    action={
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 gap-1 text-xs text-primary"
+                        onClick={() => setEditPetOpen(true)}
+                      >
+                        <Edit2 className="size-3" /> Edit Patient
+                      </Button>
+                    }
+                  >
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
                       <Field label="Patient Name" value={pet.name} />
                       <Field label="Patient ID" value={pet.petId} mono />
@@ -933,181 +1002,177 @@ export function Patient360Profile({
                     </dl>
                   </Section>
 
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <Section
-                      title="Pet Parent / Owner Information"
-                      icon={User}
-                      action={
-                        owner?.ownerId && (
-                          <span className="font-mono text-[11px] text-muted-foreground">
+                  {/* Pet Parent & Direct Communication Card */}
+                  <Section
+                    title="Pet Parent & Contact Information"
+                    icon={User}
+                    action={
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {owner?.ownerId && (
+                          <span className="mr-1 font-mono text-[11px] text-muted-foreground">
                             {owner.ownerId}
                           </span>
-                        )
-                      }
-                    >
-                      <SectionBody
-                        loading={busy}
-                        error={errors["owner"]}
-                        loadingText="Loading owner information..."
-                        onRetry={reload}
-                        isEmpty={!owner}
-                        emptyText="No owner linked to this patient"
-                      >
-                        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                          <Field label="Full Name" value={owner?.name} />
-                          <Field label="Owner ID" value={owner?.ownerId} mono />
-                          <Field label="Phone Number" value={owner?.phone} mono />
-                          <Field label="Alternate Phone" value={owner?.altPhone} mono />
-                          <Field label="Email" value={owner?.email} />
-                          <Field label="Relationship" value={owner?.relationship} />
-                          <div className="col-span-2">
-                            <Field
-                              label="Billing Address"
-                              value={owner?.billingAddress || owner?.address}
-                            />
-                          </div>
-                          <Field label="City" value={owner?.city} />
-                          <Field label="State" value={owner?.state} />
-                          <Field label="PIN Code" value={owner?.pin} mono />
-                          <Field label="Country" value={owner?.country} />
-                          {owner?.occupation && (
-                            <Field label="Occupation" value={owner.occupation} />
-                          )}
-                        </dl>
-                      </SectionBody>
-                    </Section>
-
-                    <div className="space-y-4">
-                      <Section title="Contact Information" icon={Phone}>
-                        <SectionBody
-                          loading={busy}
-                          error={errors["owner"]}
-                          loadingText="Loading contact information..."
-                          onRetry={reload}
-                          isEmpty={!owner}
-                          emptyText="No contact details on file"
+                        )}
+                        <Button
+                          asChild={Boolean(owner?.phone)}
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1 text-xs"
+                          disabled={!owner?.phone}
                         >
-                          <div className="space-y-2 text-xs">
+                          {owner?.phone ? (
+                            <a href={`tel:${String(owner.phone).replace(/[^\d+]/g, "")}`}>
+                              <Phone className="size-3 text-primary" /> Call
+                            </a>
+                          ) : (
+                            <span className="inline-flex items-center gap-1">
+                              <Phone className="size-3" /> Call
+                            </span>
+                          )}
+                        </Button>
+                        <Button
+                          asChild={digits10(owner?.phone).length === 10}
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1 text-xs text-emerald-600 hover:text-emerald-700"
+                          disabled={digits10(owner?.phone).length !== 10}
+                        >
+                          {digits10(owner?.phone).length === 10 ? (
+                            <a
+                              href={`https://wa.me/91${digits10(owner?.phone)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <MessageCircle className="size-3 text-emerald-600" /> WhatsApp
+                            </a>
+                          ) : (
+                            <span className="inline-flex items-center gap-1">
+                              <MessageCircle className="size-3" /> WhatsApp
+                            </span>
+                          )}
+                        </Button>
+                        {owner?.email && (
+                          <Button
+                            asChild
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1 text-xs"
+                          >
+                            <a href={`mailto:${owner.email}`}>
+                              <Mail className="size-3" /> Email
+                            </a>
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 gap-1 text-xs text-primary"
+                          disabled={!owner?.ownerId}
+                          onClick={() => setEditOwnerOpen(true)}
+                        >
+                          <Edit2 className="size-3" /> Edit Owner
+                        </Button>
+                      </div>
+                    }
+                  >
+                    <SectionBody
+                      loading={busy}
+                      error={errors["owner"]}
+                      loadingText="Loading owner information..."
+                      onRetry={reload}
+                      isEmpty={!owner}
+                      emptyText="No owner linked to this patient"
+                    >
+                      <div className="grid gap-6 md:grid-cols-2">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
+                              {owner?.name?.charAt(0)?.toUpperCase() || "O"}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">
+                                {owner?.name || "N/A"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Relationship:{" "}
+                                <strong className="text-foreground">
+                                  {owner?.relationship || "Owner"}
+                                </strong>
+                                {owner?.occupation && <span> · {owner.occupation}</span>}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5 pt-1 text-xs">
                             <p className="flex items-center gap-2">
                               <Phone className="size-3.5 text-muted-foreground" />
-                              <span className="font-mono">{owner?.phone || "N/A"}</span>
+                              <span className="font-mono font-medium text-foreground">
+                                {owner?.phone || "N/A"}
+                              </span>
                               {owner?.altPhone && (
                                 <span className="font-mono text-muted-foreground">
-                                  / {owner.altPhone}
+                                  (Alt: {owner.altPhone})
                                 </span>
                               )}
                             </p>
                             <p className="flex items-center gap-2">
                               <Mail className="size-3.5 text-muted-foreground" />
-                              {owner?.email || "N/A"}
-                            </p>
-                            <p className="flex items-start gap-2">
-                              <MapPin className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                              <span className="whitespace-pre-line">
-                                {[
-                                  owner?.address || owner?.billingAddress,
-                                  [owner?.city, owner?.state, owner?.pin]
-                                    .filter(Boolean)
-                                    .join(", "),
-                                  owner?.country,
-                                ]
-                                  .filter(Boolean)
-                                  .join("\n") || "N/A"}
+                              <span className="text-foreground">
+                                {owner?.email || "No email on file"}
                               </span>
                             </p>
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            <Button
-                              asChild={Boolean(owner?.phone)}
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 text-xs"
-                              disabled={!owner?.phone}
-                            >
-                              {owner?.phone ? (
-                                <a href={`tel:${String(owner.phone).replace(/[^\d+]/g, "")}`}>
-                                  <Phone className="size-3" /> Call
-                                </a>
-                              ) : (
-                                <span className="inline-flex items-center gap-1">
-                                  <Phone className="size-3" /> Call
-                                </span>
-                              )}
-                            </Button>
-                            <Button
-                              asChild={digits10(owner?.phone).length === 10}
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 text-xs text-success"
-                              disabled={digits10(owner?.phone).length !== 10}
-                            >
-                              {digits10(owner?.phone).length === 10 ? (
-                                <a
-                                  href={`https://wa.me/91${digits10(owner?.phone)}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  <MessageCircle className="size-3" /> WhatsApp
-                                </a>
-                              ) : (
-                                <span className="inline-flex items-center gap-1">
-                                  <MessageCircle className="size-3" /> WhatsApp
-                                </span>
-                              )}
-                            </Button>
-                            <Button
-                              asChild={Boolean(owner?.email)}
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 text-xs"
-                              disabled={!owner?.email}
-                            >
-                              {owner?.email ? (
-                                <a href={`mailto:${owner.email}`}>
-                                  <Mail className="size-3" /> Email
-                                </a>
-                              ) : (
-                                <span className="inline-flex items-center gap-1">
-                                  <Mail className="size-3" /> Email
-                                </span>
-                              )}
-                            </Button>
-                          </div>
-                        </SectionBody>
-                      </Section>
+                        </div>
 
-                      <Section title="Other Pets by This Owner" icon={Users}>
-                        <SectionBody
-                          loading={busy}
-                          error={errors["otherPets"]}
-                          loadingText="Loading other pets..."
-                          onRetry={reload}
-                          isEmpty={!(data?.otherPets ?? []).length}
-                          emptyText="No other pets registered for this owner"
-                        >
-                          <div className="flex flex-wrap gap-2">
-                            {(data?.otherPets ?? []).map((p: any) => (
-                              <button
-                                key={p.petId}
-                                onClick={() => setCurrentPetId(p.petId)}
-                                className="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 text-left text-xs hover:border-primary/40 hover:bg-primary-soft/30"
-                              >
-                                <PetAvatar pet={p} size="sm" />
-                                <span>
-                                  <span className="block font-semibold capitalize text-foreground">
-                                    {p.name}
-                                  </span>
-                                  <span className="font-mono text-[10px] text-muted-foreground">
-                                    {p.petId} · {p.species}
-                                  </span>
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </SectionBody>
-                      </Section>
-                    </div>
-                  </div>
+                        <div className="space-y-2 border-t border-border pt-3 text-xs md:border-l md:border-t-0 md:pl-6 md:pt-0">
+                          <p className="font-semibold text-muted-foreground">Residential &amp; Billing Address</p>
+                          <p className="flex items-start gap-2">
+                            <MapPin className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                            <span className="whitespace-pre-line leading-relaxed text-foreground">
+                              {[
+                                owner?.billingAddress || owner?.address,
+                                [owner?.city, owner?.state, owner?.pin].filter(Boolean).join(", "),
+                                owner?.country,
+                              ]
+                                .filter(Boolean)
+                                .join("\n") || "No address on file"}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    </SectionBody>
+                  </Section>
+
+                  {/* Other Pets by This Owner */}
+                  <Section title="Other Pets by This Owner" icon={Users}>
+                    <SectionBody
+                      loading={busy}
+                      error={errors["otherPets"]}
+                      loadingText="Loading other pets..."
+                      onRetry={reload}
+                      isEmpty={!(data?.otherPets ?? []).length}
+                      emptyText="No other pets registered for this owner"
+                    >
+                      <div className="flex flex-wrap gap-2.5">
+                        {(data?.otherPets ?? []).map((p: any) => (
+                          <button
+                            key={p.petId}
+                            onClick={() => setCurrentPetId(p.petId)}
+                            className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2 text-left text-xs transition-all hover:border-primary/50 hover:bg-primary-soft/30 hover:shadow-xs"
+                          >
+                            <PetAvatar pet={p} size="sm" />
+                            <div>
+                              <span className="block font-semibold capitalize text-foreground">
+                                {p.name}
+                              </span>
+                              <span className="font-mono text-[10px] text-muted-foreground">
+                                {p.petId} · {p.species} {p.breed ? `(${p.breed})` : ""}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </SectionBody>
+                  </Section>
 
                   <Section title="Current Clinical Summary" icon={Activity}>
                     <SectionBody
