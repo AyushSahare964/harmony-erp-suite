@@ -176,8 +176,13 @@ export function RealCatJumpingWelcome({
     return () => clearTimeout(startTimeout);
   }, [isTypingComplete]);
 
+  const animationFrameRef = useRef<number>(0);
+
   // Physics-based jumping sequence: 9 gentle, short hops
   const startRealCatJumpSequence = () => {
+    // Cancel any previous RAF loop before starting a new one
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+
     setCatAnimationStep("jumping");
     setPawSparks([]);
 
@@ -189,8 +194,6 @@ export function RealCatJumpingWelcome({
     const waypoints = Array.from({ length: numJumps + 1 }, (_, i) => {
       return (i / numJumps) * 100;
     });
-
-    let animationFrameId: number;
 
     const animatePhysics = () => {
       const elapsed = Date.now() - startTime;
@@ -254,11 +257,18 @@ export function RealCatJumpingWelcome({
         setActiveWordDippingIndex(null);
       }
 
-      animationFrameId = requestAnimationFrame(animatePhysics);
+      animationFrameRef.current = requestAnimationFrame(animatePhysics);
     };
 
-    animationFrameId = requestAnimationFrame(animatePhysics);
+    animationFrameRef.current = requestAnimationFrame(animatePhysics);
   };
+
+  // Cancel RAF on unmount
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, []);
 
   const handleReplay = (e: React.MouseEvent) => {
     e.stopPropagation();

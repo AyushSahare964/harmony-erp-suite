@@ -129,7 +129,7 @@ export function AdmitPatientPickerModal({
     }
     const defaults = COMMON_BREEDS_BY_SPECIES[newSpecies];
     if (defaults && defaults.length > 0 && (!walkinBreed || COMMON_BREEDS_BY_SPECIES[walkinSpecies]?.includes(walkinBreed))) {
-      setWalkinBreed(defaults[0]);
+      setWalkinBreed(defaults[0] ?? "");
     }
   };
 

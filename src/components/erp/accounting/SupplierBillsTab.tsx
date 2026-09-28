@@ -187,10 +187,12 @@ export function SupplierBillsTab({ onPayBill }: SupplierBillsTabProps) {
     if (!showAnalytics) return;
     setBillingLoading(true);
     listInvoicesFn({
-      datePreset: "all",
-      startDate: dateRange.from,
-      endDate: dateRange.to,
-      status: "all",
+      data: {
+        datePreset: "all",
+        startDate: dateRange.from,
+        endDate: dateRange.to,
+        status: "all",
+      },
     })
       .then((invoices: any[]) => {
         const rev = invoices.reduce((s, inv) => s + (inv.totalAmount || 0), 0);
@@ -454,7 +456,7 @@ export function SupplierBillsTab({ onPayBill }: SupplierBillsTabProps) {
               <p className="mb-3 text-[11px] text-muted-foreground">Highest purchase bill totals in selected period</p>
               <div className="space-y-2.5">
                 {topSuppliersData.map((s, i) => {
-                  const pct = topSuppliersData[0].value > 0 ? (s.value / topSuppliersData[0].value) * 100 : 0;
+                  const pct = (topSuppliersData[0]?.value ?? 0) > 0 ? (s.value / topSuppliersData[0]!.value) * 100 : 0;
                   return (
                     <div key={i} className="flex items-center gap-3">
                       <div className="w-32 min-w-[8rem] truncate text-xs font-medium text-foreground" title={s.name}>{s.name}</div>

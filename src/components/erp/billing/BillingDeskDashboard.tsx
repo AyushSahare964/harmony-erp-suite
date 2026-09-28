@@ -549,7 +549,7 @@ export function BillingDeskDashboard({
       return;
     }
     try {
-      await voidPurchaseBillFn({ data: { id: pur._id, reason: reason.trim() } });
+      await deletePurchaseBillFn({ data: { id: pur._id, reason: reason.trim() } });
       setPurchases((prev) => prev.filter((p) => p._id !== pur._id));
       toast.success(`Purchase bill ${ref} deleted`);
     } catch (err: any) {
@@ -758,7 +758,7 @@ export function BillingDeskDashboard({
       }
       const matched = all.filter((b) => {
         return (
-          b.batchNumber?.toLowerCase().includes(q) ||
+          b.batchNo?.toLowerCase().includes(q) ||
           b.itemCode?.toLowerCase().includes(q) ||
           b.itemName?.toLowerCase().includes(q)
         );

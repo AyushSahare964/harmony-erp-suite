@@ -92,14 +92,18 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
   const [selectedProfilePetId, setSelectedProfilePetId] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadData();
+    // Defer initial data load so the skeleton renders first
+    const t = setTimeout(() => { void loadData(); }, 800);
+    return () => clearTimeout(t);
   }, []);
 
-  // Poll for pending payment requests every 15 seconds
+  // Poll for pending payment requests every 30 seconds (down from 15s)
   useEffect(() => {
+    let cancelled = false;
     const fetchPaymentRequests = async () => {
       try {
         const reqs = await listPaymentRequestsFn();
+        if (cancelled) return;
         setPaymentRequests(reqs || []);
         if (reqs && reqs.length > 0) {
           setActivePayTab("collections");
@@ -109,8 +113,11 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
       }
     };
     void fetchPaymentRequests();
-    const interval = setInterval(() => { void fetchPaymentRequests(); }, 15000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => { void fetchPaymentRequests(); }, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   const loadData = async () => {

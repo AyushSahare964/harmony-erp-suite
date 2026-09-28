@@ -11,7 +11,6 @@ import {
   Dog,
   Cat,
   Bird,
-  ShieldAlert,
   Trash2,
   Sparkles,
   Stethoscope,
@@ -20,7 +19,6 @@ import {
   CreditCard,
   Tag,
   Hash,
-  AlertTriangle,
   Info,
   Camera,
   ImageIcon,
@@ -143,16 +141,6 @@ export const DEFAULT_PET_DRAFT = (): PetDraft => ({
   dietPreference: "",
   medicalNotes: "",
 });
-
-const COMMON_ALLERGIES = [
-  "Penicillin",
-  "NSAIDs",
-  "Sulfa Drugs",
-  "Vaccine Reaction",
-  "Chicken/Poultry",
-  "Flea Allergy",
-  "Beef",
-];
 
 interface Props {
   open: boolean;
@@ -337,19 +325,6 @@ export function OwnerPetRegistrationModal({
     });
   };
 
-  const toggleAllergy = (allergy: string) => {
-    const current = pets[activePetIndex]?.allergies || [];
-    const exists = current.includes(allergy);
-    const updated = exists ? current.filter((a) => a !== allergy) : [...current, allergy];
-    updateCurrentPet("allergies", updated);
-  };
-
-  const csvToList = (s: string) =>
-    s
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-
   const pickPetPhoto = async (file: File | undefined) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -413,11 +388,6 @@ export function OwnerPetRegistrationModal({
       if (!p.breed.trim()) {
         setActivePetIndex(i);
         toast.error(`Pet #${i + 1} (${p.name || "Untitled"}) breed is required`);
-        return;
-      }
-      if (!p.weightKg || Number(p.weightKg) <= 0) {
-        setActivePetIndex(i);
-        toast.error(`Pet #${i + 1} (${p.name || "Untitled"}) weight is required`);
         return;
       }
     }
@@ -1268,20 +1238,6 @@ export function OwnerPetRegistrationModal({
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs font-bold text-foreground">
-                    Weight (kg) <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    placeholder="e.g. 24.5"
-                    value={activePet.weightKg || ""}
-                    onChange={(e) => updateCurrentPet("weightKg", e.target.value)}
-                    className="text-sm h-9 font-mono"
-                  />
-                </div>
-
-                <div className="space-y-1">
                   <Label className="text-xs font-semibold text-foreground">Date of Birth</Label>
                   <Input
                     type="date"
@@ -1368,137 +1324,6 @@ export function OwnerPetRegistrationModal({
                 </div>
               </div>
 
-              {/* Allergies and Special Flags Section */}
-              <div className="space-y-2 pt-2 border-t border-border/60">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    <ShieldAlert className="size-3.5 text-destructive" />
-                    Does the patient have any known allergies?{" "}
-                    <span className="text-destructive">*</span>
-                  </Label>
-                  <span className="text-[11px] text-muted-foreground font-medium">
-                    Select Yes/No to set safety alert
-                  </span>
-                </div>
-
-                {/* Prominent Yes/No Allergy Toggle */}
-                <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3">
-                  <span className="text-xs font-bold text-foreground flex-1">
-                    Does this patient have any drug, food or environmental allergies?
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!activePet.allergies || activePet.allergies.length === 0) {
-                          updateCurrentPet("allergies", [COMMON_ALLERGIES[0] || "Penicillin"]);
-                        }
-                      }}
-                      className={cn(
-                        "px-4 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-2xs",
-                        activePet.allergies && activePet.allergies.length > 0
-                          ? "bg-destructive text-destructive-foreground border-destructive font-extrabold shadow-xs"
-                          : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-destructive",
-                      )}
-                    >
-                      {activePet.allergies && activePet.allergies.length > 0
-                        ? "⚠ Yes (Has Allergies)"
-                        : "Yes"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateCurrentPet("allergies", [])}
-                      className={cn(
-                        "px-4 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-2xs",
-                        !activePet.allergies || activePet.allergies.length === 0
-                          ? "bg-emerald-600 text-white border-emerald-600 font-extrabold shadow-xs"
-                          : "bg-card text-muted-foreground border-border hover:border-emerald-500/40 hover:text-emerald-700",
-                      )}
-                    >
-                      No Allergies
-                    </button>
-                  </div>
-                </div>
-
-                {/* Show allergy details input field when Yes is selected */}
-                {activePet.allergies && activePet.allergies.length > 0 && (
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 space-y-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs font-bold text-destructive flex items-center gap-1.5">
-                        <AlertTriangle className="size-3.5" /> Enter Specific Allergy Details &amp;
-                        Reactions:
-                      </Label>
-                      <Input
-                        placeholder="e.g. Severe swelling from Penicillin G, Anaphylaxis to Egg Protein, Flea Allergy Dermatitis..."
-                        value={activePet.medicalNotes || ""}
-                        onChange={(e) => updateCurrentPet("medicalNotes", e.target.value)}
-                        className="text-xs h-9 bg-card border-destructive/40 font-medium text-foreground placeholder:text-muted-foreground"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] font-bold text-destructive">
-                        Quick Allergy Category Badges (Click to toggle):
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {COMMON_ALLERGIES.map((allergy) => {
-                          const isSelected = activePet.allergies?.includes(allergy);
-                          return (
-                            <button
-                              key={allergy}
-                              type="button"
-                              onClick={() => toggleAllergy(allergy)}
-                              className={cn(
-                                "px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
-                                isSelected
-                                  ? "bg-destructive text-destructive-foreground border-destructive shadow-xs font-bold"
-                                  : "bg-card text-muted-foreground border-border hover:border-destructive/40 hover:text-foreground",
-                              )}
-                            >
-                              {isSelected && "✓ "}
-                              {allergy}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-foreground">Food Allergies</Label>
-                    <Input
-                      placeholder="Comma separated, e.g. Chicken, Dairy"
-                      value={(activePet.foodAllergies || []).join(", ")}
-                      onChange={(e) => updateCurrentPet("foodAllergies", csvToList(e.target.value))}
-                      className="text-xs h-9"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-foreground">Other Allergies</Label>
-                    <Input
-                      placeholder="Comma separated"
-                      value={(activePet.otherAllergies || []).join(", ")}
-                      onChange={(e) =>
-                        updateCurrentPet("otherAllergies", csvToList(e.target.value))
-                      }
-                      className="text-xs h-9"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-foreground">Clinical Alerts</Label>
-                    <Input
-                      placeholder="e.g. Aggressive, Cardiac patient"
-                      value={(activePet.clinicalAlerts || []).join(", ")}
-                      onChange={(e) =>
-                        updateCurrentPet("clinicalAlerts", csvToList(e.target.value))
-                      }
-                      className="text-xs h-9"
-                    />
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Bottom Actions */}

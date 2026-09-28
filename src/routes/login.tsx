@@ -394,6 +394,19 @@ function AuthPage() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-0.5">
+                      <label className="block text-[0.68rem] font-semibold text-foreground">Phone Number</label>
+                      <input
+                        type="tel"
+                        value={regData.phone || ""}
+                        onChange={(e) => setRegData({ ...regData, phone: e.target.value })}
+                        placeholder="9876543210"
+                        className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-xs outline-none focus:border-primary"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-0.5">
                       <label className="block text-[0.68rem] font-semibold text-foreground">Password *</label>
                       <input
                         type="password"

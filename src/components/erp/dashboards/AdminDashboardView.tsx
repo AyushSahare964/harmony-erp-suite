@@ -93,7 +93,11 @@ export function AdminDashboardView({
   const [loadingFacilities, setLoadingFacilities] = useState(true);
 
   useEffect(() => {
-    void (async () => {
+    let cancelled = false;
+    // Defer heavy data fetching by 1.5 s so the page can paint (and show skeleton)
+    // before hitting the DB with 8 parallel requests.
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
       setLoadingFacilities(true);
       try {
         const [lab, boarding, swim, inv, appts, hrms, staff, pets] = await Promise.all([
@@ -106,6 +110,7 @@ export function AdminDashboardView({
           listApprovedDoctorsFn().catch(() => []),
           listPetsWithOwnersFn().catch(() => []),
         ]);
+        if (cancelled) return;
         setLabOrders(lab ?? []);
         setBoardingList(boarding ?? []);
         setSwimSessions(swim ?? []);
@@ -117,9 +122,13 @@ export function AdminDashboardView({
       } catch (e) {
         console.warn("Admin dashboard data fetch error:", e);
       } finally {
-        setLoadingFacilities(false);
+        if (!cancelled) setLoadingFacilities(false);
       }
-    })();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   const todayVisits = useMemo(() => visits, [visits]);

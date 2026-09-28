@@ -136,10 +136,12 @@ export function ExpensesTab() {
     if (!showAnalytics) return;
     setBillingLoading(true);
     listInvoicesFn({
-      datePreset: "all",
-      startDate: dateRange.from,
-      endDate: dateRange.to,
-      status: "all",
+      data: {
+        datePreset: "all",
+        startDate: dateRange.from,
+        endDate: dateRange.to,
+        status: "all",
+      },
     })
       .then((invoices: any[]) => {
         const rev = invoices.reduce((s, inv) => s + (inv.totalAmount || 0), 0);

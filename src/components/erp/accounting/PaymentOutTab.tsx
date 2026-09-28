@@ -276,10 +276,12 @@ export function PaymentOutTab({
     if (!showAnalytics) return;
     setBillingLoading(true);
     listInvoicesFn({
-      datePreset: "all",
-      startDate: historyDateRange.from,
-      endDate: historyDateRange.to,
-      status: "all",
+      data: {
+        datePreset: "all",
+        startDate: historyDateRange.from,
+        endDate: historyDateRange.to,
+        status: "all",
+      },
     })
       .then((invoices: any[]) => {
         const totalReceived = invoices.reduce((s, inv) => s + (inv.amountPaid || 0), 0);

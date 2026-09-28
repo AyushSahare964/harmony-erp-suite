@@ -190,7 +190,7 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
       manufacturer: item.manufacturer || "",
       description: item.description || "",
       category: item.category as any,
-      productType: item.productType,
+      productType: item.productType as any,
       sku: item.sku || "",
       unit: item.unit,
       purchaseUom: item.purchaseUom,

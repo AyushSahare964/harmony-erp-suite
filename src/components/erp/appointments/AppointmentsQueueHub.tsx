@@ -904,6 +904,7 @@ export function AppointmentsQueueHub() {
           open={Boolean(selectedProfilePetId)}
           petId={selectedProfilePetId}
           onClose={() => setSelectedProfilePetId(null)}
+          onStartConsultation={() => { /* not used in appointments context */ }}
           onChanged={() => {
             void loadAppointments();
             void loadFollowUps();

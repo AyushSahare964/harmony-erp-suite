@@ -13,6 +13,7 @@ import {
   Clock,
   Sparkles,
   UserCheck,
+  Eye,
 } from "lucide-react";
 import {
   Dialog,
@@ -38,9 +39,51 @@ import { listApprovedDoctorsFn } from "@/lib/mongodb/serverFns/auth";
 import { createAppointmentFn, updateAppointmentFn } from "@/lib/mongodb/serverFns/appointments";
 import { admitPatientFn } from "@/lib/mongodb/serverFns/clinical";
 import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
+import { Patient360Profile } from "@/components/erp/crm/Patient360Profile";
 import { cn } from "@/lib/utils";
 
 /* ── Constants ────────────────────────────────────────────────────────── */
+
+const PRESET_TIME_SLOTS = [
+  "09:30 AM",
+  "10:00 AM",
+  "10:30 AM",
+  "11:00 AM",
+  "11:30 AM",
+  "12:00 PM",
+  "04:30 PM",
+  "05:30 PM",
+  "06:30 PM",
+  "07:30 PM",
+];
+
+/** "14:05" -> "02:05 PM" */
+const to12h = (hhmm24: string) => {
+  if (!hhmm24) return "";
+  const [hStr, mStr] = hhmm24.split(":");
+  let h = parseInt(hStr || "", 10);
+  if (Number.isNaN(h)) return "";
+  const period = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${String(h).padStart(2, "0")}:${mStr} ${period}`;
+};
+
+/** "02:05 PM" -> "14:05" */
+const to24h = (hhmmAmPm: string) => {
+  const m = hhmmAmPm?.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return "";
+  let h = parseInt(m[1] || "", 10);
+  const period = (m[3] || "").toUpperCase();
+  if (period === "PM" && h !== 12) h += 12;
+  if (period === "AM" && h === 12) h = 0;
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
+};
+
+const csvToList = (s: string) =>
+  s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 
 const COMPLAINT_PRESETS = [
   "Routine health checkup",
@@ -118,13 +161,17 @@ export function BookAppointmentModal({
   const [complaint, setComplaint] = useState("");
   const [weightKg, setWeightKg] = useState("");
   const [tempC, setTempC] = useState("");
+  const [triageConfirmed, setTriageConfirmed] = useState(false);
 
   /* ── Section 4: Schedule Appointment ── */
   const [token, setToken] = useState("");
   const [date, setDate] = useState("");
   const [timeSlot, setTimeSlot] = useState("11:30 AM");
+  const [useManualTime, setUseManualTime] = useState(false);
+  const [customTimeRaw, setCustomTimeRaw] = useState("");
   const [category, setCategory] = useState<string>("");
   const [walkInSubCategory, setWalkInSubCategory] = useState("");
+  const [walkInConfirmed, setWalkInConfirmed] = useState(false);
   const [visitType, setVisitType] = useState<string>("Consultation");
   const [priority, setPriority] = useState<string>("Normal");
 
@@ -133,6 +180,13 @@ export function BookAppointmentModal({
   const [allergiesInput, setAllergiesInput] = useState("");
   // Track profile allergies already saved so we don't overwrite them
   const [profileAllergies, setProfileAllergies] = useState<string[]>([]);
+  const [foodAllergiesInput, setFoodAllergiesInput] = useState("");
+  const [otherAllergiesInput, setOtherAllergiesInput] = useState("");
+  const [clinicalAlertsInput, setClinicalAlertsInput] = useState("");
+  const [savingAllergies, setSavingAllergies] = useState(false);
+
+  /* ── Pet Profile Viewer ── */
+  const [viewPetId, setViewPetId] = useState<string | null>(null);
 
   /* ── State ── */
   const [submitting, setSubmitting] = useState(false);
@@ -159,13 +213,20 @@ export function BookAppointmentModal({
     setToken(`A-${Math.floor(100 + Math.random() * 900)}`);
     setDate(new Date().toISOString().slice(0, 10));
     setTimeSlot("11:30 AM");
+    setUseManualTime(false);
+    setCustomTimeRaw("");
     setCategory("");
     setWalkInSubCategory("");
+    setWalkInConfirmed(false);
     setVisitType("Consultation");
     setPriority("Normal");
+    setTriageConfirmed(false);
     setHasAllergies(false);
     setAllergiesInput("");
     setProfileAllergies([]);
+    setFoodAllergiesInput("");
+    setOtherAllergiesInput("");
+    setClinicalAlertsInput("");
   };
 
   /* ── Load data on open ──────────────────────────────────────────────── */
@@ -184,8 +245,18 @@ export function BookAppointmentModal({
           (appointmentToEdit.appointment_category || appointmentToEdit.category || "") as string,
         );
         setWalkInSubCategory(appointmentToEdit.walk_in_source || "");
-        setTimeSlot(appointmentToEdit.slot || appointmentToEdit.time || "11:30 AM");
+        setWalkInConfirmed(false);
+        const editTimeSlot = appointmentToEdit.slot || appointmentToEdit.time || "11:30 AM";
+        setTimeSlot(editTimeSlot);
+        if (PRESET_TIME_SLOTS.includes(editTimeSlot)) {
+          setUseManualTime(false);
+          setCustomTimeRaw("");
+        } else {
+          setUseManualTime(true);
+          setCustomTimeRaw(to24h(editTimeSlot));
+        }
         setDoctor(appointmentToEdit.doctor || "");
+        setTriageConfirmed(false);
         setVisitType((appointmentToEdit.type || "Consultation") as string);
         setPriority((appointmentToEdit.priority || "Normal") as string);
         setComplaint(appointmentToEdit.complaint || appointmentToEdit.reason || "");
@@ -222,12 +293,31 @@ export function BookAppointmentModal({
           setHasAllergies(false);
           setAllergiesInput("");
         }
+        setFoodAllergiesInput(
+          Array.isArray(appointmentToEdit.foodAllergies)
+            ? appointmentToEdit.foodAllergies.filter(Boolean).join(", ")
+            : "",
+        );
+        setOtherAllergiesInput(
+          Array.isArray(appointmentToEdit.otherAllergies)
+            ? appointmentToEdit.otherAllergies.filter(Boolean).join(", ")
+            : "",
+        );
+        setClinicalAlertsInput(
+          Array.isArray(appointmentToEdit.clinicalAlerts)
+            ? appointmentToEdit.clinicalAlerts.filter(Boolean).join(", ")
+            : "",
+        );
         void loadDoctors(appointmentToEdit.doctor);
       } else if (initialFollowUp) {
         setToken(`A-${Math.floor(100 + Math.random() * 900)}`);
         setDate(initialFollowUp.nextVisitDate || new Date().toISOString().slice(0, 10));
         setCategory("call");
         setTimeSlot("10:30 AM");
+        setUseManualTime(false);
+        setCustomTimeRaw("");
+        setWalkInConfirmed(false);
+        setTriageConfirmed(false);
         setDoctor(initialFollowUp.doctorName || "");
         setVisitType("Follow-up");
         setPriority("Normal");
@@ -253,6 +343,9 @@ export function BookAppointmentModal({
         setTempC("");
         setHasAllergies(false);
         setAllergiesInput("");
+        setFoodAllergiesInput("");
+        setOtherAllergiesInput("");
+        setClinicalAlertsInput("");
         void loadDoctors(initialFollowUp.doctorName);
       } else {
         // ★ BLANK form on Book New Appointment
@@ -324,6 +417,59 @@ export function BookAppointmentModal({
     } else {
       setHasAllergies(false);
       setAllergiesInput("");
+    }
+
+    setFoodAllergiesInput(
+      Array.isArray(p.foodAllergies) ? p.foodAllergies.filter(Boolean).join(", ") : "",
+    );
+    setOtherAllergiesInput(
+      Array.isArray(p.otherAllergies) ? p.otherAllergies.filter(Boolean).join(", ") : "",
+    );
+    setClinicalAlertsInput(
+      Array.isArray(p.clinicalAlerts) ? p.clinicalAlerts.filter(Boolean).join(", ") : "",
+    );
+  };
+
+  /** Persist allergy details to the patient's permanent profile immediately —
+   *  independent of finishing the whole appointment, since this is medical-record
+   *  data, not appointment-specific data. */
+  const handleSaveAllergies = async () => {
+    if (!selectedPet?.petId) {
+      toast.error("Select a registered patient first");
+      return;
+    }
+    setSavingAllergies(true);
+    try {
+      const drugAllergyArray = hasAllergies ? csvToList(allergiesInput) : [];
+      const existingProfileAllergies = profileAllergies.length
+        ? profileAllergies
+        : selectedPet.allergies || [];
+      const normalise = (s: string) => s.trim().toLowerCase();
+      const netNewDrugAllergies = drugAllergyArray.filter(
+        (a: string) => !existingProfileAllergies.some((e: string) => normalise(e) === normalise(a)),
+      );
+      const mergedAllergies = netNewDrugAllergies.length
+        ? [...existingProfileAllergies, ...netNewDrugAllergies]
+        : existingProfileAllergies;
+
+      await updatePetFn({
+        data: {
+          petId: selectedPet.petId,
+          updates: {
+            allergies: mergedAllergies,
+            foodAllergies: csvToList(foodAllergiesInput),
+            otherAllergies: csvToList(otherAllergiesInput),
+            clinicalAlerts: csvToList(clinicalAlertsInput),
+          },
+        },
+      });
+      setProfileAllergies(mergedAllergies);
+      toast.success("Allergy details saved to patient profile");
+    } catch (err) {
+      console.error("[BookAppointmentModal] Could not save allergies:", err);
+      toast.error("Could not save allergies — please try again");
+    } finally {
+      setSavingAllergies(false);
     }
   };
 
@@ -398,14 +544,24 @@ export function BookAppointmentModal({
       const netNewAllergies = allergyArray.filter(
         (a: string) => !existingProfileAllergies.some((e) => normalise(e) === normalise(a)),
       );
-      if (netNewAllergies.length > 0 && finalPet.petId) {
-        // Merge new allergens into the existing profile list (non-destructive)
-        const mergedAllergies = [
-          ...existingProfileAllergies,
-          ...netNewAllergies,
-        ];
+      if (finalPet.petId) {
+        // Merge new drug allergens into the existing profile list (non-destructive),
+        // and save food/other/clinical alerts alongside them as a safety net in case
+        // "Save Allergies" wasn't clicked before finishing the booking.
+        const mergedAllergies =
+          netNewAllergies.length > 0
+            ? [...existingProfileAllergies, ...netNewAllergies]
+            : existingProfileAllergies;
         updatePetFn({
-          data: { petId: finalPet.petId, updates: { allergies: mergedAllergies } },
+          data: {
+            petId: finalPet.petId,
+            updates: {
+              allergies: mergedAllergies,
+              foodAllergies: csvToList(foodAllergiesInput),
+              otherAllergies: csvToList(otherAllergiesInput),
+              clinicalAlerts: csvToList(clinicalAlertsInput),
+            },
+          },
         }).catch((err) =>
           console.warn("[BookAppointmentModal] Could not merge new allergens into profile:", err),
         );
@@ -659,18 +815,31 @@ export function BookAppointmentModal({
                           Phone: {selectedPet.owner?.phone}
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedPet(null);
-                          setSearchPetQuery("");
-                        }}
-                        className="h-7 text-xs text-muted-foreground hover:text-destructive"
-                      >
-                        Change
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {selectedPet.petId && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setViewPetId(selectedPet.petId)}
+                            className="h-7 text-xs text-muted-foreground hover:text-primary gap-1"
+                          >
+                            <Eye className="size-3.5" /> View
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedPet(null);
+                            setSearchPetQuery("");
+                          }}
+                          className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          Change
+                        </Button>
+                      </div>
                     </div>
                   )}
 
@@ -854,11 +1023,38 @@ export function BookAppointmentModal({
              *  SECTION 3: Triage & Attending Physician (Matching Image 3)
              * ══════════════════════════════════════════════════════════════ */}
             <div className="rounded-xl border border-border bg-card p-4 space-y-4 shadow-2xs">
-              <div className="flex items-center gap-2 pb-2 border-b border-border/50">
-                <Stethoscope className="size-4 text-primary" />
-                <h3 className="text-xs font-bold text-foreground uppercase tracking-wide">
-                  3. Triage &amp; Attending Physician
-                </h3>
+              <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                <div className="flex items-center gap-2">
+                  <Stethoscope className="size-4 text-primary" />
+                  <h3 className="text-xs font-bold text-foreground uppercase tracking-wide">
+                    3. Triage &amp; Attending Physician
+                  </h3>
+                  {triageConfirmed && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600">
+                      <CheckCircle2 className="size-3" /> Saved
+                    </span>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (!doctor) {
+                      toast.error("Select an attending doctor first");
+                      return;
+                    }
+                    if (!complaint.trim()) {
+                      toast.error("Enter or select a chief complaint first");
+                      return;
+                    }
+                    setTriageConfirmed(true);
+                    toast.success("Triage details saved for this visit");
+                  }}
+                  className="h-7 text-[11px] font-bold gap-1"
+                >
+                  <CheckCircle2 className="size-3.5" /> Save
+                </Button>
               </div>
 
               {/* Assign Doctor */}
@@ -866,7 +1062,13 @@ export function BookAppointmentModal({
                 <Label className="text-[11px] font-semibold text-foreground">
                   Assign Attending Doctor *
                 </Label>
-                <Select value={doctor} onValueChange={setDoctor}>
+                <Select
+                  value={doctor}
+                  onValueChange={(v) => {
+                    setDoctor(v);
+                    setTriageConfirmed(false);
+                  }}
+                >
                   <SelectTrigger className="h-9 text-xs bg-background font-semibold">
                     <SelectValue placeholder="Select doctor..." />
                   </SelectTrigger>
@@ -897,26 +1099,45 @@ export function BookAppointmentModal({
                 </Label>
                 <Input
                   value={complaint}
-                  onChange={(e) => setComplaint(e.target.value)}
+                  onChange={(e) => {
+                    setComplaint(e.target.value);
+                    setTriageConfirmed(false);
+                  }}
                   placeholder="e.g. Mild fever, coughing, annual booster"
                   className="h-9 text-xs bg-background"
                 />
+                <p className="text-[10px] text-muted-foreground">
+                  Click multiple presets to combine them, or type your own above.
+                </p>
                 <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {COMPLAINT_PRESETS.map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setComplaint(preset)}
-                      className={cn(
-                        "text-[10px] px-2.5 py-1 rounded-md border transition-colors",
-                        complaint === preset
-                          ? "bg-primary text-primary-foreground border-primary font-semibold shadow-2xs"
-                          : "bg-muted/40 hover:bg-muted text-muted-foreground border-border",
-                      )}
-                    >
-                      {preset}
-                    </button>
-                  ))}
+                  {COMPLAINT_PRESETS.map((preset) => {
+                    const tokens = complaint
+                      .split(",")
+                      .map((t) => t.trim())
+                      .filter(Boolean);
+                    const active = tokens.includes(preset);
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          const next = active
+                            ? tokens.filter((t) => t !== preset)
+                            : [...tokens, preset];
+                          setComplaint(next.join(", "));
+                          setTriageConfirmed(false);
+                        }}
+                        className={cn(
+                          "text-[10px] px-2.5 py-1 rounded-md border transition-colors",
+                          active
+                            ? "bg-primary text-primary-foreground border-primary font-semibold shadow-2xs"
+                            : "bg-muted/40 hover:bg-muted text-muted-foreground border-border",
+                        )}
+                      >
+                        {preset}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -990,24 +1211,51 @@ export function BookAppointmentModal({
 
                 {/* Time Slot */}
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">Time Slot</Label>
-                  <Select value={timeSlot} onValueChange={setTimeSlot}>
-                    <SelectTrigger className="text-xs h-9 bg-background">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="09:30 AM">09:30 AM (Morning OPD)</SelectItem>
-                      <SelectItem value="10:00 AM">10:00 AM</SelectItem>
-                      <SelectItem value="10:30 AM">10:30 AM</SelectItem>
-                      <SelectItem value="11:00 AM">11:00 AM</SelectItem>
-                      <SelectItem value="11:30 AM">11:30 AM</SelectItem>
-                      <SelectItem value="12:00 PM">12:00 PM</SelectItem>
-                      <SelectItem value="04:30 PM">04:30 PM (Evening OPD)</SelectItem>
-                      <SelectItem value="05:30 PM">05:30 PM</SelectItem>
-                      <SelectItem value="06:30 PM">06:30 PM</SelectItem>
-                      <SelectItem value="07:30 PM">07:30 PM</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-foreground">Time Slot</Label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUseManualTime((prev) => {
+                          const next = !prev;
+                          if (next) setCustomTimeRaw(to24h(timeSlot));
+                          return next;
+                        });
+                      }}
+                      className="text-[10px] font-semibold text-primary hover:underline"
+                    >
+                      {useManualTime ? "Use preset" : "Enter manually"}
+                    </button>
+                  </div>
+                  {useManualTime ? (
+                    <Input
+                      type="time"
+                      value={customTimeRaw}
+                      onChange={(e) => {
+                        setCustomTimeRaw(e.target.value);
+                        setTimeSlot(to12h(e.target.value));
+                      }}
+                      className="text-xs h-9 bg-background"
+                    />
+                  ) : (
+                    <Select value={timeSlot} onValueChange={setTimeSlot}>
+                      <SelectTrigger className="text-xs h-9 bg-background">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="09:30 AM">09:30 AM (Morning OPD)</SelectItem>
+                        <SelectItem value="10:00 AM">10:00 AM</SelectItem>
+                        <SelectItem value="10:30 AM">10:30 AM</SelectItem>
+                        <SelectItem value="11:00 AM">11:00 AM</SelectItem>
+                        <SelectItem value="11:30 AM">11:30 AM</SelectItem>
+                        <SelectItem value="12:00 PM">12:00 PM</SelectItem>
+                        <SelectItem value="04:30 PM">04:30 PM (Evening OPD)</SelectItem>
+                        <SelectItem value="05:30 PM">05:30 PM</SelectItem>
+                        <SelectItem value="06:30 PM">06:30 PM</SelectItem>
+                        <SelectItem value="07:30 PM">07:30 PM</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
 
                 {/* Appointment Category — with Walk-in */}
@@ -1040,25 +1288,66 @@ export function BookAppointmentModal({
               {/* Walk-in Referral Source Sub-options */}
               {category === "walk_in" && (
                 <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-2">
-                  <Label className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                    How did the client find us?
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                      How did the client find us?
+                    </Label>
+                    {walkInConfirmed && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600">
+                        <CheckCircle2 className="size-3" /> Saved
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-amber-700/70 dark:text-amber-300/70">
+                    Select all that apply.
+                  </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {WALKIN_SUB_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setWalkInSubCategory(opt.value)}
-                        className={cn(
-                          "text-[11px] px-3 py-1.5 rounded-lg border transition-all font-semibold",
-                          walkInSubCategory === opt.value
-                            ? "bg-amber-600 text-white border-amber-600 shadow-xs"
-                            : "bg-card text-muted-foreground border-border hover:border-amber-500/40 hover:text-amber-700",
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                    {WALKIN_SUB_OPTIONS.map((opt) => {
+                      const tokens = walkInSubCategory
+                        .split(",")
+                        .map((t) => t.trim())
+                        .filter(Boolean);
+                      const active = tokens.includes(opt.value);
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            const next = active
+                              ? tokens.filter((t) => t !== opt.value)
+                              : [...tokens, opt.value];
+                            setWalkInSubCategory(next.join(", "));
+                            setWalkInConfirmed(false);
+                          }}
+                          className={cn(
+                            "text-[11px] px-3 py-1.5 rounded-lg border transition-all font-semibold",
+                            active
+                              ? "bg-amber-600 text-white border-amber-600 shadow-xs"
+                              : "bg-card text-muted-foreground border-border hover:border-amber-500/40 hover:text-amber-700",
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (!walkInSubCategory.trim()) {
+                          toast.error("Select at least one referral source first");
+                          return;
+                        }
+                        setWalkInConfirmed(true);
+                        toast.success("Referral source saved for this visit");
+                      }}
+                      className="h-7 text-[11px] font-bold gap-1"
+                    >
+                      <CheckCircle2 className="size-3.5" /> Save
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1232,6 +1521,50 @@ export function BookAppointmentModal({
                   )}
                 </div>
               )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-border/40">
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-foreground">Food Allergies</Label>
+                  <Input
+                    placeholder="Comma separated, e.g. Chicken, Dairy"
+                    value={foodAllergiesInput}
+                    onChange={(e) => setFoodAllergiesInput(e.target.value)}
+                    className="h-8 text-xs bg-background"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-foreground">Other Allergies</Label>
+                  <Input
+                    placeholder="Comma separated"
+                    value={otherAllergiesInput}
+                    onChange={(e) => setOtherAllergiesInput(e.target.value)}
+                    className="h-8 text-xs bg-background"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-foreground">Clinical Alerts</Label>
+                  <Input
+                    placeholder="e.g. Aggressive, Cardiac patient"
+                    value={clinicalAlertsInput}
+                    onChange={(e) => setClinicalAlertsInput(e.target.value)}
+                    className="h-8 text-xs bg-background"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={savingAllergies || !selectedPet?.petId}
+                  onClick={handleSaveAllergies}
+                  className="h-8 text-xs font-bold gap-1.5"
+                >
+                  <CheckCircle2 className="size-3.5" />
+                  {savingAllergies ? "Saving..." : "Save Allergies"}
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -1276,6 +1609,16 @@ export function BookAppointmentModal({
         prefillOwnerName={ownerName.trim() || undefined}
         prefillPetName={(petName || searchPetQuery).trim() || undefined}
         onRegistered={handleRegistrationComplete}
+      />
+
+      {/* ── Pet Profile Viewer — opened via "View" on the selected patient card ── */}
+      <Patient360Profile
+        open={!!viewPetId}
+        petId={viewPetId}
+        onClose={() => setViewPetId(null)}
+        onStartConsultation={() =>
+          toast.info("Close this appointment form, then start the consultation from Pet & Owner CRM.")
+        }
       />
     </>
   );
