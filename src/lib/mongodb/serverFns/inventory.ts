@@ -75,6 +75,15 @@ export interface InventoryItemRow {
   purchaseUom: string;
   salesUom: string;
   uomConversions: { uom: string; conversionFactor: number }[];
+  packagingHierarchy?: {
+    baseUnit: string;
+    purchaseUnit: string;
+    baseUnitsPerPurchase: number;
+    hasIntermediateUnit: boolean;
+    intermediateUnit?: string;
+    intermediateUnitsPerPurchase?: number;
+    baseUnitsPerIntermediate?: number;
+  } | undefined;
   maintainStock: boolean;
   valuationMethod: string;
   currentStock: number;
@@ -210,6 +219,15 @@ const InventoryItemInputZ = z.object({
   purchaseUom:        z.string().default(""),
   salesUom:           z.string().default(""),
   uomConversions:     z.array(UomConversionZ).default([]),
+  packagingHierarchy: z.object({
+    baseUnit:                    z.string(),
+    purchaseUnit:                z.string(),
+    baseUnitsPerPurchase:        z.number().min(1),
+    hasIntermediateUnit:         z.boolean().default(false),
+    intermediateUnit:            z.string().optional(),
+    intermediateUnitsPerPurchase:z.number().optional(),
+    baseUnitsPerIntermediate:    z.number().optional(),
+  }).optional(),
   maintainStock:      z.boolean().default(true),
   valuationMethod:    z.enum(["FEFO", "FIFO", "Moving Average"]).default("FEFO"),
   currentStock:       z.number().min(0).default(0),

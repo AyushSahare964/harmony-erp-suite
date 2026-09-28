@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/select";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { useInventory, type Batch } from "./useInventoryStore";
+import { stockDisplayLabel } from "@/lib/inventory/packagingUtils";
 
 function money(v: number) {
   return `₹${v.toLocaleString("en-IN")}`;
@@ -278,8 +279,15 @@ export function StockView() {
                           <span className="text-muted-foreground text-xs">{batches.length} batch{batches.length !== 1 ? "es" : ""}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-bold text-lg">
-                        {totalQty}
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        <div className="font-bold text-base text-foreground">
+                          {totalQty} <span className="text-xs font-normal text-muted-foreground">{med.packagingHierarchy?.baseUnit || med.unit}s</span>
+                        </div>
+                        {med.packagingHierarchy && (
+                          <div className="text-[11px] font-normal text-muted-foreground mt-0.5">
+                            {stockDisplayLabel(totalQty, med.packagingHierarchy)}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right text-muted-foreground tabular-nums text-xs">
                         {batches.length > 0 && batches[0] ? money(batches[0].purchasePrice) : "—"}

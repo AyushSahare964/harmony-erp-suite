@@ -22,6 +22,13 @@ import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import { cn } from "@/lib/utils";
 import { useInventory } from "@/components/erp/inventory/useInventoryStore";
 import type { MedicineCategory } from "@/components/erp/inventory/useInventoryStore";
+import {
+  convertToBase,
+  getAvailableUnits,
+  resolveUnitPrice,
+  stockDisplayLabel,
+  type PackagingHierarchy,
+} from "@/lib/inventory/packagingUtils";
 
 interface CartItem {
   id: string;
@@ -33,6 +40,8 @@ interface CartItem {
   unitPrice: number;
   discountPercent: number;
   gstRate: number;
+  baseSalePrice: number;
+  packagingHierarchy?: PackagingHierarchy;
 }
 
 interface Props {
@@ -115,16 +124,25 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
 
   const addToCart = (item: typeof inventory[0]) => {
     const availableStock = getTotalQty(item.id);
+    const hierarchy = item.packagingHierarchy;
+    const defaultUnit = hierarchy?.baseUnit || item.unit || "Tablet";
+    const fullPrice = item.defaultSalePrice || item.mrp || 0;
+    const unitPrice = hierarchy ? resolveUnitPrice(fullPrice, defaultUnit, hierarchy) : fullPrice;
+
     setCart((prev) => {
-      const existing = prev.find((c) => c.itemCode === item.id);
-      const currentQty = existing ? existing.quantity : 0;
-      if (currentQty >= availableStock) {
-        toast.error(`Only ${availableStock} units available in stock for "${item.name}"`);
+      const existing = prev.find((c) => c.itemCode === item.id && c.unit === defaultUnit);
+      const currentBaseQty = prev
+        .filter((c) => c.itemCode === item.id)
+        .reduce((sum, c) => sum + (c.packagingHierarchy ? convertToBase(c.quantity, c.unit, c.packagingHierarchy) : c.quantity), 0);
+
+      const additionalBaseQty = hierarchy ? convertToBase(1, defaultUnit, hierarchy) : 1;
+      if (currentBaseQty + additionalBaseQty > availableStock) {
+        toast.error(`Only ${availableStock} base units available in stock for "${item.name}"`);
         return prev;
       }
       if (existing) {
         return prev.map((c) =>
-          c.itemCode === item.id ? { ...c, quantity: c.quantity + 1 } : c
+          c.id === existing.id ? { ...c, quantity: c.quantity + 1 } : c
         );
       }
       return [
@@ -134,15 +152,34 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
           itemCode: item.id,
           name: item.name,
           category: item.category,
-          unit: item.unit,
+          unit: defaultUnit,
           quantity: 1,
-          unitPrice: item.defaultSalePrice,
+          unitPrice,
+          baseSalePrice: fullPrice,
           discountPercent: 0,
           gstRate: item.gstRate || 0,
+          packagingHierarchy: hierarchy,
         },
       ];
     });
-    toast.success(`Added ${item.name} to cart`);
+    toast.success(`Added ${item.name} (${defaultUnit}) to cart`);
+  };
+
+  const updateCartUnit = (id: string, newUnit: string) => {
+    setCart((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const hierarchy = c.packagingHierarchy;
+        const newUnitPrice = hierarchy
+          ? resolveUnitPrice(c.baseSalePrice, newUnit, hierarchy)
+          : c.unitPrice;
+        return {
+          ...c,
+          unit: newUnit,
+          unitPrice: newUnitPrice,
+        };
+      })
+    );
   };
 
   const updateCartQty = (id: string, qty: number) => {
@@ -150,12 +187,18 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
       setCart((prev) => prev.filter((c) => c.id !== id));
       return;
     }
-    // Validate against live stock
+    // Validate against live base stock
     const cartItem = cart.find((c) => c.id === id);
     if (cartItem) {
       const avail = getTotalQty(cartItem.itemCode);
-      if (qty > avail) {
-        toast.error(`Only ${avail} units in stock for "${cartItem.name}"`);
+      const otherBaseQty = cart
+        .filter((c) => c.itemCode === cartItem.itemCode && c.id !== id)
+        .reduce((sum, c) => sum + (c.packagingHierarchy ? convertToBase(c.quantity, c.unit, c.packagingHierarchy) : c.quantity), 0);
+      const reqBaseQty = cartItem.packagingHierarchy
+        ? convertToBase(qty, cartItem.unit, cartItem.packagingHierarchy)
+        : qty;
+      if (otherBaseQty + reqBaseQty > avail) {
+        toast.error(`Insufficient stock for "${cartItem.name}". Only ${avail} base units available.`);
         return;
       }
     }
@@ -197,11 +240,14 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
       toast.error("Cart is empty. Please add items from inventory.");
       return;
     }
-    // Final stock validation
+    // Final stock validation in base units
     for (const c of cart) {
       const avail = getTotalQty(c.itemCode);
-      if (c.quantity > avail) {
-        toast.error(`Insufficient stock: only ${avail} of "${c.name}" available.`);
+      const totalBaseNeeded = cart
+        .filter((item) => item.itemCode === c.itemCode)
+        .reduce((sum, item) => sum + (item.packagingHierarchy ? convertToBase(item.quantity, item.unit, item.packagingHierarchy) : item.quantity), 0);
+      if (totalBaseNeeded > avail) {
+        toast.error(`Insufficient stock: need ${totalBaseNeeded} base units of "${c.name}", only ${avail} available.`);
         return;
       }
     }
@@ -209,9 +255,12 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
     setSubmitting(true);
     try {
       const billNo = `RET-${Math.floor(400 + Math.random() * 600)}`;
-      // Deduct stock via FEFO for each cart line (synchronous)
+      // Deduct stock via FEFO for each cart line in BASE UNITS
       for (const c of cart) {
-        const result = recordSale({ medicineId: c.itemCode, qty: c.quantity, sourceRef: billNo, actor: "POS" });
+        const deductQty = c.packagingHierarchy
+          ? convertToBase(c.quantity, c.unit, c.packagingHierarchy)
+          : c.quantity;
+        const result = recordSale({ medicineId: c.itemCode, qty: deductQty, sourceRef: billNo, actor: "POS" });
         if (!result.ok) {
           toast.error(result.error || `Failed to deduct stock for ${c.name}`);
           setSubmitting(false);
@@ -350,9 +399,13 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
                             <AlertCircle className="size-3" /> Out of Stock
                           </span>
                         ) : stockStatus === "Low" ? (
-                          <span className="text-[10px] text-warning font-semibold">⚠ Low: {availQty} left</span>
+                          <span className="text-[10px] text-warning font-semibold">
+                            ⚠ Low: {item.packagingHierarchy ? stockDisplayLabel(availQty, item.packagingHierarchy) : `${availQty} left`}
+                          </span>
                         ) : (
-                          <span className="text-[10px] text-success font-semibold">✓ In Stock: {availQty}</span>
+                          <span className="text-[10px] text-success font-semibold">
+                            ✓ {item.packagingHierarchy ? stockDisplayLabel(availQty, item.packagingHierarchy) : `${availQty} in stock`}
+                          </span>
                         )}
                       </div>
                       <div className="flex items-center justify-between pt-1 border-t border-border/50 text-xs">
@@ -459,9 +512,30 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
                     >
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-foreground truncate">{item.name}</p>
-                        <p className="text-[10px] text-muted-foreground font-mono">
-                          ₹{item.unitPrice} x {item.quantity} = ₹{(item.quantity * item.unitPrice).toFixed(2)}
-                        </p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {item.packagingHierarchy ? (
+                            <Select
+                              value={item.unit}
+                              onValueChange={(val) => updateCartUnit(item.id, val)}
+                            >
+                              <SelectTrigger className="h-5 text-[10px] px-1.5 py-0 font-medium w-auto min-w-[65px] bg-muted/60">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getAvailableUnits(item.packagingHierarchy).map((u) => (
+                                  <SelectItem key={u} value={u} className="text-xs">
+                                    {u}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-[10px] font-mono text-muted-foreground">{item.unit}</span>
+                          )}
+                          <p className="text-[10px] text-muted-foreground font-mono">
+                            ₹{item.unitPrice.toFixed(2)} × {item.quantity} = ₹{(item.quantity * item.unitPrice).toFixed(2)}
+                          </p>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-1.5">

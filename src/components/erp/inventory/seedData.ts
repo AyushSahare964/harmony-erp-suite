@@ -38,6 +38,8 @@ export interface SeedInjectionDetail {
   controlledSubstance: boolean;
 }
 
+import type { PackagingHierarchy } from "@/lib/inventory/packagingUtils";
+
 export interface SeedItem {
   itemCode: string;
   productType: "MEDICINE" | "INJECTION" | "FOOD" | "ACCESSORY";
@@ -54,6 +56,7 @@ export interface SeedItem {
   purchaseUom: string;
   salesUom: string;
   uomConversions: { uom: string; conversionFactor: number }[];
+  packagingHierarchy?: PackagingHierarchy;
   maintainStock: boolean;
   valuationMethod: "FEFO" | "FIFO" | "Moving Average";
   currentStock: number;

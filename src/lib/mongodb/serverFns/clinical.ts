@@ -404,16 +404,22 @@ export const savePrescriptionFn = createServerFn({ method: "POST" })
 // new quantity per itemCode so re-saving unchanged items is a no-op, and removing/reducing an
 // item restores stock instead of only ever depleting it.
 async function applyInventoryStockDelta(
-  oldItems: Array<{ itemCode?: string | undefined; quantity?: number | undefined }>,
-  newItems: Array<{ itemCode?: string | undefined; quantity?: number | undefined }>
+  oldItems: Array<{ itemCode?: string | undefined; quantity?: number | undefined; quantityBase?: number | undefined }>,
+  newItems: Array<{ itemCode?: string | undefined; quantity?: number | undefined; quantityBase?: number | undefined }>
 ) {
   const oldMap = new Map<string, number>();
   for (const it of oldItems || []) {
-    if (it.itemCode) oldMap.set(it.itemCode, (oldMap.get(it.itemCode) || 0) + (Number(it.quantity) || 0));
+    if (it.itemCode) {
+      const q = it.quantityBase !== undefined ? (Number(it.quantityBase) || 0) : (Number(it.quantity) || 0);
+      oldMap.set(it.itemCode, (oldMap.get(it.itemCode) || 0) + q);
+    }
   }
   const newMap = new Map<string, number>();
   for (const it of newItems || []) {
-    if (it.itemCode) newMap.set(it.itemCode, (newMap.get(it.itemCode) || 0) + (Number(it.quantity) || 0));
+    if (it.itemCode) {
+      const q = it.quantityBase !== undefined ? (Number(it.quantityBase) || 0) : (Number(it.quantity) || 0);
+      newMap.set(it.itemCode, (newMap.get(it.itemCode) || 0) + q);
+    }
   }
   const allCodes = new Set([...oldMap.keys(), ...newMap.keys()]);
   for (const code of allCodes) {
@@ -673,13 +679,18 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
             name: it.medicineName || it.name,
             dose: it.dose !== undefined && it.dose !== null && it.dose !== "" ? it.dose : 1,
             quantity: Number(it.quantity) || 1,
+            quantityBase: it.quantityBase !== undefined ? Number(it.quantityBase) : undefined,
             unit: it.unit || "Tablet",
+            dispensingUnit: it.dispensingUnit || it.unit || "Tablet",
+            baseSalePrice: it.baseSalePrice !== undefined ? Number(it.baseSalePrice) : undefined,
+            packagingHierarchy: it.packagingHierarchy,
             route: it.route || "Oral",
             time: it.time || "Immediate",
             dosage: it.dosage || it.dosageInstructions || "",
             instructions: it.instructions || it.dosageInstructions || "",
             note: it.note || it.remarks || "",
             unitPrice: Number(it.unitPrice) || 0,
+            discountPercent: Number(it.discountPercent) || 0,
           }));
         } else if (data.section === "PRESCRIBED_MED") {
           visit.prescriptionData.prescribedMedicines = items.map((it: any) => ({
