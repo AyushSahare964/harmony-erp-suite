@@ -17,6 +17,15 @@ import { SectionCard, type SaveStatus } from "./SectionCard";
 import { CatalogueSearch } from "./CatalogueSearch";
 import { roundMoney, calcLineItem } from "@/lib/utils/moneyUtils";
 import { cn } from "@/lib/utils";
+import {
+  getDefaultHierarchy,
+  getAvailableUnits,
+  convertToBase,
+  convertFromBase,
+  resolveUnitPrice,
+  stockDisplayLabel,
+  type PackagingHierarchy,
+} from "@/lib/inventory/packagingUtils";
 
 export interface InventoryItemLine {
   id: string; // stable client UUID
@@ -30,7 +39,20 @@ export interface InventoryItemLine {
   category?: string | undefined;
   dose?: number | string | undefined;
   quantity: number;
+  /** The unit in which quantity is expressed (dispensing unit, e.g. Strip, Tablet, Bottle). */
   unit: string;
+  /**
+   * The dispensing unit selected by the vet for this line.
+   * If set, `quantity` is expressed in `dispensingUnit` and `quantityBase`
+   * holds the equivalent count in `packagingHierarchy.baseUnit`.
+   */
+  dispensingUnit?: string | undefined;
+  /** Stock deduction quantity — always in the base unit (hierarchy.baseUnit). */
+  quantityBase?: number | undefined;
+  /** Full packaging hierarchy for this catalogue item, copied from Medicine.packagingHierarchy. */
+  packagingHierarchy?: PackagingHierarchy | undefined;
+  /** Outer / Purchase unit price (MRP or sale price) used to dynamically derive unit price per packaging hierarchy. */
+  baseSalePrice?: number | undefined;
   unitPrice: number;
   discountPercent?: number | undefined;
   dosageInstructions?: string | undefined;
@@ -138,8 +160,12 @@ const POPULAR_PRESCRIBED_CHIPS = [
 export function computePrescriptionQty(
   dose: string | number | undefined,
   frequency: string | undefined,
-  duration: string | number | undefined
-): number {
+  duration: string | number | undefined,
+  opts?: {
+    dispensingUnit?: string;
+    hierarchy?: PackagingHierarchy;
+  }
+): { baseQty: number; displayQty: number } {
   const dNum = Math.max(0.25, parseFloat(String(dose ?? 1)) || 1);
   const durMatch = String(duration ?? "5").match(/\d+(\.\d+)?/);
   const days = durMatch ? Math.max(1, parseFloat(durMatch[0])) : 5;
@@ -150,7 +176,20 @@ export function computePrescriptionQty(
     /qid|four/i.test(String(frequency)) ? 4 :
     /od|once/i.test(String(frequency)) ? 1 : 2
   );
-  return Math.max(1, Math.ceil(dNum * timesPerDay * days));
+
+  // baseQty = units in the base (stock tracking) unit
+  const baseQty = Math.max(1, Math.ceil(dNum * timesPerDay * days));
+
+  if (!opts?.dispensingUnit || !opts?.hierarchy) {
+    return { baseQty, displayQty: baseQty };
+  }
+
+  // displayQty = what the vet sees / writes on the prescription
+  const displayQty = Math.max(
+    1,
+    Math.ceil(convertFromBase(baseQty, opts.dispensingUnit, opts.hierarchy))
+  );
+  return { baseQty, displayQty };
 }
 
 export function buildPrescriptionDirection(it: Partial<InventoryItemLine>): string {
@@ -212,7 +251,7 @@ export function InventoryItemSection({
   );
 
   const handleSelectItem = (rawItem: any) => {
-    const unitPrice =
+    const fullPrice =
       rawItem.defaultSalePrice ??
       rawItem.mrp ??
       (catalogueType === "food" ? 850 : catalogueType === "accessory" ? 320 : catalogueType === "injection" ? 200 : 150);
@@ -221,6 +260,9 @@ export function InventoryItemSection({
       rawItem.unit ||
       (catalogueType === "food" ? "Kg" : catalogueType === "accessory" ? "Piece" : catalogueType === "injection" ? "Vial" : "Tablet");
 
+    const hierarchy: PackagingHierarchy = rawItem.packagingHierarchy ?? getDefaultHierarchy(rawItem.unit || defaultUnit);
+    const dispensingUnit = hierarchy.baseUnit || defaultUnit;
+
     if (section === "PRESCRIBED_MED") {
       const defaultDose = 1;
       const defaultFreq = "Twice daily (BID)";
@@ -228,7 +270,7 @@ export function InventoryItemSection({
       const defaultTiming = "After Food";
       const defaultTime = "Morning & Night";
       const defaultRoute = "Oral";
-      const defaultQty = computePrescriptionQty(defaultDose, defaultFreq, defaultDur);
+      const { baseQty, displayQty } = computePrescriptionQty(defaultDose, defaultFreq, defaultDur, { dispensingUnit, hierarchy });
 
       const newLine: InventoryItemLine = {
         id: generateStableId("prx"),
@@ -240,8 +282,12 @@ export function InventoryItemSection({
         strength: rawItem.medicineDetails?.strength,
         category: rawItem.category || rawItem.subGroup,
         dose: defaultDose,
-        quantity: defaultQty,
-        unit: defaultUnit,
+        quantity: displayQty,
+        quantityBase: baseQty,
+        unit: dispensingUnit,
+        dispensingUnit,
+        packagingHierarchy: hierarchy,
+        baseSalePrice: fullPrice,
         unitPrice: 0,
         discountPercent: 0,
         frequency: defaultFreq,
@@ -250,11 +296,14 @@ export function InventoryItemSection({
         time: defaultTime,
         route: defaultRoute,
         note: "",
+        availableStock: rawItem.currentStock,
       };
       newLine.dosageInstructions = buildPrescriptionDirection(newLine);
       onChange([...items, newLine]);
       return;
     }
+
+    const initialUnitPrice = hierarchy ? resolveUnitPrice(fullPrice, dispensingUnit, hierarchy) : fullPrice;
 
     const newLine: InventoryItemLine = {
       id: generateStableId(section.toLowerCase().substring(0, 4)),
@@ -267,8 +316,12 @@ export function InventoryItemSection({
       category: rawItem.category || rawItem.subGroup,
       dose: 1,
       quantity: 1,
-      unit: defaultUnit,
-      unitPrice,
+      quantityBase: hierarchy ? convertToBase(1, dispensingUnit, hierarchy) : 1,
+      unit: dispensingUnit,
+      dispensingUnit,
+      packagingHierarchy: hierarchy,
+      baseSalePrice: fullPrice,
+      unitPrice: initialUnitPrice,
       discountPercent: 0,
       dosageInstructions:
         section === "INJECTABLE"
@@ -296,16 +349,65 @@ export function InventoryItemSection({
       items.map((line) => {
         if (line.id !== lineId) return line;
         const updated = { ...line, [field]: value };
-        
-        // Auto-recalculate quantity and direction for PRESCRIBED_MED if dose, frequency, or duration changed
+
+        // Synchronize unit & dispensingUnit
+        if (field === "unit") {
+          updated.dispensingUnit = value;
+        } else if (field === "dispensingUnit") {
+          updated.unit = value;
+        }
+
+        // Auto-recalculate quantity for PRESCRIBED_MED if dose, frequency, duration, or unit changed
         if (section === "PRESCRIBED_MED") {
-          if (field === "dose" || field === "frequency" || field === "duration") {
-            updated.quantity = computePrescriptionQty(updated.dose, updated.frequency, updated.duration);
+          if (field === "dose" || field === "frequency" || field === "duration" || field === "dispensingUnit" || field === "unit") {
+            const hierarchy = updated.packagingHierarchy;
+            const dUnit = updated.dispensingUnit || updated.unit;
+            const { baseQty, displayQty } = computePrescriptionQty(
+              updated.dose,
+              updated.frequency,
+              updated.duration,
+              hierarchy ? { dispensingUnit: dUnit, hierarchy } : undefined
+            );
+            updated.quantity = displayQty;
+            updated.quantityBase = baseQty;
+            if ((field === "dispensingUnit" || field === "unit") && hierarchy && updated.baseSalePrice) {
+              updated.unitPrice = resolveUnitPrice(updated.baseSalePrice, dUnit, hierarchy);
+            }
           }
           updated.dosageInstructions = buildPrescriptionDirection(updated);
         } else if (section === "IMMEDIATE_MED") {
-          if (field === "dose") {
-            updated.quantity = Math.max(1, Number(updated.dose) || 1);
+          if (field === "dose" || field === "dispensingUnit" || field === "unit") {
+            const hierarchy = updated.packagingHierarchy;
+            const dUnit = updated.dispensingUnit || updated.unit;
+            const doseNum = Number(updated.dose);
+            const doseVal = isNaN(doseNum) || doseNum <= 0 ? 1 : doseNum;
+            const baseQty = hierarchy ? convertToBase(doseVal, dUnit, hierarchy) : doseVal;
+            updated.quantity = doseVal;
+            updated.quantityBase = baseQty;
+
+            if ((field === "dispensingUnit" || field === "unit") && hierarchy) {
+              const basePrice = updated.baseSalePrice ?? (hierarchy.baseUnitsPerPurchase ? updated.unitPrice * hierarchy.baseUnitsPerPurchase : updated.unitPrice);
+              if (basePrice > 0) {
+                updated.unitPrice = resolveUnitPrice(basePrice, dUnit, hierarchy);
+              }
+            }
+          }
+        } else {
+          if (field === "quantity" || field === "dispensingUnit" || field === "unit") {
+            const hierarchy = updated.packagingHierarchy;
+            const dUnit = updated.dispensingUnit || updated.unit;
+            const qtyNum = Number(updated.quantity);
+            const qtyVal = isNaN(qtyNum) || qtyNum <= 0 ? 1 : qtyNum;
+            const baseQty = hierarchy ? convertToBase(qtyVal, dUnit, hierarchy) : qtyVal;
+            updated.quantity = qtyVal;
+            updated.quantityBase = baseQty;
+
+            if ((field === "dispensingUnit" || field === "unit") && hierarchy) {
+              const basePrice = updated.baseSalePrice ?? (hierarchy.baseUnitsPerPurchase ? updated.unitPrice * hierarchy.baseUnitsPerPurchase : updated.unitPrice);
+              if (basePrice > 0) {
+                updated.unitPrice = resolveUnitPrice(basePrice, dUnit, hierarchy);
+              }
+            }
           }
         }
         return updated;
@@ -557,25 +659,33 @@ export function InventoryItemSection({
                       />
                     </div>
 
-                    {/* Unit / Form */}
+                    {/* Unit / Form — hierarchy-aware */}
                     <div>
                       <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
                         Form / Unit
                       </label>
                       <Select
                         disabled={isLocked}
-                        value={it.unit || "Tablet"}
-                        onValueChange={(val) => handleUpdateLine(it.id, "unit", val)}
+                        value={it.dispensingUnit || it.unit || "Tablet"}
+                        onValueChange={(val) => handleUpdateLine(it.id, "dispensingUnit", val)}
                       >
                         <SelectTrigger className="h-8 text-xs bg-background">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {STANDARD_MED_UNITS.map((u) => (
-                            <SelectItem key={u} value={u} className="text-xs">
-                              {u}
-                            </SelectItem>
-                          ))}
+                          {/* Show hierarchy-aware units first if available */}
+                          {it.packagingHierarchy
+                            ? getAvailableUnits(it.packagingHierarchy).map((u) => (
+                                <SelectItem key={u} value={u} className="text-xs">
+                                  {u}
+                                </SelectItem>
+                              ))
+                            : STANDARD_MED_UNITS.map((u) => (
+                                <SelectItem key={u} value={u} className="text-xs">
+                                  {u}
+                                </SelectItem>
+                              ))
+                          }
                         </SelectContent>
                       </Select>
                     </div>
@@ -872,11 +982,16 @@ export function InventoryItemSection({
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                      <div className="text-[10px] text-muted-foreground flex items-center gap-1.5 mt-0.5 flex-wrap">
                         {it.itemCode && <span className="font-mono">{it.itemCode}</span>}
                         {it.brand && <span>· {it.brand}</span>}
                         {it.strength && <span>· {it.strength}</span>}
-                        <span>· ₹{it.unitPrice}/{it.unit}</span>
+                        <span>· ₹{Number(it.unitPrice).toFixed(2)}/{it.unit}</span>
+                        {it.packagingHierarchy && it.baseSalePrice && it.packagingHierarchy.baseUnitsPerPurchase > 1 && it.unit !== it.packagingHierarchy.purchaseUnit && (
+                          <span className="text-[9px] text-muted-foreground/80 font-normal">
+                            (₹{Number(it.baseSalePrice).toFixed(0)}/{it.packagingHierarchy.purchaseUnit})
+                          </span>
+                        )}
                       </div>
                     </td>
 
@@ -900,18 +1015,26 @@ export function InventoryItemSection({
                         <td className="px-2 py-2 align-top text-center">
                           <Select
                             disabled={isLocked}
-                            value={it.unit || "Tablet"}
+                            value={it.dispensingUnit || it.unit || "Tablet"}
                             onValueChange={(val) => handleUpdateLine(it.id, "unit", val)}
                           >
                             <SelectTrigger className="h-7 text-xs w-22 mx-auto bg-background">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {STANDARD_MED_UNITS.map((u) => (
-                                <SelectItem key={u} value={u} className="text-xs">
-                                  {u}
-                                </SelectItem>
-                              ))}
+                              {it.packagingHierarchy ? (
+                                getAvailableUnits(it.packagingHierarchy).map((u) => (
+                                  <SelectItem key={u} value={u} className="text-xs">
+                                    {u}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                STANDARD_MED_UNITS.map((u) => (
+                                  <SelectItem key={u} value={u} className="text-xs">
+                                    {u}
+                                  </SelectItem>
+                                ))
+                              )}
                             </SelectContent>
                           </Select>
                         </td>
@@ -1041,21 +1164,29 @@ export function InventoryItemSection({
                         <td className="px-2 py-2 align-top text-center">
                           <Select
                             disabled={isLocked}
-                            value={it.unit}
+                            value={it.dispensingUnit || it.unit}
                             onValueChange={(val) => handleUpdateLine(it.id, "unit", val)}
                           >
                             <SelectTrigger className="h-7 text-xs w-22 mx-auto bg-background">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {(catalogueType === "food"
-                                ? STANDARD_FOOD_UNITS
-                                : STANDARD_MED_UNITS
-                              ).map((u) => (
-                                <SelectItem key={u} value={u} className="text-xs">
-                                  {u}
-                                </SelectItem>
-                              ))}
+                              {it.packagingHierarchy ? (
+                                getAvailableUnits(it.packagingHierarchy).map((u) => (
+                                  <SelectItem key={u} value={u} className="text-xs">
+                                    {u}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                (catalogueType === "food"
+                                  ? STANDARD_FOOD_UNITS
+                                  : STANDARD_MED_UNITS
+                                ).map((u) => (
+                                  <SelectItem key={u} value={u} className="text-xs">
+                                    {u}
+                                  </SelectItem>
+                                ))
+                              )}
                             </SelectContent>
                           </Select>
                         </td>

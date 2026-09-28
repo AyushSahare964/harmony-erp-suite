@@ -47,6 +47,10 @@ export type ValuationMethod = "FEFO" | "FIFO" | "Moving Average";
 export type MedicineStatus = "Active" | "Inactive";
 export type BatchStatus = "Active" | "Exhausted" | "Rejected" | "Expired";
 
+// Re-export from packagingUtils so consumers only need one import
+export type { PackagingHierarchy } from "@/lib/inventory/packagingUtils";
+import { getDefaultHierarchy } from "@/lib/inventory/packagingUtils";
+
 export interface UomConversion {
   uom: string;
   conversionFactor: number;
@@ -74,6 +78,12 @@ export interface Medicine {
   purchaseUom: string;
   salesUom: string;
   uomConversions: UomConversion[];
+  /**
+   * Hierarchical packaging definition — Box → Strip → Tablet, Bottle → ml, etc.
+   * `currentStock` is ALWAYS stored in the `packagingHierarchy.baseUnit`.
+   * If absent on legacy items, call `getDefaultHierarchy(medicine.unit)` to infer one.
+   */
+  packagingHierarchy?: import("@/lib/inventory/packagingUtils").PackagingHierarchy | undefined;
   maintainStock: boolean;
   valuationMethod: ValuationMethod;
   reorderLevel: number;
@@ -243,6 +253,7 @@ function mapToMedicine(raw: InventoryItemRow): Medicine {
     purchaseUom: raw.purchaseUom,
     salesUom: raw.salesUom,
     uomConversions: (raw.uomConversions || []) as UomConversion[],
+    packagingHierarchy: (raw as any).packagingHierarchy ?? getDefaultHierarchy(raw.unit),
     maintainStock: raw.maintainStock,
     valuationMethod: raw.valuationMethod as ValuationMethod,
     reorderLevel: raw.reorderLevel,

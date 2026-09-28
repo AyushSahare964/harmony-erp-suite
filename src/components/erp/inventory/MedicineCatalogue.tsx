@@ -38,6 +38,7 @@ import { toast } from "sonner";
 import { useInventory, type Medicine } from "./useInventoryStore";
 import { ProductMasterWizardDialog } from "./ProductMasterWizardDialog";
 import { ItemDetailView } from "./item-detail/ItemDetailView";
+import { stockDisplayLabel } from "@/lib/inventory/packagingUtils";
 
 export function MedicineCatalogue() {
   const {
@@ -408,7 +409,7 @@ export function MedicineCatalogue() {
                                         : "text-emerald-600 dark:text-emerald-400"
                                     }`}
                                   >
-                                    {currentQty} {med.unit}s
+                                    {stockDisplayLabel(currentQty, med.packagingHierarchy, { showBreakdown: true })}
                                   </span>
                                 </div>
                                 <div className="text-[10px] text-muted-foreground">
@@ -431,7 +432,7 @@ export function MedicineCatalogue() {
                         </td>
 
                         <td className="px-3 py-3 font-medium text-foreground">
-                          {med.reorderLevel} {med.unit}s
+                          {med.reorderLevel} {med.packagingHierarchy?.baseUnit ?? med.unit}s
                         </td>
 
                         <td className="px-3 py-3">

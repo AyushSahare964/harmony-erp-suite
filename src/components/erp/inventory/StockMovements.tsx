@@ -29,6 +29,11 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useInventory } from "./useInventoryStore";
+import {
+  convertToBase,
+  getAvailableUnits,
+  stockDisplayLabel,
+} from "@/lib/inventory/packagingUtils";
 
 const REMOVAL_REASONS = [
   "Wastage",
@@ -46,6 +51,7 @@ function AddStockPanel() {
   const activeMeds = medicines.filter((m) => m.status === "Active");
 
   const [itemCode, setItemCode] = useState("");
+  const [selectedUnit, setSelectedUnit] = useState("");
   const [batchNo, setBatchNo] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
@@ -60,9 +66,11 @@ function AddStockPanel() {
   );
 
   const selectedItem = activeMeds.find((m) => m.itemCode === itemCode);
+  const hierarchy = selectedItem?.packagingHierarchy;
 
   const reset = () => {
     setItemCode("");
+    setSelectedUnit("");
     setBatchNo("");
     setExpiryDate("");
     setPurchasePrice("");
@@ -82,6 +90,8 @@ function AddStockPanel() {
       return;
     }
 
+    const unitToUse = selectedUnit || hierarchy?.purchaseUnit || selectedItem?.unit || "unit";
+    const baseQty = hierarchy ? convertToBase(numQty, unitToUse, hierarchy) : numQty;
     const effectiveBatchNo = batchNo.trim() || `GRN-${Date.now().toString().slice(-6)}`;
     const effectiveExpiry = expiryDate || "2030-12-31";
 
@@ -95,13 +105,13 @@ function AddStockPanel() {
         expiryDate: effectiveExpiry,
         purchasePricePerUnit: Number(purchasePrice) || selectedItem?.defaultPurchasePrice || 0,
         receivedDate: new Date().toISOString().slice(0, 10),
-        receivedQty: numQty,
-        acceptedQty: numQty,
+        receivedQty: baseQty,
+        acceptedQty: baseQty,
         supplierName: supplierName.trim() || selectedItem?.defaultSupplierName || "Direct Supplier",
         purchaseOrderRef: poRef.trim() || `PO-${Date.now().toString().slice(-6)}`,
         actor: "Clinic Store In-Charge",
       });
-      toast.success(`+${numQty} ${selectedItem?.unit || "units"} added to stock`);
+      toast.success(`+${numQty} ${unitToUse} (${baseQty} ${hierarchy?.baseUnit || selectedItem?.unit || "units"}) added to stock`);
       reset();
     } catch (err: any) {
       toast.error(err.message || "Failed to record stock addition");
@@ -173,19 +183,43 @@ function AddStockPanel() {
           />
         </div>
 
-        {/* Quantity */}
+        {/* Quantity and Unit */}
         <div className="space-y-1.5">
           <Label htmlFor="add-qty" className="text-xs font-semibold">
             Quantity Inward <span className="text-destructive">*</span>
           </Label>
-          <Input
-            id="add-qty"
-            type="number"
-            min={1}
-            value={qty}
-            onChange={(e) => setQty(e.target.value)}
-            placeholder={`Quantity in ${selectedItem?.unit || "units"}`}
-          />
+          <div className="flex gap-2">
+            <Input
+              id="add-qty"
+              type="number"
+              min={1}
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+              placeholder="0"
+              className="flex-1"
+            />
+            {hierarchy ? (
+              <Select value={selectedUnit || hierarchy.purchaseUnit} onValueChange={setSelectedUnit}>
+                <SelectTrigger className="w-28 text-xs bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {getAvailableUnits(hierarchy).map((u) => (
+                    <SelectItem key={u} value={u}>{u}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="px-2.5 py-1.5 rounded-md bg-muted text-xs font-mono text-muted-foreground flex items-center">
+                {selectedItem?.unit || "Unit"}
+              </div>
+            )}
+          </div>
+          {hierarchy && Number(qty) > 0 && (
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono font-medium">
+              = {convertToBase(Number(qty), selectedUnit || hierarchy.purchaseUnit, hierarchy)} {hierarchy.baseUnit}s to stock
+            </p>
+          )}
         </div>
 
         {/* Purchase Rate */}
@@ -475,7 +509,7 @@ function RemoveStockPanel() {
 
 // ─── Authoritative Transaction Ledger Table ──────────────────────────────────
 function MovementsLog() {
-  const { ledger } = useInventory();
+  const { ledger, medicines } = useInventory();
   const [filterType, setFilterType] = useState("all");
 
   const filteredLedger = useMemo(() => {
@@ -538,6 +572,8 @@ function MovementsLog() {
           <tbody className="divide-y divide-border/60">
             {filteredLedger.slice(0, 30).map((l) => {
               const isIn = l.movementType.includes("in");
+              const med = medicines.find((m) => m.itemCode === l.medicineId || m.id === l.medicineId);
+              const unitName = med?.packagingHierarchy?.baseUnit || med?.unit || "";
               return (
                 <tr key={l.id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
@@ -568,10 +604,10 @@ function MovementsLog() {
                         : "text-rose-600 dark:text-rose-400"
                     }`}
                   >
-                    {isIn ? "+" : "−"}{l.quantity}
+                    {isIn ? "+" : "−"}{l.quantity} {unitName}
                   </td>
                   <td className="px-3 py-2.5 font-bold tabular-nums text-foreground">
-                    {l.balanceAfter}
+                    {l.balanceAfter} {unitName}
                   </td>
                   <td className="px-3 py-2.5 font-mono text-muted-foreground">
                     {l.sourceRef}

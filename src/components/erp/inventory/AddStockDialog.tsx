@@ -17,6 +17,11 @@ import {
   SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useInventory, type Medicine } from "./useInventoryStore";
+import {
+  convertToBase,
+  getAvailableUnits,
+  type PackagingHierarchy,
+} from "@/lib/inventory/packagingUtils";
 
 // ─── Field wrapper ────────────────────────────────────────────────────────────
 function F({ label, required, children, hint }: {
@@ -49,6 +54,7 @@ interface GRNForm {
   // Item
   itemCode: string;
   itemName: string;
+  receivedUnit: string;
   // Batch
   batchNo: string;
   manufacturingDate: string;
@@ -75,7 +81,7 @@ interface GRNForm {
 }
 
 const EMPTY_GRN: GRNForm = {
-  itemCode: "", itemName: "",
+  itemCode: "", itemName: "", receivedUnit: "Box",
   batchNo: "", manufacturingDate: "", expiryDate: "",
   supplierId: "", supplierName: "",
   purchaseOrderRef: "", invoiceBillNo: "",
@@ -86,18 +92,37 @@ const EMPTY_GRN: GRNForm = {
 };
 
 // ─── Computed summary ─────────────────────────────────────────────────────────
-function computeSummary(form: GRNForm) {
-  const received = Number(form.receivedQty) || 0;
-  const rejected = Number(form.rejectedQty) || 0;
-  const accepted = Math.max(0, received - rejected);
+function computeSummary(form: GRNForm, hierarchy?: PackagingHierarchy) {
+  const rawReceived = Number(form.receivedQty) || 0;
+  const rawRejected = Number(form.rejectedQty) || 0;
+  const unit = form.receivedUnit;
+
+  const baseReceived = hierarchy ? convertToBase(rawReceived, unit, hierarchy) : rawReceived;
+  const baseRejected = hierarchy ? convertToBase(rawRejected, unit, hierarchy) : rawRejected;
+  const accepted = Math.max(0, rawReceived - rawRejected);
+  const baseAccepted = Math.max(0, baseReceived - baseRejected);
+
   const ppu = Number(form.purchasePricePerUnit) || 0;
   const landing = Number(form.landingCost) || 0;
   const gstPct = Number(form.gstOnPurchase) || 0;
-  const landingPerUnit = accepted > 0 ? landing / accepted : 0;
   const baseValue = accepted * ppu;
-  const gstAmt = baseValue * gstPct / 100;
+  const gstAmt = (baseValue * gstPct) / 100;
   const totalValue = baseValue + landing + gstAmt;
-  return { accepted, landingPerUnit, baseValue, gstAmt, totalValue };
+
+  const basePpu = baseAccepted > 0 ? baseValue / baseAccepted : ppu;
+  const landingPerUnit = baseAccepted > 0 ? landing / baseAccepted : 0;
+
+  return {
+    accepted,
+    baseAccepted,
+    baseReceived,
+    baseRejected,
+    basePpu,
+    landingPerUnit,
+    baseValue,
+    gstAmt,
+    totalValue,
+  };
 }
 
 // ─── Main Dialog ──────────────────────────────────────────────────────────────
@@ -113,6 +138,7 @@ export function AddStockDialog({
     ...EMPTY_GRN,
     itemCode: preselectedItem?.itemCode ?? "",
     itemName: preselectedItem?.name ?? "",
+    receivedUnit: preselectedItem?.packagingHierarchy?.purchaseUnit || preselectedItem?.unit || "Box",
     gstOnPurchase: preselectedItem ? String(preselectedItem.gstRate) : "",
     storageLocation: preselectedItem?.storageLocation ?? "",
     supplierName: preselectedItem?.defaultSupplierName ?? "",
@@ -120,12 +146,16 @@ export function AddStockDialog({
   }));
   const [saving, setSaving] = useState(false);
 
+  const selectedItem = medicines.find((m) => m.itemCode === form.itemCode) || preselectedItem;
+  const hierarchy = selectedItem?.packagingHierarchy;
+
   useEffect(() => {
     if (open) {
       setForm({
         ...EMPTY_GRN,
         itemCode: preselectedItem?.itemCode ?? "",
         itemName: preselectedItem?.name ?? "",
+        receivedUnit: preselectedItem?.packagingHierarchy?.purchaseUnit || preselectedItem?.unit || "Box",
         gstOnPurchase: preselectedItem ? String(preselectedItem.gstRate) : "",
         storageLocation: preselectedItem?.storageLocation ?? "",
         supplierName: preselectedItem?.defaultSupplierName ?? "",
@@ -141,10 +171,12 @@ export function AddStockDialog({
   // Auto-fill item details when item changes
   const onItemChange = (code: string) => {
     const item = medicines.find((m) => m.itemCode === code);
+    const itemHierarchy = item?.packagingHierarchy;
     setForm((f) => ({
       ...f,
       itemCode: code,
       itemName: item?.name ?? "",
+      receivedUnit: itemHierarchy?.purchaseUnit || item?.unit || "Box",
       gstOnPurchase: item ? String(item.gstRate) : f.gstOnPurchase,
       storageLocation: item?.storageLocation ?? f.storageLocation,
       supplierName: item?.defaultSupplierName ?? f.supplierName,
@@ -152,7 +184,7 @@ export function AddStockDialog({
     }));
   };
 
-  const summary = computeSummary(form);
+  const summary = computeSummary(form, hierarchy);
 
   const submit = async () => {
     if (!form.itemCode) { toast.error("Select an item"); return; }
@@ -175,20 +207,20 @@ export function AddStockDialog({
         purchaseOrderRef: form.purchaseOrderRef.trim(),
         invoiceBillNo: form.invoiceBillNo.trim(),
         receivedDate: form.receivedDate,
-        receivedQty: Number(form.receivedQty),
-        acceptedQty: summary.accepted,
-        rejectedQty: Number(form.rejectedQty) || 0,
+        receivedQty: summary.baseReceived,
+        acceptedQty: summary.baseAccepted,
+        rejectedQty: summary.baseRejected,
         rejectionReason: form.rejectionReason.trim(),
-        purchasePricePerUnit: Number(form.purchasePricePerUnit),
+        purchasePricePerUnit: summary.basePpu,
         landingCost: Number(form.landingCost) || 0,
         gstOnPurchase: Number(form.gstOnPurchase) || 0,
         storageLocation: form.storageLocation.trim(),
         qualityChecked: form.qualityChecked,
         qcInspectorName: form.qcInspectorName.trim(),
-        remarks: form.remarks.trim(),
+        remarks: `Received ${form.receivedQty} ${form.receivedUnit} (${summary.baseAccepted} ${hierarchy?.baseUnit ?? "units"} accepted). ${form.remarks}`.trim(),
         actor: "System",
       });
-      toast.success(`Stock added — ${summary.accepted} units of ${form.itemName}`);
+      toast.success(`Stock added — ${summary.baseAccepted} ${hierarchy?.baseUnit ?? "units"} of ${form.itemName} (${form.receivedQty} ${form.receivedUnit})`);
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add stock");
@@ -274,29 +306,58 @@ export function AddStockDialog({
           </section>
 
           {/* Section: Quantities */}
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Quantities</h3>
-            <div className="grid grid-cols-3 gap-4">
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Quantities</h3>
+            <div className="grid grid-cols-4 gap-4">
               <F label="Received Qty" required>
                 <Input type="number" min={1} value={form.receivedQty} onChange={(e) => set("receivedQty", e.target.value)} placeholder="0" />
+              </F>
+              <F label="Unit">
+                {hierarchy ? (
+                  <Select value={form.receivedUnit} onValueChange={(u) => set("receivedUnit", u)}>
+                    <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {getAvailableUnits(hierarchy).map((u) => (
+                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input disabled value={form.receivedUnit || selectedItem?.unit || "Unit"} className="bg-muted text-xs" />
+                )}
               </F>
               <F label="Rejected Qty">
                 <Input type="number" min={0} value={form.rejectedQty} onChange={(e) => set("rejectedQty", e.target.value)} placeholder="0" />
               </F>
               <div className="flex flex-col justify-end">
                 <div className="rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs">
-                  <span className="text-muted-foreground">Accepted Qty: </span>
-                  <span className="font-bold text-sm">{summary.accepted}</span>
+                  <span className="text-muted-foreground">Accepted: </span>
+                  <span className="font-bold text-sm">{summary.accepted} {form.receivedUnit}</span>
+                  {hierarchy && (
+                    <p className="text-[10px] text-primary font-mono font-medium">
+                      = {summary.baseAccepted} {hierarchy.baseUnit}s
+                    </p>
+                  )}
                 </div>
               </div>
-              {Number(form.rejectedQty) > 0 && (
-                <div className="col-span-3">
-                  <F label="Rejection Reason">
-                    <Input value={form.rejectionReason} onChange={(e) => set("rejectionReason", e.target.value)} placeholder="e.g. Damaged packaging, short expiry" />
-                  </F>
-                </div>
-              )}
             </div>
+
+            {hierarchy && Number(form.receivedQty) > 0 && (
+              <div className="rounded-md bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-900/70 px-3 py-2 text-xs text-blue-900 dark:text-blue-300 flex items-center justify-between">
+                <span className="font-semibold">📦 Packaging Conversion Preview:</span>
+                <span className="font-mono font-bold">
+                  {form.receivedQty} {form.receivedUnit}(s) → +{summary.baseAccepted} {hierarchy.baseUnit}s to inventory balance
+                </span>
+              </div>
+            )}
+
+            {Number(form.rejectedQty) > 0 && (
+              <div>
+                <F label="Rejection Reason">
+                  <Input value={form.rejectionReason} onChange={(e) => set("rejectionReason", e.target.value)} placeholder="e.g. Damaged packaging, short expiry" />
+                </F>
+              </div>
+            )}
           </section>
 
           {/* Section: Pricing */}

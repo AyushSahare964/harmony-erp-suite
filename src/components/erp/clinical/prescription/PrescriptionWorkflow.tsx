@@ -44,6 +44,7 @@ import { LivePrescriptionSummaryPanel } from "./LivePrescriptionSummaryPanel";
 import { savePrescriptionSectionFn } from "@/lib/mongodb/serverFns/clinical";
 import { createAppointmentFn, updateAppointmentFn } from "@/lib/mongodb/serverFns/appointments";
 import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { resolveUnitPrice, convertToBase } from "@/lib/inventory/packagingUtils";
 import type { IPrescriptionData } from "@/lib/mongodb/models/ClinicalVisit";
 
 export interface PrescriptionWorkflowProps {
@@ -348,24 +349,43 @@ export function PrescriptionWorkflow({
   // Initial values computed stably
   const initialImmediate = useMemo<InventoryItemLine[]>(() => {
     if (initialRx.immediateMedicines && initialRx.immediateMedicines.length > 0) {
-      return initialRx.immediateMedicines.map((m: any, idx: number) => ({
-        id: m.id || `imm-${idx}-${visit?.visitId || "rx"}`,
-        itemCode: m.itemCode,
-        name: m.medicineName || m.name,
-        medicineName: m.medicineName || m.name,
-        dosageInstructions: m.dosage || m.instructions || "",
-        dose: m.dose !== undefined && m.dose !== null && m.dose !== "" ? m.dose : 1,
-        route: m.route || "Oral",
-        time: m.time || "Immediate",
-        quantity: Number(m.quantity) || 1,
-        unit: m.unit || "Tablet",
-        unitPrice: Number(m.unitPrice) || 120,
-        discountPercent: 0,
-        note: m.note || m.remarks || "",
-      }));
+      return initialRx.immediateMedicines.map((m: any, idx: number) => {
+        const catItem = catalogItems?.find((c: any) => (c.itemCode || c.id) === m.itemCode);
+        const hierarchy = m.packagingHierarchy || catItem?.packagingHierarchy;
+        const baseSalePrice = m.baseSalePrice ?? catItem?.defaultSalePrice ?? catItem?.mrp;
+        const unit = m.unit || m.dispensingUnit || hierarchy?.baseUnit || "Tablet";
+        let unitPrice = Number(m.unitPrice) || 0;
+        if (hierarchy && (baseSalePrice || unitPrice > 0)) {
+          const outerPrice = baseSalePrice ?? (m.unit === hierarchy.purchaseUnit ? unitPrice : undefined);
+          if (outerPrice) {
+            unitPrice = resolveUnitPrice(outerPrice, unit, hierarchy);
+          }
+        }
+        const doseVal = m.dose !== undefined && m.dose !== null && m.dose !== "" ? m.dose : 1;
+        const qtyVal = Number(m.quantity) || Number(doseVal) || 1;
+        return {
+          id: m.id || `imm-${idx}-${visit?.visitId || "rx"}`,
+          itemCode: m.itemCode,
+          name: m.medicineName || m.name,
+          medicineName: m.medicineName || m.name,
+          dosageInstructions: m.dosage || m.instructions || "",
+          dose: doseVal,
+          route: m.route || "Oral",
+          time: m.time || "Immediate",
+          quantity: qtyVal,
+          quantityBase: hierarchy ? convertToBase(qtyVal, unit, hierarchy) : qtyVal,
+          unit,
+          dispensingUnit: unit,
+          packagingHierarchy: hierarchy,
+          baseSalePrice,
+          unitPrice: unitPrice > 0 ? unitPrice : 120,
+          discountPercent: 0,
+          note: m.note || m.remarks || "",
+        };
+      });
     }
     return [];
-  }, [visit?.visitId, initialRx]);
+  }, [visit?.visitId, initialRx, catalogItems]);
 
   const [immediateMedicines, setImmediateMedicines] = useState<InventoryItemLine[]>(initialImmediate);
 

@@ -47,6 +47,7 @@ import {
   ShieldCheck,
   Calendar,
   Clock,
+  Package,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -57,6 +58,15 @@ import {
   type UnitOfMeasure,
   type ValuationMethod,
 } from "./useInventoryStore";
+import {
+  getDefaultHierarchy,
+  deriveBaseUnitsPerPurchase,
+  stockDisplayLabel,
+  getAvailableUnits,
+  convertToBase,
+  resolveUnitPrice,
+  type PackagingHierarchy,
+} from "@/lib/inventory/packagingUtils";
 import { peekItemCodeFn } from "@/lib/mongodb/serverFns/inventory";
 import { createPurchaseBillFn } from "@/lib/mongodb/serverFns/purchaseBills";
 import { todayIST } from "@/lib/utils/dateUtils";
@@ -222,6 +232,7 @@ export interface WizardFormState {
   maintainStock: boolean;
   valuationMethod: ValuationMethod;
   openingStock: string; // Used when creating
+  openingStockUnit: string; // Unit used when entering opening stock (purchase unit or base)
   currentStock: number; // Read-only authoritative in edit mode
   reorderLevel: string;
   reorderQty: string;
@@ -233,6 +244,15 @@ export interface WizardFormState {
   batchNo: string;
   expiryDate: string;
   manufacturingDate: string;
+
+  // Packaging Hierarchy
+  pkgBaseUnit: string;
+  pkgPurchaseUnit: string;
+  pkgBaseUnitsPerPurchase: string;
+  pkgHasIntermediate: boolean;
+  pkgIntermediateUnit: string;
+  pkgIntermediateUnitsPerPurchase: string;
+  pkgBaseUnitsPerIntermediate: string;
 
   // Pricing
   defaultPurchasePrice: string;
@@ -271,15 +291,15 @@ function getDefaultFormState(
 
     return {
       productType: pType,
-      itemCode: editing.itemCode,
+      itemCode: editing.itemCode || "",
       sku: editing.sku || "",
-      name: editing.name,
-      genericName: editing.genericName,
-      brand: editing.brand,
-      manufacturer: editing.manufacturer,
-      description: editing.description,
-      subGroup: editing.subGroup,
-      hasVariants: editing.hasVariants,
+      name: editing.name || "",
+      genericName: editing.genericName || "",
+      brand: editing.brand || "",
+      manufacturer: editing.manufacturer || "",
+      description: editing.description || "",
+      subGroup: editing.subGroup || "",
+      hasVariants: editing.hasVariants || false,
 
       // Medicine details
       composition: editing.medicineDetails?.composition || "",
@@ -317,23 +337,33 @@ function getDefaultFormState(
       injControlledSubstance: editing.injectionDetails?.controlledSubstance || false,
 
       // Stock
-      unit: editing.unit,
-      purchaseUom: editing.purchaseUom,
-      salesUom: editing.salesUom,
-      maintainStock: editing.maintainStock,
-      valuationMethod: editing.valuationMethod,
+      unit: (editing.unit as UnitOfMeasure) || "Tablet",
+      purchaseUom: editing.purchaseUom || "Box",
+      salesUom: editing.salesUom || "Tablet",
+      maintainStock: editing.maintainStock ?? true,
+      valuationMethod: editing.valuationMethod || "FEFO",
       openingStock: "0",
+      openingStockUnit: editing.packagingHierarchy?.purchaseUnit ?? editing.unit ?? "Box",
       currentStock: editing.currentStock ?? 0,
-      reorderLevel: String(editing.reorderLevel),
-      reorderQty: String(editing.reorderQty),
-      safetyStock: String(editing.safetyStock),
-      storageLocation: editing.storageLocation,
-      batchTracking: editing.batchTracking,
-      serialTracking: editing.serialTracking,
-      allowNegativeStock: editing.allowNegativeStock,
+      reorderLevel: String(editing.reorderLevel ?? 10),
+      reorderQty: String(editing.reorderQty ?? 20),
+      safetyStock: String(editing.safetyStock ?? 5),
+      storageLocation: editing.storageLocation || "",
+      batchTracking: editing.batchTracking ?? false,
+      serialTracking: editing.serialTracking ?? false,
+      allowNegativeStock: editing.allowNegativeStock ?? false,
       batchNo: editing.batchNo || editing.medicineDetails?.batchNo || editing.injectionDetails?.batchNo || "",
       expiryDate: editing.expiryDate || editing.medicineDetails?.expiryDate || editing.injectionDetails?.expiryDate || "",
       manufacturingDate: editing.manufacturingDate || editing.medicineDetails?.manufacturingDate || editing.injectionDetails?.manufacturingDate || "",
+
+      // Packaging Hierarchy — loaded from existing item or inferred
+      pkgBaseUnit: editing.packagingHierarchy?.baseUnit ?? editing.unit ?? "Tablet",
+      pkgPurchaseUnit: editing.packagingHierarchy?.purchaseUnit ?? "Box",
+      pkgBaseUnitsPerPurchase: String(editing.packagingHierarchy?.baseUnitsPerPurchase ?? 100),
+      pkgHasIntermediate: editing.packagingHierarchy?.hasIntermediateUnit ?? false,
+      pkgIntermediateUnit: editing.packagingHierarchy?.intermediateUnit ?? "",
+      pkgIntermediateUnitsPerPurchase: String(editing.packagingHierarchy?.intermediateUnitsPerPurchase ?? ""),
+      pkgBaseUnitsPerIntermediate: String(editing.packagingHierarchy?.baseUnitsPerIntermediate ?? ""),
 
       // Pricing
       defaultPurchasePrice: String(editing.defaultPurchasePrice || ""),
@@ -343,13 +373,13 @@ function getDefaultFormState(
       maxDiscountPct: String(editing.maxDiscountPct || "10"),
       valuationRate: String(editing.valuationRate || ""),
       gstRate: String(editing.gstRate || "12"),
-      hsnCode: editing.hsnCode,
+      hsnCode: editing.hsnCode || "",
       taxCategory: editing.taxCategory || "Standard",
       samplePriceNote: editing.samplePriceNote || "",
 
       // Purchasing
-      defaultSupplierId: editing.defaultSupplierId,
-      defaultSupplierName: editing.defaultSupplierName,
+      defaultSupplierId: editing.defaultSupplierId || "",
+      defaultSupplierName: editing.defaultSupplierName || "",
       leadTimeDays: String(editing.leadTimeDays || "7"),
       minOrderQty: String(editing.minOrderQty || "1"),
       purchaseAccount: editing.purchaseAccount || "5010 - Cost of Goods Sold",
@@ -358,9 +388,9 @@ function getDefaultFormState(
       // Sales & Meta
       incomeAccount: editing.incomeAccount || "4010 - Sales Revenue",
       costCenter: editing.costCenter || (pType === "MEDICINE" || pType === "INJECTION" ? "Pharmacy" : "Retail Store"),
-      isSalesItem: editing.isSalesItem,
-      allowAlternativeItem: editing.allowAlternativeItem,
-      status: editing.status,
+      isSalesItem: editing.isSalesItem ?? true,
+      allowAlternativeItem: editing.allowAlternativeItem ?? false,
+      status: editing.status || "Active",
     };
   }
 
@@ -410,20 +440,23 @@ function getDefaultFormState(
 
     unit: defaultProductType === "MEDICINE" ? "Tablet"
       : defaultProductType === "INJECTION" ? "Vial"
-      : defaultProductType === "FOOD" ? "Box" : "Piece",
+      : defaultProductType === "FOOD" ? "Kg" : "Piece",
     purchaseUom: "",
     salesUom: "",
     maintainStock: true,
     valuationMethod: defaultProductType === "MEDICINE" || defaultProductType === "INJECTION" ? "FEFO" : "FIFO",
     openingStock: "0",
+    openingStockUnit: defaultProductType === "MEDICINE" ? "Box"
+      : defaultProductType === "INJECTION" ? "Box"
+      : defaultProductType === "FOOD" ? "Bag" : "Piece",
     currentStock: 0,
-    reorderLevel: defaultProductType === "MEDICINE" ? "20"
+    reorderLevel: defaultProductType === "MEDICINE" ? "200"
       : defaultProductType === "INJECTION" ? "10"
       : defaultProductType === "FOOD" ? "10" : "5",
-    reorderQty: defaultProductType === "MEDICINE" ? "50"
+    reorderQty: defaultProductType === "MEDICINE" ? "500"
       : defaultProductType === "INJECTION" ? "20"
       : defaultProductType === "FOOD" ? "20" : "15",
-    safetyStock: "5",
+    safetyStock: "50",
     storageLocation: defaultProductType === "MEDICINE" ? "Pharmacy Shelf A1"
       : defaultProductType === "INJECTION" ? "Pharmacy Cold Chain Fridge"
       : "Retail Floor",
@@ -433,6 +466,19 @@ function getDefaultFormState(
     batchNo: "",
     expiryDate: "",
     manufacturingDate: "",
+
+    // Packaging Hierarchy defaults by product type
+    pkgBaseUnit: defaultProductType === "MEDICINE" ? "Tablet"
+      : defaultProductType === "INJECTION" ? "Vial"
+      : defaultProductType === "FOOD" ? "Kg" : "Piece",
+    pkgPurchaseUnit: defaultProductType === "FOOD" ? "Bag" : "Box",
+    pkgBaseUnitsPerPurchase: defaultProductType === "MEDICINE" ? "100"
+      : defaultProductType === "INJECTION" ? "5"
+      : defaultProductType === "FOOD" ? "4" : "1",
+    pkgHasIntermediate: defaultProductType === "MEDICINE",
+    pkgIntermediateUnit: defaultProductType === "MEDICINE" ? "Strip" : "",
+    pkgIntermediateUnitsPerPurchase: defaultProductType === "MEDICINE" ? "10" : "",
+    pkgBaseUnitsPerIntermediate: defaultProductType === "MEDICINE" ? "10" : "",
 
     defaultPurchasePrice: "",
     defaultSalePrice: "",
@@ -602,7 +648,8 @@ export function ProductMasterWizardDialog({
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.data) {
-          setForm(parsed.data);
+          const defaults = getDefaultFormState(undefined, parsed.data.productType || form.productType);
+          setForm({ ...defaults, ...parsed.data });
           toast.success("Draft recovered successfully");
         }
       }
@@ -704,15 +751,48 @@ export function ProductMasterWizardDialog({
         subGroup: form.subGroup.trim(),
         hasVariants: form.hasVariants,
 
-        unit: form.unit,
-        purchaseUom: form.purchaseUom || form.unit,
-        salesUom: form.salesUom || form.unit,
+        unit: form.pkgBaseUnit || form.unit,
+        purchaseUom: form.pkgPurchaseUnit || form.purchaseUom || form.unit,
+        salesUom: form.pkgBaseUnit || form.salesUom || form.unit,
         maintainStock: form.maintainStock,
         valuationMethod: form.valuationMethod,
         reorderLevel: Number(form.reorderLevel) || 10,
         reorderQty: Number(form.reorderQty) || 20,
         safetyStock: Number(form.safetyStock) || 5,
-        currentStock: editing ? editing.currentStock : Number(form.openingStock) || 0,
+
+        // Build packaging hierarchy from form fields
+        packagingHierarchy: (() => {
+          const baseUnitsPerPurchase = form.pkgHasIntermediate
+            ? (Number(form.pkgIntermediateUnitsPerPurchase) || 1) * (Number(form.pkgBaseUnitsPerIntermediate) || 1)
+            : Number(form.pkgBaseUnitsPerPurchase) || 1;
+          const h: PackagingHierarchy = {
+            baseUnit: form.pkgBaseUnit || form.unit,
+            purchaseUnit: form.pkgPurchaseUnit || "Box",
+            baseUnitsPerPurchase,
+            hasIntermediateUnit: form.pkgHasIntermediate,
+            intermediateUnit: form.pkgHasIntermediate ? form.pkgIntermediateUnit : undefined,
+            intermediateUnitsPerPurchase: form.pkgHasIntermediate ? Number(form.pkgIntermediateUnitsPerPurchase) || undefined : undefined,
+            baseUnitsPerIntermediate: form.pkgHasIntermediate ? Number(form.pkgBaseUnitsPerIntermediate) || undefined : undefined,
+          };
+          return h;
+        })(),
+
+        // Opening stock: entered in openingStockUnit → convert to base units
+        currentStock: editing ? editing.currentStock : (() => {
+          const openingQty = Number(form.openingStock) || 0;
+          if (openingQty <= 0) return 0;
+          const baseUnitsPerPurchase = form.pkgHasIntermediate
+            ? (Number(form.pkgIntermediateUnitsPerPurchase) || 1) * (Number(form.pkgBaseUnitsPerIntermediate) || 1)
+            : Number(form.pkgBaseUnitsPerPurchase) || 1;
+          const openingUnit = form.openingStockUnit;
+          const pkgPurchaseUnit = form.pkgPurchaseUnit || "Box";
+          const pkgBaseUnit = form.pkgBaseUnit || form.unit;
+          if (openingUnit === pkgPurchaseUnit) return openingQty * baseUnitsPerPurchase;
+          if (openingUnit === form.pkgIntermediateUnit && form.pkgHasIntermediate)
+            return openingQty * (Number(form.pkgBaseUnitsPerIntermediate) || 1);
+          if (openingUnit === pkgBaseUnit) return openingQty;
+          return openingQty; // fallback
+        })(),
         minStockLevel: Number(form.reorderLevel) || 10,
         storageLocation: form.storageLocation.trim(),
         batchTracking: form.batchTracking,
@@ -1848,55 +1928,182 @@ export function ProductMasterWizardDialog({
           {/* ─────────────────────────────────────────────────────────────
               STEP 2: STOCK & INVENTORY CONFIGURATION
           ────────────────────────────────────────────────────────────── */}
+
           {currentStep === 2 && (
             <div className="space-y-5 animate-in fade-in-50">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Base Unit of Measure</Label>
-                  <Select
-                    value={form.unit}
-                    onValueChange={(v) => updateField("unit", v as UnitOfMeasure)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select UoM" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {UNITS.map((u) => (
-                        <SelectItem key={u} value={u}>
-                          {u}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+
+              {/* ── Packaging Hierarchy Card ────────────────────────────────── */}
+              <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-4">
+                <div className="flex items-center gap-2 border-b border-border/60 pb-2">
+                  <div className="h-6 w-6 rounded-md bg-primary/10 text-primary flex items-center justify-center">
+                    <Package className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <span className="font-semibold text-xs text-foreground">📦 Packaging Hierarchy</span>
+                    <p className="text-[10px] text-muted-foreground">
+                      Define how the clinic buys vs. how it dispenses (e.g. Box → Strip → Tablet).
+                      Stock is always tracked in the <strong>Base (dispensing) unit</strong>.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Inventory Valuation Method</Label>
-                  <Select
-                    value={form.valuationMethod}
-                    onValueChange={(v) => updateField("valuationMethod", v as ValuationMethod)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Valuation" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VALUATION_METHODS.map((m) => (
-                        <SelectItem key={m} value={m}>
-                          {m}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Base Unit */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Dispensing / Base Unit <span className="text-destructive">*</span></Label>
+                    <Select
+                      value={form.pkgBaseUnit || form.unit}
+                      onValueChange={(v) => {
+                        updateField("pkgBaseUnit", v);
+                        updateField("unit", v as UnitOfMeasure);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Base unit" /></SelectTrigger>
+                      <SelectContent>
+                        {["Tablet", "Capsule", "ml", "Vial", "Ampoule", "Kg", "Gm", "Litre", "Piece", "Strip", "Sachet", "Bottle", "Drops"].map((u) => (
+                          <SelectItem key={u} value={u}>{u}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">Stock ledger unit</p>
+                  </div>
+
+                  {/* Purchase / Box unit */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Purchase / Outer Packaging Unit <span className="text-destructive">*</span></Label>
+                    <Select
+                      value={form.pkgPurchaseUnit}
+                      onValueChange={(v) => {
+                        updateField("pkgPurchaseUnit", v);
+                        updateField("openingStockUnit", v);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Purchase unit" /></SelectTrigger>
+                      <SelectContent>
+                        {["Box", "Bottle", "Bag", "Pack", "Carton", "Vial", "Tray", "Drum", "Piece"].map((u) => (
+                          <SelectItem key={u} value={u}>{u}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">What the clinic orders from supplier</p>
+                  </div>
+
+                  {/* Enable/disable middle layer */}
+                  <div className="space-y-1.5 flex flex-col justify-center">
+                    <div className="flex items-center justify-between p-2.5 rounded-lg border bg-card">
+                      <div>
+                        <Label className="text-xs font-medium cursor-pointer">Intermediate Layer?</Label>
+                        <p className="text-[10px] text-muted-foreground">e.g. Strip between Box & Tablet</p>
+                      </div>
+                      <Switch
+                        checked={form.pkgHasIntermediate}
+                        onCheckedChange={(c) => {
+                          updateField("pkgHasIntermediate", c);
+                          if (!c) {
+                            updateField("pkgIntermediateUnit", "");
+                            updateField("pkgIntermediateUnitsPerPurchase", "");
+                            updateField("pkgBaseUnitsPerIntermediate", "");
+                          } else {
+                            updateField("pkgIntermediateUnit", form.pkgIntermediateUnit || "Strip");
+                            updateField("pkgIntermediateUnitsPerPurchase", form.pkgIntermediateUnitsPerPurchase || "10");
+                            updateField("pkgBaseUnitsPerIntermediate", form.pkgBaseUnitsPerIntermediate || "10");
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Storage Location / Rack</Label>
-                  <Input
-                    placeholder="e.g. Shelf B2, Cold Room, Display A"
-                    value={form.storageLocation}
-                    onChange={(e) => updateField("storageLocation", e.target.value)}
-                  />
-                </div>
+                {/* Intermediate Layer Row */}
+                {form.pkgHasIntermediate && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 border-t border-dashed border-border/60">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Intermediate Unit Label</Label>
+                      <Select
+                        value={form.pkgIntermediateUnit || "Strip"}
+                        onValueChange={(v) => updateField("pkgIntermediateUnit", v)}
+                      >
+                        <SelectTrigger><SelectValue placeholder="e.g. Strip" /></SelectTrigger>
+                        <SelectContent>
+                          {["Strip", "Sachet", "Ampoule", "Blister", "Tube", "Pouch", "Vial"].map((u) => (
+                            <SelectItem key={u} value={u}>{u}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">{form.pkgIntermediateUnit || "Strip"}s per {form.pkgPurchaseUnit || "Box"}</Label>
+                      <Input
+                        type="number" min={1} placeholder="e.g. 10"
+                        value={form.pkgIntermediateUnitsPerPurchase}
+                        onChange={(e) => {
+                          updateField("pkgIntermediateUnitsPerPurchase", e.target.value);
+                          const total = (Number(e.target.value) || 1) * (Number(form.pkgBaseUnitsPerIntermediate) || 1);
+                          updateField("pkgBaseUnitsPerPurchase", String(total));
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">{form.pkgBaseUnit || "Tablet"}s per {form.pkgIntermediateUnit || "Strip"}</Label>
+                      <Input
+                        type="number" min={1} placeholder="e.g. 10"
+                        value={form.pkgBaseUnitsPerIntermediate}
+                        onChange={(e) => {
+                          updateField("pkgBaseUnitsPerIntermediate", e.target.value);
+                          const total = (Number(form.pkgIntermediateUnitsPerPurchase) || 1) * (Number(e.target.value) || 1);
+                          updateField("pkgBaseUnitsPerPurchase", String(total));
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Without intermediate layer */}
+                {!form.pkgHasIntermediate && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1 border-t border-dashed border-border/60">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">{form.pkgBaseUnit || "Base unit"}s per {form.pkgPurchaseUnit || "Box"}</Label>
+                      <Input
+                        type="number" min={1} placeholder="e.g. 200"
+                        value={form.pkgBaseUnitsPerPurchase}
+                        onChange={(e) => updateField("pkgBaseUnitsPerPurchase", e.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col justify-center">
+                      <p className="text-[11px] text-muted-foreground">
+                        e.g. 200 ml per Bottle, 5 Vials per Box
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Live preview of hierarchy */}
+                {form.pkgBaseUnit && form.pkgPurchaseUnit && (
+                  <div className="rounded-lg bg-primary/10 border border-primary/20 px-3.5 py-2.5 text-xs flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-primary">✓ Hierarchy:</span>
+                    <span className="font-mono bg-card px-2 py-0.5 rounded border text-foreground">{form.pkgPurchaseUnit}</span>
+                    {form.pkgHasIntermediate && form.pkgIntermediateUnit && (
+                      <>
+                        <span className="text-muted-foreground">→ {form.pkgIntermediateUnitsPerPurchase || "?"} ×</span>
+                        <span className="font-mono bg-card px-2 py-0.5 rounded border text-foreground">{form.pkgIntermediateUnit}</span>
+                        <span className="text-muted-foreground">→ {form.pkgBaseUnitsPerIntermediate || "?"} ×</span>
+                      </>
+                    )}
+                    {!form.pkgHasIntermediate && (
+                      <span className="text-muted-foreground">→ {form.pkgBaseUnitsPerPurchase || "?"} ×</span>
+                    )}
+                    <span className="font-mono bg-card px-2 py-0.5 rounded border text-foreground">{form.pkgBaseUnit}</span>
+                    <span className="text-muted-foreground ml-1">
+                      = <strong className="text-foreground">
+                        {form.pkgHasIntermediate
+                          ? (Number(form.pkgIntermediateUnitsPerPurchase) || 0) * (Number(form.pkgBaseUnitsPerIntermediate) || 0)
+                          : Number(form.pkgBaseUnitsPerPurchase) || 0
+                        } {form.pkgBaseUnit}(s) per {form.pkgPurchaseUnit}
+                      </strong>
+                    </span>
+                    <span className="text-[10px] text-muted-foreground ml-auto">Stock tracked in {form.pkgBaseUnit}s</span>
+                  </div>
+                )}
               </div>
 
               {/* Stock Levels Card */}
@@ -1905,12 +2112,12 @@ export function ProductMasterWizardDialog({
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4 text-primary" />
                     <span className="font-semibold text-xs text-foreground">
-                      Authoritative Stock Levels & Reorder Triggers
+                      Authoritative Stock Levels &amp; Reorder Triggers
                     </span>
                   </div>
                   {editing && (
                     <Badge variant="outline" className="text-xs">
-                      Live Qty: {getTotalQty(editing.itemCode)} {form.unit}s
+                      Live: {stockDisplayLabel(getTotalQty(editing.itemCode), editing.packagingHierarchy)}
                     </Badge>
                   )}
                 </div>
@@ -1919,15 +2126,50 @@ export function ProductMasterWizardDialog({
                   {!editing ? (
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold">
-                        Initial Opening Stock ({form.unit})
+                        Opening Stock ({form.openingStockUnit || form.pkgPurchaseUnit || form.unit})
                       </Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        placeholder="0"
-                        value={form.openingStock}
-                        onChange={(e) => updateField("openingStock", e.target.value)}
-                      />
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          placeholder="0"
+                          value={form.openingStock}
+                          onChange={(e) => updateField("openingStock", e.target.value)}
+                          className="flex-1"
+                        />
+                        <Select
+                          value={form.openingStockUnit || form.pkgPurchaseUnit || form.unit}
+                          onValueChange={(v) => updateField("openingStockUnit", v)}
+                        >
+                          <SelectTrigger className="w-24">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[
+                              form.pkgBaseUnit || form.unit,
+                              ...(form.pkgHasIntermediate && form.pkgIntermediateUnit ? [form.pkgIntermediateUnit] : []),
+                              ...(form.pkgPurchaseUnit && form.pkgPurchaseUnit !== (form.pkgBaseUnit || form.unit) ? [form.pkgPurchaseUnit] : []),
+                            ].filter(Boolean).map((u) => (
+                              <SelectItem key={u} value={u}>{u}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {Number(form.openingStock) > 0 && (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                          = {(() => {
+                            const qty = Number(form.openingStock) || 0;
+                            const unit = form.openingStockUnit || form.pkgPurchaseUnit || form.unit;
+                            const bpp = form.pkgHasIntermediate
+                              ? (Number(form.pkgIntermediateUnitsPerPurchase) || 1) * (Number(form.pkgBaseUnitsPerIntermediate) || 1)
+                              : Number(form.pkgBaseUnitsPerPurchase) || 1;
+                            const baseUnit = form.pkgBaseUnit || form.unit;
+                            if (unit === (form.pkgPurchaseUnit || "Box")) return `${qty * bpp} ${baseUnit}s to stock`;
+                            if (unit === form.pkgIntermediateUnit) return `${qty * (Number(form.pkgBaseUnitsPerIntermediate) || 1)} ${baseUnit}s to stock`;
+                            return `${qty} ${baseUnit}s to stock`;
+                          })()}
+                        </p>
+                      )}
                       <p className="text-[11px] text-muted-foreground">
                         Automatically posts an Opening Balance to the Inventory Ledger.
                       </p>
@@ -1938,7 +2180,7 @@ export function ProductMasterWizardDialog({
                         Authoritative Live Stock
                       </Label>
                       <div className="text-lg font-bold text-foreground">
-                        {getTotalQty(editing.itemCode)} {form.unit}
+                        {stockDisplayLabel(getTotalQty(editing.itemCode), editing.packagingHierarchy)}
                       </div>
                       <p className="text-[11px] text-muted-foreground">
                         Mutated exclusively via auditable purchases, sales, or adjustments.

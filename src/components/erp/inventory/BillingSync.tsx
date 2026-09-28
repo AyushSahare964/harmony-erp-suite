@@ -12,6 +12,11 @@ import {
 import { KpiCard } from "@/components/erp/KpiCard";
 import { toast } from "sonner";
 import { useInventory } from "./useInventoryStore";
+import {
+  convertToBase,
+  getAvailableUnits,
+  stockDisplayLabel,
+} from "@/lib/inventory/packagingUtils";
 
 function money(v: number) {
   return `₹${v.toLocaleString("en-IN")}`;
@@ -23,6 +28,7 @@ function SimulateSalePanel() {
   const activeMeds = medicines.filter((m) => m.status === "Active" && getTotalQty(m.id) > 0);
 
   const [medicineId, setMedicineId] = useState("");
+  const [selectedUnit, setSelectedUnit] = useState("");
   const [qty, setQty] = useState("");
   const [billRef, setBillRef] = useState(`MB-${Date.now().toString().slice(-6)}`);
   const [lastResult, setLastResult] = useState<null | { ok: boolean; msg: string }>(null);
@@ -38,17 +44,27 @@ function SimulateSalePanel() {
     const numQty = Number(qty);
     if (numQty <= 0) { toast.error("Quantity must be > 0"); return; }
 
+    const hierarchy = selectedMed?.packagingHierarchy;
+    const unitToUse = selectedUnit || hierarchy?.baseUnit || selectedMed?.unit || "Unit";
+    const baseQty = hierarchy ? convertToBase(numQty, unitToUse, hierarchy) : numQty;
+
+    if (baseQty > availQty) {
+      toast.error(`Insufficient stock: requested ${numQty} ${unitToUse} (${baseQty} base units), only ${availQty} available`);
+      return;
+    }
+
     const result = recordSale({
       medicineId,
-      qty: numQty,
+      qty: baseQty,
       sourceRef: billRef,
       actor: "Receptionist",
     });
 
     if (result.ok) {
-      toast.success(`Sale recorded — ${numQty} units of ${selectedMed?.name} decremented via FEFO`);
-      setLastResult({ ok: true, msg: `✓ ${numQty} units sold — stock updated` });
+      toast.success(`Sale recorded — ${numQty} ${unitToUse} (${baseQty} base units) of ${selectedMed?.name} decremented via FEFO`);
+      setLastResult({ ok: true, msg: `✓ ${numQty} ${unitToUse} (${baseQty} base units) sold — stock updated` });
       setMedicineId("");
+      setSelectedUnit("");
       setQty("");
       setBillRef(`MB-${Date.now().toString().slice(-6)}`);
     } else {
@@ -64,20 +80,28 @@ function SimulateSalePanel() {
         <p className="font-semibold">Counter Billing & FEFO Stock Dispatch</p>
       </div>
       <p className="text-xs text-muted-foreground">
-        Real-Time Billing Integration: Finalizing an invoice or counter prescription automatically decrements stock from the earliest-expiring batch (FEFO) and logs the entry in the stock ledger.
+        Real-Time Billing Integration: Finalizing an invoice or counter prescription automatically decrements stock from the earliest-expiring batch (FEFO) in base units and logs the entry in the stock ledger.
       </p>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="space-y-1.5">
+      <div className="grid gap-4 sm:grid-cols-4">
+        <div className="space-y-1.5 sm:col-span-1">
           <Label className="text-xs font-semibold">
             Medicine <span className="text-destructive">*</span>
           </Label>
-          <Select value={medicineId} onValueChange={(v) => { setMedicineId(v); setQty(""); }}>
+          <Select
+            value={medicineId}
+            onValueChange={(v) => {
+              setMedicineId(v);
+              const m = activeMeds.find((x) => x.id === v);
+              setSelectedUnit(m?.packagingHierarchy?.baseUnit || m?.unit || "");
+              setQty("");
+            }}
+          >
             <SelectTrigger id="sale-medicine"><SelectValue placeholder="Select medicine…" /></SelectTrigger>
             <SelectContent>
               {activeMeds.map((m) => (
                 <SelectItem key={m.id} value={m.id}>
-                  {m.name} ({getTotalQty(m.id)} avail)
+                  {m.name} ({m.packagingHierarchy ? stockDisplayLabel(getTotalQty(m.id), m.packagingHierarchy) : `${getTotalQty(m.id)} avail`})
                 </SelectItem>
               ))}
             </SelectContent>
@@ -91,13 +115,33 @@ function SimulateSalePanel() {
             id="sale-qty"
             type="number"
             min={1}
-            max={availQty}
             value={qty}
             onChange={(e) => setQty(e.target.value)}
             placeholder="0"
           />
-          {medicineId && (
-            <p className="text-xs text-muted-foreground">Available: {availQty}</p>
+          {selectedMed && (
+            <p className="text-[11px] text-muted-foreground">
+              {selectedMed.packagingHierarchy
+                ? stockDisplayLabel(availQty, selectedMed.packagingHierarchy)
+                : `Available: ${availQty} ${selectedMed.unit}s`}
+            </p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold">Unit</Label>
+          {selectedMed?.packagingHierarchy ? (
+            <Select value={selectedUnit} onValueChange={setSelectedUnit}>
+              <SelectTrigger><SelectValue placeholder="Unit…" /></SelectTrigger>
+              <SelectContent>
+                {getAvailableUnits(selectedMed.packagingHierarchy).map((u) => (
+                  <SelectItem key={u} value={u}>
+                    {u}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input disabled value={selectedMed?.unit || "Unit"} className="bg-muted text-xs" />
           )}
         </div>
         <div className="space-y-1.5">
