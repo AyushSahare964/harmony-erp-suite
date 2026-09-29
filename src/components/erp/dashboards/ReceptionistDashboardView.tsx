@@ -91,6 +91,21 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
   const [existingPatients, setExistingPatients] = useState<any[]>([]);
   const [selectedProfilePetId, setSelectedProfilePetId] = useState<string | null>(null);
 
+  const formatVisitTime = (v: any) => {
+    if (v.time) return String(v.time);
+    if (v.slot) return String(v.slot);
+    const ts = v.createdAt || v.date;
+    if (ts) {
+      try {
+        const d = new Date(ts);
+        if (!isNaN(d.getTime())) {
+          return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+        }
+      } catch {}
+    }
+    return null;
+  };
+
   useEffect(() => {
     // Fire immediately — no artificial delay that adds to MongoDB cold-start time
     void loadData();
@@ -627,7 +642,7 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
               </div>
 
               <div className="rounded-lg bg-muted/40 p-2.5 text-xs space-y-1 text-muted-foreground">
-                <p className="flex items-center gap-1.5">
+                <p className="flex items-center gap-1.5 flex-wrap">
                   <strong className="text-foreground flex items-center gap-1">
                     <Calendar className="size-3 text-muted-foreground" /> Date:
                   </strong>{" "}
@@ -636,6 +651,17 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
                       v.date ||
                       "—"}
                   </span>
+                  {formatVisitTime(v) && (
+                    <span className="text-blue-700 dark:text-blue-300 font-semibold flex items-center gap-1 ml-1 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono text-[10px]">
+                      <Clock className="size-2.5" />
+                      {formatVisitTime(v)}
+                    </span>
+                  )}
+                  {v.appointmentToken && (
+                    <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                      Token: {v.appointmentToken}
+                    </span>
+                  )}
                 </p>
                 <p>
                   <strong className="text-foreground">Parent:</strong> {v.ownerName} ({v.ownerPhone}
