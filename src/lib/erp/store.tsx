@@ -70,9 +70,15 @@ export function ErpProvider({ children }: { children: ReactNode }) {
   // Row cache: moduleId → Row[]
   const [rowCache, setRowCache] = useState<RowStore>({});
 
-  // On mount: re-hydrate session from the httpOnly refresh cookie via server fn
+  // On mount: re-hydrate session from the httpOnly refresh cookie via server fn.
+  // Race against a 10-second timeout so a slow or unavailable MongoDB doesn't
+  // leave the app stuck on the loading spinner indefinitely.
   useEffect(() => {
-    AuthService.getCurrentUserAsync()
+    const timeout = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), 10_000)
+    );
+
+    Promise.race([AuthService.getCurrentUserAsync(), timeout])
       .then((user) => {
         if (user) {
           setCurrentUser(user);

@@ -92,17 +92,17 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
   const [selectedProfilePetId, setSelectedProfilePetId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Defer initial data load so the skeleton renders first
-    const t = setTimeout(() => { void loadData(); }, 800);
-    return () => clearTimeout(t);
+    // Fire immediately — no artificial delay that adds to MongoDB cold-start time
+    void loadData();
   }, []);
 
-  // Poll for pending payment requests every 30 seconds (down from 15s)
+  // Poll for pending payment requests every 30 seconds
   useEffect(() => {
     let cancelled = false;
     const fetchPaymentRequests = async () => {
       try {
-        const reqs = await listPaymentRequestsFn();
+        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000));
+        const reqs = await Promise.race([listPaymentRequestsFn(), timeout]);
         if (cancelled) return;
         setPaymentRequests(reqs || []);
         if (reqs && reqs.length > 0) {
@@ -122,16 +122,23 @@ export function ReceptionistDashboardView({ role, onOpenConsultation }: Props) {
 
   const loadData = async () => {
     setLoading(true);
+    const hardTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000));
     try {
-      const [visitList, patientList, docsList] = await Promise.all([
-        listVisitsFn().catch(() => []),
-        listPetsWithOwnersFn().catch(() => []),
-        listApprovedDoctorsFn().catch(() => []),
+      const result = await Promise.race([
+        Promise.all([
+          listVisitsFn().catch(() => []),
+          listPetsWithOwnersFn().catch(() => []),
+          listApprovedDoctorsFn().catch(() => []),
+        ]),
+        hardTimeout,
       ]);
-      setVisits(visitList || []);
-      setExistingPatients(patientList || []);
-      if (docsList && docsList.length > 0) {
-        setDoctorsList(docsList);
+      if (result !== null) {
+        const [visitList, patientList, docsList] = result;
+        setVisits(visitList || []);
+        setExistingPatients(patientList || []);
+        if (docsList && docsList.length > 0) {
+          setDoctorsList(docsList);
+        }
       }
     } catch (e) {
       console.error(e);

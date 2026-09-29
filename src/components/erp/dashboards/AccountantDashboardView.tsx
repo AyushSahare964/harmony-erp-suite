@@ -96,13 +96,20 @@ export function AccountantDashboardView({ role }: Props) {
 
   const loadFinanceData = async () => {
     setLoading(true);
+    const hardTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000));
     try {
-      const [invList, trxList] = await Promise.all([
-        listInvoicesFn().catch(() => []),
-        getJournalsFn().catch(() => []),
+      const result = await Promise.race([
+        Promise.all([
+          listInvoicesFn().catch(() => []),
+          getJournalsFn().catch(() => []),
+        ]),
+        hardTimeout,
       ]);
-      setInvoices(invList || []);
-      setTransactions(trxList || []);
+      if (result !== null) {
+        const [invList, trxList] = result;
+        setInvoices(invList || []);
+        setTransactions(trxList || []);
+      }
     } catch (e) {
       console.error(e);
     } finally {

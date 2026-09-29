@@ -486,25 +486,35 @@ export const logoutFn = createServerFn({ method: "POST" })
 
 export const getMeFn = createServerFn({ method: "GET" })
   .handler(async (): Promise<UserProfile | null> => {
-    await connectDB();
-    const rawToken = getCookie(COOKIE_NAME);
-    if (!rawToken) return null;
+    // Enforce a 9 s server-side timeout so a slow Atlas connection never blocks
+    // the client loading spinner past the client-side 10 s race.
+    const timeout = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), 9_000)
+    );
 
-    try {
-      const payload = verifyRefreshToken(rawToken);
-      const stored  = await RefreshToken.findOne({ tokenHash: hashToken(rawToken) }).lean();
-      if (!stored) return null;
+    const work = async (): Promise<UserProfile | null> => {
+      await connectDB();
+      const rawToken = getCookie(COOKIE_NAME);
+      if (!rawToken) return null;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const user = await User.findById(payload.sub).lean() as Record<string, any> | null;
-      if (!user || !user["isActive"] || user["approvalStatus"] === "pending" || user["approvalStatus"] === "rejected") {
+      try {
+        const payload = verifyRefreshToken(rawToken);
+        const stored  = await RefreshToken.findOne({ tokenHash: hashToken(rawToken) }).lean();
+        if (!stored) return null;
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const user = await User.findById(payload.sub).lean() as Record<string, any> | null;
+        if (!user || !user["isActive"] || user["approvalStatus"] === "pending" || user["approvalStatus"] === "rejected") {
+          return null;
+        }
+
+        return toProfile(user);
+      } catch {
         return null;
       }
+    };
 
-      return toProfile(user);
-    } catch {
-      return null;
-    }
+    return Promise.race([work(), timeout]);
   });
 
 // ─── seedDemoUsersFn ─────────────────────────────────────────────────────────

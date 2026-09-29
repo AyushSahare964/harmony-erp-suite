@@ -77,8 +77,9 @@ function Dashboard() {
 
   const loadVisits = async () => {
     try {
-      const data = await listVisitsFn();
-      setVisits(data);
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000));
+      const data = await Promise.race([listVisitsFn(), timeout]);
+      if (data !== null) setVisits(data);
     } catch (e) {
       console.error(e);
     }

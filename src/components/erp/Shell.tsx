@@ -587,12 +587,27 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
     }
   }, [isLoadingAuth, isAuthenticated, moduleId, isModuleAllowed, navigate]);
 
-  if (isLoadingAuth || !isAuthenticated || (moduleId && !isModuleAllowed)) {
+  // 1. Still checking session — show a short branded loading screen.
+  if (isLoadingAuth) {
     return (
-      <div className="flex min-h-screen w-full items-center justify-center bg-background">
-        <div className="size-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      <div className="flex min-h-screen w-full flex-col items-center justify-center gap-4 bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-sm font-medium text-muted-foreground animate-pulse">Loading your session…</p>
+        </div>
       </div>
     );
+  }
+
+  // 2. Auth check done — not logged in. The useEffect above will redirect;
+  //    render nothing while the navigation is in-flight to avoid flash.
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  // 3. Authenticated but trying to access a forbidden module — redirect handled above.
+  if (moduleId && !isModuleAllowed) {
+    return null;
   }
 
   return (

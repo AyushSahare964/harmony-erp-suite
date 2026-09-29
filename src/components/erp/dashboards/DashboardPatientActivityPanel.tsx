@@ -63,7 +63,7 @@ export function DashboardPatientActivityPanel({
   inventoryAlerts,
 }: DashboardPatientActivityPanelProps) {
   const [pets, setPets] = useState<any[]>([]);
-  const [loadingPets, setLoadingPets] = useState(true);
+  const [loadingPets, setLoadingPets] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [speciesFilter, setSpeciesFilter] = useState<"ALL" | "Canine" | "Feline" | "IN_OPD">("ALL");
   const [activeActivityTab, setActiveActivityTab] = useState<"FEED" | "ALERTS">("FEED");
@@ -77,9 +77,10 @@ export function DashboardPatientActivityPanel({
 
   const loadPatients = async () => {
     setLoadingPets(true);
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000));
     try {
-      const data = await listPetsWithOwnersFn();
-      setPets(data || []);
+      const result = await Promise.race([listPetsWithOwnersFn(), timeout]);
+      setPets(result || []);
     } catch (err) {
       console.warn("Could not load patients for dashboard right panel:", err);
     } finally {

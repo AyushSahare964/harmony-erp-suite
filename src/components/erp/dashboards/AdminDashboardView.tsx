@@ -90,17 +90,22 @@ export function AdminDashboardView({
   const [hrmsStaff, setHrmsStaff] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [petsList, setPetsList] = useState<any[]>([]);
-  const [loadingFacilities, setLoadingFacilities] = useState(true);
+  // Start false — render the page immediately with empty data, then populate.
+  // This prevents the skeleton from blocking the UI during MongoDB cold-start retries.
+  const [loadingFacilities, setLoadingFacilities] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    // Defer heavy data fetching by 1.5 s so the page can paint (and show skeleton)
-    // before hitting the DB with 8 parallel requests.
-    const timer = setTimeout(async () => {
-      if (cancelled) return;
-      setLoadingFacilities(true);
-      try {
-        const [lab, boarding, swim, inv, appts, hrms, staff, pets] = await Promise.all([
+  const fetchDashboardData = async (cancelled: { current: boolean }) => {
+    setLoadingFacilities(true);
+    setFetchError(false);
+
+    // 12-second hard cap — MongoDB serverSelectionTimeoutMS is 8s, so even
+    // with a retry + connection overhead we never hang the UI longer than this.
+    const hardTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000));
+
+    try {
+      const result = await Promise.race([
+        Promise.all([
           listLabOrdersFn().catch(() => []),
           listBoardingBookingsFn().catch(() => []),
           listSwimSessionsFn().catch(() => []),
@@ -109,26 +114,39 @@ export function AdminDashboardView({
           getRowsFn({ data: { moduleId: "hrms" } }).catch(() => []),
           listApprovedDoctorsFn().catch(() => []),
           listPetsWithOwnersFn().catch(() => []),
-        ]);
-        if (cancelled) return;
-        setLabOrders(lab ?? []);
-        setBoardingList(boarding ?? []);
-        setSwimSessions(swim ?? []);
-        setInventory(inv ?? []);
-        setAppointments(appts ?? []);
-        setHrmsStaff(hrms ?? []);
-        setStaffList(staff ?? []);
-        setPetsList(pets ?? []);
-      } catch (e) {
-        console.warn("Admin dashboard data fetch error:", e);
-      } finally {
-        if (!cancelled) setLoadingFacilities(false);
+        ]),
+        hardTimeout,
+      ]);
+
+      if (cancelled.current) return;
+
+      if (result === null) {
+        // Timed out — show empty dashboard, offer retry
+        setFetchError(true);
+        return;
       }
-    }, 1500);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+
+      const [lab, boarding, swim, inv, appts, hrms, staff, pets] = result;
+      setLabOrders(lab ?? []);
+      setBoardingList(boarding ?? []);
+      setSwimSessions(swim ?? []);
+      setInventory(inv ?? []);
+      setAppointments(appts ?? []);
+      setHrmsStaff(hrms ?? []);
+      setStaffList(staff ?? []);
+      setPetsList(pets ?? []);
+    } catch (e) {
+      console.warn("Admin dashboard data fetch error:", e);
+      if (!cancelled.current) setFetchError(true);
+    } finally {
+      if (!cancelled.current) setLoadingFacilities(false);
+    }
+  };
+
+  useEffect(() => {
+    const cancelled = { current: false };
+    void fetchDashboardData(cancelled);
+    return () => { cancelled.current = true; };
   }, []);
 
   const todayVisits = useMemo(() => visits, [visits]);
@@ -377,12 +395,26 @@ export function AdminDashboardView({
     return c;
   };
 
-  if (loadingFacilities) {
-    return <HubSkeleton withChart />;
-  }
-
   return (
     <div className="space-y-6">
+      {/* ── Connection status banner (non-blocking) ─────────────────────── */}
+      {loadingFacilities && (
+        <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 text-xs text-primary font-medium animate-pulse">
+          <RefreshCw className="size-3.5 animate-spin" />
+          Loading dashboard data from MongoDB Atlas…
+        </div>
+      )}
+      {fetchError && !loadingFacilities && (
+        <div className="flex items-center justify-between rounded-xl border border-warning/30 bg-warning/5 px-4 py-2.5">
+          <p className="text-xs text-warning font-medium">⚠️ Could not load some data (MongoDB cold-start or network issue). Dashboard may show partial data.</p>
+          <button
+            onClick={() => { const c = { current: false }; void fetchDashboardData(c); }}
+            className="ml-4 shrink-0 rounded-lg bg-warning/10 border border-warning/30 px-3 py-1 text-xs font-bold text-warning hover:bg-warning/20 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         <div className="xl:col-span-8 space-y-6">
 

@@ -1612,6 +1612,7 @@ export function BookAppointmentModal({
       />
 
       {/* ── Pet Profile Viewer — opened via "View" on the selected patient card ── */}
+      {viewPetId && (
       <Patient360Profile
         open={!!viewPetId}
         petId={viewPetId}
@@ -1620,6 +1621,7 @@ export function BookAppointmentModal({
           toast.info("Close this appointment form, then start the consultation from Pet & Owner CRM.")
         }
       />
+      )}
     </>
   );
 }
