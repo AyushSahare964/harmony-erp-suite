@@ -7,6 +7,8 @@ import {
   Plus,
   Search,
   CheckCircle2,
+  Check,
+  Loader2,
   AlertTriangle,
   Phone,
   Mail,
@@ -184,6 +186,7 @@ export function BookAppointmentModal({
   const [otherAllergiesInput, setOtherAllergiesInput] = useState("");
   const [clinicalAlertsInput, setClinicalAlertsInput] = useState("");
   const [savingAllergies, setSavingAllergies] = useState(false);
+  const [savedAllergiesRecently, setSavedAllergiesRecently] = useState(false);
 
   /* ── Pet Profile Viewer ── */
   const [viewPetId, setViewPetId] = useState<string | null>(null);
@@ -434,37 +437,74 @@ export function BookAppointmentModal({
    *  independent of finishing the whole appointment, since this is medical-record
    *  data, not appointment-specific data. */
   const handleSaveAllergies = async () => {
-    if (!selectedPet?.petId) {
-      toast.error("Select a registered patient first");
+    // 1. Resolve active pet from selection or auto-match from search/name query
+    let activePet = selectedPet;
+    let activePetId = activePet?.petId || activePet?._id || activePet?.id;
+
+    if (!activePetId) {
+      const q = (petName || searchPetQuery).trim().toLowerCase();
+      if (q) {
+        const found = pets.find(
+          (p) =>
+            p.name?.toLowerCase() === q ||
+            p.petId?.toLowerCase() === q,
+        );
+        if (found) {
+          activePet = found;
+          activePetId = found.petId || found._id || found.id;
+          handleSelectPet(found);
+        }
+      }
+    }
+
+    const drugAllergyArray = hasAllergies ? csvToList(allergiesInput) : [];
+    const foodAllergyArray = csvToList(foodAllergiesInput);
+    const otherAllergyArray = csvToList(otherAllergiesInput);
+    const alertArray = csvToList(clinicalAlertsInput);
+
+    // If no registered pet exists in DB yet (e.g. new registration or manual walk-in),
+    // record locally in form state with instant visual confirmation.
+    if (!activePetId) {
+      setSavedAllergiesRecently(true);
+      setTimeout(() => setSavedAllergiesRecently(false), 3000);
+      toast.success(
+        "Allergy details recorded! They will be permanently saved to the patient profile upon booking.",
+      );
       return;
     }
+
     setSavingAllergies(true);
     try {
-      const drugAllergyArray = hasAllergies ? csvToList(allergiesInput) : [];
-      const existingProfileAllergies = profileAllergies.length
-        ? profileAllergies
-        : selectedPet.allergies || [];
-      const normalise = (s: string) => s.trim().toLowerCase();
-      const netNewDrugAllergies = drugAllergyArray.filter(
-        (a: string) => !existingProfileAllergies.some((e: string) => normalise(e) === normalise(a)),
-      );
-      const mergedAllergies = netNewDrugAllergies.length
-        ? [...existingProfileAllergies, ...netNewDrugAllergies]
-        : existingProfileAllergies;
-
       await updatePetFn({
         data: {
-          petId: selectedPet.petId,
+          petId: String(activePetId),
           updates: {
-            allergies: mergedAllergies,
-            foodAllergies: csvToList(foodAllergiesInput),
-            otherAllergies: csvToList(otherAllergiesInput),
-            clinicalAlerts: csvToList(clinicalAlertsInput),
+            allergies: drugAllergyArray,
+            foodAllergies: foodAllergyArray,
+            otherAllergies: otherAllergyArray,
+            clinicalAlerts: alertArray,
           },
         },
       });
-      setProfileAllergies(mergedAllergies);
-      toast.success("Allergy details saved to patient profile");
+
+      setProfileAllergies(drugAllergyArray);
+      setSelectedPet((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              allergies: drugAllergyArray,
+              foodAllergies: foodAllergyArray,
+              otherAllergies: otherAllergyArray,
+              clinicalAlerts: alertArray,
+            }
+          : prev,
+      );
+
+      setSavedAllergiesRecently(true);
+      setTimeout(() => setSavedAllergiesRecently(false), 3000);
+      toast.success(
+        `Allergy details saved to ${activePet?.name || "patient"}'s permanent profile!`,
+      );
     } catch (err) {
       console.error("[BookAppointmentModal] Could not save allergies:", err);
       toast.error("Could not save allergies — please try again");
@@ -544,17 +584,18 @@ export function BookAppointmentModal({
       const netNewAllergies = allergyArray.filter(
         (a: string) => !existingProfileAllergies.some((e) => normalise(e) === normalise(a)),
       );
-      if (finalPet.petId) {
+      const finalPetId = finalPet?.petId || finalPet?._id || finalPet?.id;
+      if (finalPetId) {
         // Merge new drug allergens into the existing profile list (non-destructive),
         // and save food/other/clinical alerts alongside them as a safety net in case
         // "Save Allergies" wasn't clicked before finishing the booking.
         const mergedAllergies =
           netNewAllergies.length > 0
             ? [...existingProfileAllergies, ...netNewAllergies]
-            : existingProfileAllergies;
+            : (hasAllergies ? allergyArray : existingProfileAllergies);
         updatePetFn({
           data: {
-            petId: finalPet.petId,
+            petId: String(finalPetId),
             updates: {
               allergies: mergedAllergies,
               foodAllergies: csvToList(foodAllergiesInput),
@@ -1552,17 +1593,54 @@ export function BookAppointmentModal({
                 </div>
               </div>
 
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between pt-1">
+                <div className="text-[11px] text-muted-foreground">
+                  {selectedPet ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
+                      <span>
+                        Target: <strong className="text-foreground">{selectedPet.name}</strong>{" "}
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          ({selectedPet.petId || "ID assigned"})
+                        </span>
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground">
+                      Allergies will be linked to this visit &amp; saved to profile
+                    </span>
+                  )}
+                </div>
+
                 <Button
                   type="button"
                   size="sm"
-                  variant="outline"
-                  disabled={savingAllergies || !selectedPet?.petId}
+                  variant={savedAllergiesRecently ? "default" : "outline"}
+                  disabled={savingAllergies}
                   onClick={handleSaveAllergies}
-                  className="h-8 text-xs font-bold gap-1.5"
+                  className={cn(
+                    "h-8 text-xs font-bold gap-1.5 transition-all shadow-xs cursor-pointer",
+                    savedAllergiesRecently
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600"
+                      : "border-primary/40 text-primary hover:bg-primary/10 hover:border-primary",
+                  )}
                 >
-                  <CheckCircle2 className="size-3.5" />
-                  {savingAllergies ? "Saving..." : "Save Allergies"}
+                  {savingAllergies ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Saving...
+                    </>
+                  ) : savedAllergiesRecently ? (
+                    <>
+                      <Check className="size-3.5" />
+                      Allergies Saved
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="size-3.5" />
+                      Save Allergies
+                    </>
+                  )}
                 </Button>
               </div>
             </div>

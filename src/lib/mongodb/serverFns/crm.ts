@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb/client";
 import { Owner, type IOwner } from "@/lib/mongodb/models/Owner";
 import { Pet, type IPet } from "@/lib/mongodb/models/Pet";
@@ -291,8 +292,12 @@ export const updatePetFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => UpdatePetInputZ.parse(data))
   .handler(async ({ data }: { data: z.infer<typeof UpdatePetInputZ> }) => {
     await connectDB();
+    const isObjectId = mongoose.isValidObjectId(data.petId);
+    const filter = isObjectId
+      ? { $or: [{ petId: data.petId }, { _id: data.petId }] }
+      : { petId: data.petId };
     const updated = await Pet.findOneAndUpdate(
-      { petId: data.petId },
+      filter,
       { $set: data.updates },
       { new: true },
     ).lean();
