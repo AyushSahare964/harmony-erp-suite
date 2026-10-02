@@ -42,6 +42,21 @@ export function DoctorDashboardView({
   onOpenRegisterModal,
   onAdmitPet,
 }: Props) {
+  const formatVisitTime = (v: any) => {
+    if (v.time) return String(v.time);
+    if (v.slot) return String(v.slot);
+    const ts = v.createdAt || v.date;
+    if (ts) {
+      try {
+        const d = new Date(ts);
+        if (!isNaN(d.getTime())) {
+          return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+        }
+      } catch {}
+    }
+    return null;
+  };
+
   const waitingVisits = (visits || []).filter(
     (v) => v.status !== "Paid" && v.status !== "Settled" && v.status !== "Completed"
   );
@@ -219,11 +234,22 @@ export function DoctorDashboardView({
                     <p className="text-[11px] text-muted-foreground">{v.species} · {v.breed}</p>
 
                     <div className="rounded-lg bg-muted/40 p-2 text-xs space-y-1 text-muted-foreground">
-                      <p className="flex items-center gap-1.5">
+                      <p className="flex items-center gap-1.5 flex-wrap">
                         <strong className="text-foreground flex items-center gap-1">
                           <Calendar className="size-3 text-muted-foreground" /> Date:
                         </strong>{" "}
                         <span>{formatDisplayDate(v.date || v.createdAt || v.prescriptionData?.dateOfVisit) || v.date || "—"}</span>
+                        {formatVisitTime(v) && (
+                          <span className="text-primary font-semibold flex items-center gap-1 ml-1 bg-primary/10 px-1.5 py-0.5 rounded font-mono text-[10px]">
+                            <Clock className="size-2.5" />
+                            {formatVisitTime(v)}
+                          </span>
+                        )}
+                        {v.appointmentToken && (
+                          <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                            Token: {v.appointmentToken}
+                          </span>
+                        )}
                       </p>
                       <p><strong className="text-foreground">Owner:</strong> {v.ownerName} ({v.ownerPhone})</p>
                       <p className="line-clamp-1"><strong className="text-foreground">Complaint:</strong> {v.vitals?.complaint || v.diagnosis || "Routine consultation & health checkup"}</p>

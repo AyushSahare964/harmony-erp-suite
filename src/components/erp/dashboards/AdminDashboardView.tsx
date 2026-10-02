@@ -199,6 +199,70 @@ export function AdminDashboardView({
       Number(v.balanceDue ?? v.pendingAmount ?? 0) <= 0 &&
       Number(v.amountPaid || 0) >= Number(v.totalAmount || 0));
 
+  const formatTimeLabel = (t: string) => {
+    if (!t) return "";
+    const clean = t.trim();
+    if (/am|pm/i.test(clean)) return clean;
+    const m = clean.match(/^(\d{1,2}):(\d{2})$/);
+    if (m) {
+      let h = parseInt(m[1], 10);
+      const min = m[2];
+      const ampm = h >= 12 ? "PM" : "AM";
+      h = h % 12 || 12;
+      return `${String(h).padStart(2, "0")}:${min} ${ampm}`;
+    }
+    return clean;
+  };
+
+  const getVisitTime = (v: any) => {
+    // 1. Direct time or slot property on visit
+    if (v.time) return formatTimeLabel(String(v.time));
+    if (v.slot) return formatTimeLabel(String(v.slot));
+    if (v.timeSlot) return formatTimeLabel(String(v.timeSlot));
+
+    // 2. Cross-reference with appointment row by token, petId, or petName + date
+    const vToken = String(v.appointmentToken || "").trim().toLowerCase();
+    const vPetId = String(v.petId || "").trim().toLowerCase();
+    const vPetName = String(v.petName || "").trim().toLowerCase();
+    const vDate = String(v.date || v.createdAt || "").slice(0, 10);
+
+    const matchedAppt = appointments.find((a: any) => {
+      const d = a.data || a;
+      const aToken = String(d.token || "").trim().toLowerCase();
+      if (vToken && aToken && vToken === aToken) return true;
+      if (aToken && v.vitals?.complaint && String(v.vitals.complaint).toLowerCase().includes(aToken)) return true;
+      const aPetId = String(d.petId || "").trim().toLowerCase();
+      const aPetName = String(d.pet || d.petName || "").trim().toLowerCase();
+      const aDate = String(d.appointment_date || d.date || "").slice(0, 10);
+      const petMatch = (vPetId && aPetId && vPetId === aPetId) || (vPetName && aPetName && vPetName === aPetName);
+      const dateMatch = !aDate || !vDate || aDate === vDate;
+      return petMatch && dateMatch;
+    });
+
+    const apptData = matchedAppt?.data || matchedAppt;
+    if (apptData?.time) return formatTimeLabel(String(apptData.time));
+    if (apptData?.slot) return formatTimeLabel(String(apptData.slot));
+    if (apptData?.timeSlot) return formatTimeLabel(String(apptData.timeSlot));
+
+    // 3. Fallback to createdAt timestamp formatted in 12h format
+    const ts = v.createdAt || v.date;
+    if (ts) {
+      try {
+        const parsed = new Date(ts);
+        if (!isNaN(parsed.getTime())) {
+          return parsed.toLocaleTimeString("en-IN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return null;
+  };
+
   const todayStr = useMemo(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -671,7 +735,7 @@ export function AdminDashboardView({
                 <thead>
                   <tr className="text-left text-muted-foreground border-b border-border/50">
                     <th className="pb-2 font-semibold pr-3 w-8 text-muted-foreground/70">#</th>
-                    <th className="pb-2 font-semibold pr-3">Date</th>
+                    <th className="pb-2 font-semibold pr-3">Date &amp; Time</th>
                     <th className="pb-2 font-semibold pr-3">Patient</th>
                     <th className="pb-2 font-semibold pr-3">Doctor</th>
                     <th className="pb-2 font-semibold pr-3">Complaint</th>
@@ -682,10 +746,24 @@ export function AdminDashboardView({
                 <tbody className="divide-y divide-border/40">
                   {visits.slice(0, 10).map((v, idx) => {
                     const sb = statusBadge(v);
+                    const timeLabel = getVisitTime(v);
                     return (
                       <tr key={v.visitId} className="hover:bg-muted/30 transition-colors">
                         <td className="py-2.5 pr-3 font-mono text-[11px] text-muted-foreground/60">{idx + 1}</td>
-                        <td className="py-2.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{formatDisplayDate(v.date || v.createdAt) || "—"}</td>
+                        <td className="py-2.5 pr-3 font-mono whitespace-nowrap">
+                          <p className="text-muted-foreground text-xs">{formatDisplayDate(v.date || v.createdAt) || "—"}</p>
+                          {timeLabel ? (
+                            <p className="text-[11px] font-bold text-primary flex items-center gap-1 mt-0.5">
+                              <Clock className="size-3 text-primary/80 shrink-0" />
+                              <span>{timeLabel}</span>
+                            </p>
+                          ) : null}
+                          {v.appointmentToken && (
+                            <span className="text-[9px] font-mono text-muted-foreground block mt-0.5">
+                              Token: {v.appointmentToken}
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2.5 pr-3"><p className="font-semibold text-foreground">{v.petName}</p><p className="text-[10px] text-muted-foreground">{v.ownerName}</p></td>
                         <td className="py-2.5 pr-3 max-w-[130px]"><p className="truncate text-foreground">{v.doctorName || "—"}</p></td>
                         <td className="py-2.5 pr-3 max-w-[150px]"><p className="truncate text-muted-foreground">{v.vitals?.complaint || v.diagnosis || "OPD Visit"}</p></td>
