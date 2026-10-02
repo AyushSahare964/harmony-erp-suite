@@ -9,6 +9,8 @@ import { ROLES, type RoleId } from "./config";
 import {
   loginFn,
   registerFn,
+  sendEmailOtpFn,
+  confirmEmailOtpFn,
   logoutFn,
   getMeFn,
   seedDemoUsersFn,
@@ -107,6 +109,15 @@ export class AuthService {
   public static async register(data: RegisterPayload): Promise<AuthResponse> {
     const res = await registerFn({ data });
     return res;
+  }
+
+  /** Email an OTP to prove address ownership before registering. */
+  public static sendEmailOtp(email: string, name?: string) {
+    return sendEmailOtpFn({ data: { email, ...(name ? { name } : {}) } });
+  }
+
+  public static confirmEmailOtp(email: string, code: string) {
+    return confirmEmailOtpFn({ data: { email, code } });
   }
 
   /**
@@ -209,26 +220,10 @@ export class AuthService {
 
   /**
    * Returns the two built-in system credentials for the login page quick-fill.
-   * Ayush Sahare = hidden developer account. Makarand Dixit = visible admin.
+   * Makarand Dixit = visible admin. (The hidden developer account is never listed client-side.)
    */
   public static getDemoStaffList(): UserProfile[] {
     return [
-      {
-        id:          "sys-ayush",
-        fullName:    "Ayush Sahare",
-        email:       "ayush.sahare@vit.edu",
-        roleId:      "admin",
-        roleName:    "Clinic Administrator / Medical Director",
-        initials:    "AS",
-        clinicName:  "Real Care Small Animal Clinic",
-        branch:      "Nagpur",
-        department:  "System Administration",
-        specialty:   "Administration",
-        qualification: "B.Tech Computer Science",
-        licenseNumber: "SYS-DEV-0001",
-        createdAt:   "2026-01-01T00:00:00.000Z",
-        approvalStatus: "approved",
-      },
       {
         id:          "sys-makarand",
         fullName:    "Dr. Makarand Dixit",

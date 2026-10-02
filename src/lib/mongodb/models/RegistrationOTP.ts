@@ -8,6 +8,8 @@ export interface IRegistrationOTP extends Document {
     attempts: number;
     lastSentAt: Date;
     verified: boolean;
+    sendCount: number;
+    windowStartedAt: Date;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -35,7 +37,6 @@ const RegistrationOTPSchema = new Schema<IRegistrationOTP>(
         expiresAt: {
             type: Date,
             required: true,
-            index: true,
         },
 
         attempts: {
@@ -51,6 +52,16 @@ const RegistrationOTPSchema = new Schema<IRegistrationOTP>(
         verified: {
             type: Boolean,
             default: false,
+        },
+
+        // Send-rate limiting: sendCount codes issued since windowStartedAt
+        sendCount: {
+            type: Number,
+            default: 0,
+        },
+
+        windowStartedAt: {
+            type: Date,
         },
     },
     {

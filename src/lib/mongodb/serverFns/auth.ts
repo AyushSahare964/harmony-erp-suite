@@ -14,8 +14,8 @@ import { User, type ApprovalStatus } from "@/lib/mongodb/models/User";
 import { RegistrationOTP } from "@/lib/mongodb/models/RegistrationOTP";
 import { RefreshToken } from "@/lib/mongodb/models/RefreshToken";
 import { PasswordReset } from "@/lib/mongodb/models/PasswordReset";
-import { sendEmail } from "@/lib/email/emailjs";
-import { loginAlertEmail, passwordResetEmail } from "@/lib/email/templates";
+import { sendEmail, appUrl } from "@/lib/email/emailjs";
+import { passwordResetEmail, registrationOTPEmail } from "@/lib/email/templates";
 import {
   signAccessToken,
   signRefreshToken,
@@ -150,15 +150,6 @@ export const loginFn = createServerFn({ method: "POST" })
       expires: expiresAt,
     });
 
-    // Security alert email (fire-and-forget; never blocks or fails the login)
-    const alert = loginAlertEmail({
-      name: String(user["fullName"]),
-      email: String(user["email"]),
-      role: String(user["roleName"] || user["roleId"]),
-      whenIST: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }),
-    });
-    void sendEmail({ to: String(user["email"]), toName: String(user["fullName"]), queryType: "loginAlert", ...alert });
-
     return {
       success: true,
       user: toProfile(user),
@@ -167,11 +158,14 @@ export const loginFn = createServerFn({ method: "POST" })
     };
   });
 
-// ─── Forgot password (emailed 6-digit code) ─────────────────────────────────
+// ─── Forgot password (emailed one-time reset link) ──────────────────────────
 
-const RESET_TTL_MIN = 10;
-const RESET_MAX_ATTEMPTS = 5;
-const RESET_RESEND_MS = 60_000;
+const RESET_TTL_MIN = 30;
+const RESEND_MS = 60_000;
+const OTP_TTL_MIN = 10;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_MAX_SENDS = 5; // codes per email per hour
+const OTP_SEND_WINDOW_MS = 60 * 60_000;
 const sha = (v: string) => crypto.createHash("sha256").update(v).digest("hex");
 
 export const requestPasswordResetFn = createServerFn({ method: "POST" })
@@ -180,23 +174,22 @@ export const requestPasswordResetFn = createServerFn({ method: "POST" })
     await connectDB();
     const email = data.email.toLowerCase().trim();
     // Same answer whether or not the account exists, so this can't be used to enumerate staff emails.
-    const generic = { success: true, message: "If that email belongs to a staff account, a reset code has been sent." };
+    const generic = { success: true, message: "If that email belongs to a staff account, a password reset link has been sent." };
 
     const user = (await User.findOne({ email }).lean()) as Record<string, any> | null;
-    if (!user || !user["isActive"] || user["approvalStatus"] === "rejected") return generic;
+    if (!user || !user["isActive"] || user["approvalStatus"] !== "approved") return generic;
 
     const existing = await PasswordReset.findOne({ email }).lean();
-    if (existing && Date.now() - new Date(existing.lastSentAt).getTime() < RESET_RESEND_MS) {
-      return { success: false, message: "A code was just sent. Please wait a minute before requesting another." };
-    }
+    if (existing && Date.now() - new Date(existing.lastSentAt).getTime() < RESEND_MS) return generic; // throttle silently
 
-    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+    const token = crypto.randomBytes(32).toString("hex");
     await PasswordReset.findOneAndUpdate(
       { email },
-      { $set: { codeHash: sha(`${email}:${code}`), expiresAt: new Date(Date.now() + RESET_TTL_MIN * 60_000), attempts: 0, lastSentAt: new Date() } },
+      { $set: { codeHash: sha(token), expiresAt: new Date(Date.now() + RESET_TTL_MIN * 60_000), attempts: 0, lastSentAt: new Date() } },
       { upsert: true }
     );
-    const mail = passwordResetEmail({ name: String(user["fullName"]), code, minutes: RESET_TTL_MIN });
+    const link = `${appUrl()}/reset-password?token=${token}`;
+    const mail = passwordResetEmail({ name: String(user["fullName"]), email, link, minutes: RESET_TTL_MIN });
     const sent = await sendEmail({ to: email, toName: String(user["fullName"]), ...mail });
     if (!sent) return { success: false, message: "Could not send the reset email. Please try again or contact your Clinic Administrator." };
     return generic;
@@ -204,27 +197,21 @@ export const requestPasswordResetFn = createServerFn({ method: "POST" })
 
 export const resetPasswordFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) =>
-    z.object({ email: z.string().email(), code: z.string().regex(/^\d{6}$/), newPassword: z.string().min(8) }).parse(raw)
+    z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), newPassword: z.string().min(8) }).parse(raw)
   )
   .handler(async ({ data }): Promise<{ success: boolean; message: string }> => {
     await connectDB();
-    const email = data.email.toLowerCase().trim();
-    const bad = { success: false, message: "Invalid or expired code." };
+    const bad = { success: false, message: "This reset link is invalid or has expired. Please request a new one." };
 
-    const rec = await PasswordReset.findOne({ email });
-    if (!rec || rec.expiresAt.getTime() < Date.now() || rec.attempts >= RESET_MAX_ATTEMPTS) return bad;
-    if (rec.codeHash !== sha(`${email}:${data.code}`)) {
-      rec.attempts += 1;
-      await rec.save();
-      return bad;
-    }
+    // Atomic find-and-delete → the link works exactly once.
+    const rec = await PasswordReset.findOneAndDelete({ codeHash: sha(data.token), expiresAt: { $gt: new Date() } });
+    if (!rec) return bad;
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: rec.email });
     if (!user) return bad;
     user.passwordHash = await bcrypt.hash(data.newPassword, SALT_ROUNDS);
     await user.save();
     await RefreshToken.deleteMany({ userId: user._id }); // sign out every existing session
-    await PasswordReset.deleteOne({ email });
     return { success: true, message: "Password updated. You can now sign in." };
   });
 
@@ -244,16 +231,99 @@ const registerSchema = z.object({
   specialty: z.enum(["Canine", "Feline", "Avian", "Exotic", "Surgery", "General Practice", "Administration"]).optional(),
 });
 
+export interface OtpSendResult {
+  success: boolean;
+  message: string;
+  /** seconds until the code expires / until another code may be requested */
+  expiresInSec?: number;
+  retryAfterSec?: number;
+}
+
+// Step 1: email a random OTP so the applicant can prove they own the address.
+// Limits: 1 code / 60 s, 5 codes / hour per email; each code lives 10 min with 5 tries.
+export const sendEmailOtpFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => z.object({ email: z.string().email(), name: z.string().optional() }).parse(raw))
+  .handler(async ({ data }): Promise<OtpSendResult> => {
+    await connectDB();
+    const email = data.email.toLowerCase().trim();
+    if (await User.findOne({ email }).lean()) return { success: false, message: "A staff account with this email already exists." };
+
+    const now = Date.now();
+    const rec = await RegistrationOTP.findOne({ email }).lean();
+    const inWindow = !!rec?.windowStartedAt && now - new Date(rec.windowStartedAt).getTime() < OTP_SEND_WINDOW_MS;
+    const sendCount = inWindow ? rec!.sendCount : 0;
+
+    if (rec) {
+      const wait = Math.ceil((RESEND_MS - (now - new Date(rec.lastSentAt).getTime())) / 1000);
+      if (wait > 0) return { success: false, message: `Please wait ${wait}s before requesting another code.`, retryAfterSec: wait };
+    }
+    if (sendCount >= OTP_MAX_SENDS) {
+      const mins = Math.ceil((OTP_SEND_WINDOW_MS - (now - new Date(rec!.windowStartedAt).getTime())) / 60_000);
+      return { success: false, message: `Too many codes requested. Try again in ${mins} min.`, retryAfterSec: mins * 60 };
+    }
+
+    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+    await RegistrationOTP.findOneAndUpdate(
+      { email },
+      { $set: {
+        otpHash: sha(`${email}:${code}`),
+        registrationData: {},
+        expiresAt: new Date(now + OTP_TTL_MIN * 60_000),
+        attempts: 0, verified: false, lastSentAt: new Date(now),
+        sendCount: sendCount + 1,
+        windowStartedAt: inWindow ? rec!.windowStartedAt : new Date(now),
+      } },
+      { upsert: true }
+    );
+    const mail = registrationOTPEmail({ name: data.name?.trim() || "there", email, code, minutes: OTP_TTL_MIN });
+    if (!(await sendEmail({ to: email, toName: data.name?.trim() || email, ...mail }))) {
+      // A failed send must not start the cooldown or use up one of the hourly sends.
+      await RegistrationOTP.updateOne({ email }, { $set: { lastSentAt: new Date(0), sendCount } });
+      return { success: false, message: "Could not send the verification email. Please try again in a moment." };
+    }
+    const left = OTP_MAX_SENDS - (sendCount + 1);
+    return {
+      success: true,
+      message: `Code sent to ${email}.${left <= 2 ? ` ${left} resend${left === 1 ? "" : "s"} left this hour.` : ""}`,
+      expiresInSec: OTP_TTL_MIN * 60,
+      retryAfterSec: RESEND_MS / 1000,
+    };
+  });
+
+// Step 2: confirm the OTP. Marks the email verified for 30 min so the form can be submitted.
+export const confirmEmailOtpFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => z.object({ email: z.string().email(), code: z.string().regex(/^\d{6}$/) }).parse(raw))
+  .handler(async ({ data }): Promise<{ success: boolean; message: string }> => {
+    await connectDB();
+    const email = data.email.toLowerCase().trim();
+
+    const rec = await RegistrationOTP.findOne({ email });
+    if (!rec || rec.expiresAt.getTime() < Date.now()) return { success: false, message: "Code expired. Please request a new one." };
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) return { success: false, message: "Too many wrong attempts. Please request a new code." };
+    if (rec.otpHash !== sha(`${email}:${data.code}`)) {
+      rec.attempts += 1;
+      await rec.save();
+      const left = OTP_MAX_ATTEMPTS - rec.attempts;
+      return { success: false, message: left > 0 ? `Incorrect code. ${left} attempt${left === 1 ? "" : "s"} left.` : "Too many wrong attempts. Please request a new code." };
+    }
+    rec.verified = true;
+    rec.expiresAt = new Date(Date.now() + 30 * 60_000);
+    await rec.save();
+    return { success: true, message: "Email verified." };
+  });
+
+// Step 3: create the pending-approval account — only for an email verified in step 2.
 export const registerFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) => registerSchema.parse(raw))
   .handler(async ({ data }): Promise<AuthResponse> => {
     await connectDB();
 
     const cleanEmail = data.email.toLowerCase().trim();
-    const existing = await User.findOne({ email: cleanEmail }).lean();
-    if (existing) {
+    if (await User.findOne({ email: cleanEmail }).lean()) {
       return { success: false, message: "A staff account with this email already exists." };
     }
+    const proof = await RegistrationOTP.findOne({ email: cleanEmail, verified: true, expiresAt: { $gt: new Date() } }).lean();
+    if (!proof) return { success: false, message: "Please verify your email address first." };
 
     const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
     const roleName = ROLES[data.roleId as RoleId]?.name ?? "Clinic Staff";
@@ -279,6 +349,7 @@ export const registerFn = createServerFn({ method: "POST" })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = await User.create(createPayload) as any;
+    await RegistrationOTP.deleteOne({ email: cleanEmail });
 
     return {
       success: true,
@@ -718,6 +789,7 @@ export const listApprovedDoctorsFn = createServerFn({ method: "GET" })
       const doctors = await User.find({
         roleId: { $in: ["doctor", "admin"] },
         approvalStatus: "approved",
+        isSystemAccount: { $ne: true },
         isActive: true,
       })
         .sort({ fullName: 1 })
@@ -735,11 +807,5 @@ export const listApprovedDoctorsFn = createServerFn({ method: "GET" })
       console.warn("[Auth] Could not fetch approved doctors:", err);
     }
 
-    // Default fallback if no custom registered doctors in DB yet
-    return [
-      { id: "doc-1", name: "Dr. Rohit Sharma", specialty: "Chief Veterinary Physician & Surgeon" },
-      { id: "doc-2", name: "Dr. Aisha Nair", specialty: "Feline & Soft Tissue Specialist" },
-      { id: "doc-3", name: "Dr. Ananya Rao", specialty: "Senior Surgeon & Orthopedic Vet" },
-      { id: "doc-4", name: "Dr. Ayush Sahare", specialty: "Consultant Veterinary Physician" },
-    ];
+    return [];
   });

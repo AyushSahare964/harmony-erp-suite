@@ -28,7 +28,7 @@ import { getIcon } from "./icon";
 import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 import { getMongoStatusFn, type MongoStatusRow } from "@/lib/mongodb/serverFns/status";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
-import { settleReminderFn, dispatchDueReminderEmailsFn } from "@/lib/mongodb/serverFns/reminders";
+import { settleReminderFn } from "@/lib/mongodb/serverFns/reminders";
 import { getNotificationsFn, type NotificationRow, type NotificationCategory } from "@/lib/mongodb/serverFns/notifications";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
@@ -348,14 +348,7 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
   useEffect(() => {
     loadNotifications();
     const interval = setInterval(loadNotifications, 60_000); // keep the badge fresh across a long shift
-    // Due-date payment emails to owners: no server scheduler exists, so the open terminal triggers it (idempotent).
-    const sendDue = () => void dispatchDueReminderEmailsFn().catch(() => {});
-    sendDue();
-    const dueInterval = setInterval(sendDue, 60 * 60_000);
-    return () => {
-      clearInterval(interval);
-      clearInterval(dueInterval);
-    };
+    return () => clearInterval(interval);
   }, []);
 
   const criticalCount = notifications.filter((n) => n.severity === "critical").length;

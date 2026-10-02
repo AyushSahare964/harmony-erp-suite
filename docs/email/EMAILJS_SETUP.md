@@ -1,74 +1,34 @@
-# Email (EmailJS) Setup & Template Studio
+# Email (EmailJS) Setup
 
-All outgoing emails from Harmony ERP / Real Care Small Animal Clinic are routed through **EmailJS**.
+The app sends exactly **two** emails, both through [EmailJS](https://dashboard.emailjs.com/):
 
-The email suite provides:
-1. **Unified Code Architecture:** All templates, layout styles, and EmailJS parameters are defined in a single file: [`src/lib/email/templates.ts`](file:///c:/Users/HP%20pavilion/Videos/Screenshots/OneDrive/Desktop/Vetarnary_Hospital_ERP_System/harmony-erp-suite/src/lib/email/templates.ts).
-2. **Interactive Single-File Studio:** A self-contained HTML/CSS/JavaScript file at [`src/lib/email/email_templates.html`](file:///c:/Users/HP%20pavilion/Videos/Screenshots/OneDrive/Desktop/Vetarnary_Hospital_ERP_System/harmony-erp-suite/src/lib/email/email_templates.html) (and in [`public/email_templates.html`](file:///c:/Users/HP%20pavilion/Videos/Screenshots/OneDrive/Desktop/Vetarnary_Hospital_ERP_System/harmony-erp-suite/public/email_templates.html)) allowing you to visually preview, edit sample variables in real-time, test sending live emails, and copy the master EmailJS template with one click.
+| Email | Trigger | Server function | EmailJS template | HTML to paste |
+|---|---|---|---|---|
+| **Staff registration code** | "Verify" next to Work Email on the Register tab | `sendEmailOtpFn` in `serverFns/auth.ts` | `template_zo51h1i` | `email-templates/2_registration_otp.html` |
+| **Password reset link** | "Forgot password?" on the login page | `requestPasswordResetFn` in `serverFns/auth.ts` | `template_rep7mlc` | `email-templates/3_password_reset.html` |
 
----
+Code lives in `src/lib/email/` (`emailjs.ts` = sender, `templates.ts` = template parameters).
+Both templates show the clinic logo (`{{clinic_logo_url}}` = `<site URL>/clinic-logo.png`, so it appears once the site is public).
 
-## 1. Quick Config Credentials
+## Configuration
 
-| Setting | Built-in Default | Environment Variable |
+Production site: **https://harmony-erp-suite-g28j.vercel.app** (used for the reset link and the logo URL).
+
+| Variable | Needed? | Notes |
 |---|---|---|
-| **Service ID** | `service_1tmhrq1` | `EMAILJS_SERVICE_ID` |
-| **Template ID** | `template_zo51h1i` | `EMAILJS_TEMPLATE_ID` |
-| **Public Key** | `LyZojrjx5u929g6eU` | `EMAILJS_PUBLIC_KEY` |
-| **Private Key** (Optional) | `""` | `EMAILJS_PRIVATE_KEY` |
+| `EMAILJS_PRIVATE_KEY` | **Yes — secret** | EmailJS → Account → API keys. Set it in `.env` locally and in Vercel → Settings → Environment Variables. Never commit it. |
+| `APP_URL` | Optional | Defaults to the Vercel URL in production and `http://localhost:8080` in dev. |
+| `EMAILJS_SERVICE_ID`, `EMAILJS_PUBLIC_KEY` | Optional | Built-in defaults match the clinic account. |
+| `EMAILJS_TEMPLATE_REGISTRATION_OTP`, `EMAILJS_TEMPLATE_PASSWORD_RESET` | Optional | Override the template IDs above. |
+| `EMAIL_LOGO_URL` | Optional | Use a different public logo image. |
 
-Override these in `.env` / `.env.local` if using your own EmailJS account.
+## One-time EmailJS dashboard setup
 
----
+1. Account → Security: allow API access from non-browser applications.
+2. For each template: **To Email** `{{to_email}}`, **To Name** `{{to_name}}`, then **Edit Content → Code Editor** and paste the matching HTML file from `email-templates/`.
 
-## 2. One-Time Dashboard Setup (Required)
+## Safety rules built in
 
-1. **Allow server-side sending:**
-   - Go to [EmailJS Dashboard](https://dashboard.emailjs.com/) → **Account** → **Security**.
-   - Enable **"Allow EmailJS API for non-browser applications"**.
-   - *(Optional)* If you enable "Use Private Key", paste the key into `EMAILJS_PRIVATE_KEY` in `.env`.
-
-2. **Configure template `template_zo51h1i`:**
-   - Go to **Email Templates** → **template_zo51h1i** (or create a new template).
-   - Set **To Email:** `{{to_email}}`
-   - Set **To Name:** `{{to_name}}`
-   - Set **From Name:** `REAL CARE SMALL ANIMAL CLINIC`
-   - Set **Subject:** `{{subject}}`
-   - **Content:** Click **Edit Content** → switch to **Code Editor**, and choose either option below:
-
-### Option A: Universal HTML Body (Simplest — 1 Line)
-Paste exactly:
-```html
-{{{html_body}}}
-```
-*(Triple curly braces `{{{ }}}` prevent EmailJS from escaping HTML markup.)*
-
-### Option B: Master EmailJS Branded Template (Rich HTML + Variables)
-Paste the full responsive HTML template from [`src/lib/email/email_templates.html`](file:///c:/Users/HP%20pavilion/Videos/Screenshots/OneDrive/Desktop/Vetarnary_Hospital_ERP_System/harmony-erp-suite/src/lib/email/email_templates.html). It accepts both structured template variables (`{{title}}`, `{{{details_table}}}`, `{{{items_table}}}`, `{{{highlight_box}}}`) AND falls back to `{{{html_body}}}` automatically!
-
----
-
-## 3. Supported Email Templates
-
-| # | Template | Trigger Point | Server Function |
-|---|---|---|---|
-| 1 | **Login Security Alert** | Successful staff login | `loginFn` in `serverFns/auth.ts` |
-| 2 | **Staff Registration OTP** | Staff self-registration verification | `registerFn` in `serverFns/auth.ts` |
-| 3 | **Password Reset Code** | "Forgot password?" modal (6-digit OTP) | `requestPasswordResetFn` in `serverFns/auth.ts` |
-| 4 | **Appointment Confirmation** | New appointment booked | `bookAppointmentFn` in `serverFns/appointments.ts` |
-| 5 | **Payment Due Reminder** | Scheduled billing reminder check | `dispatchDueReminderEmailsFn` in `serverFns/reminders.ts` |
-| 6 | **Visit Summary & Invoice** | Visit finalized & billed | `finalizeVisitAndBillFn` in `serverFns/clinical.ts` |
-
----
-
-## 4. Interactive Studio & Template Tester
-
-Open the single-file studio in your browser to inspect or test all templates:
-- When running the dev server: `http://localhost:8080/email_templates.html`
-- Or open directly in your browser: `file:///c:/Users/HP pavilion/Videos/Screenshots/OneDrive/Desktop/Vetarnary_Hospital_ERP_System/harmony-erp-suite/public/email_templates.html`
-
-### Features:
-- 📱 **Desktop (600px) & Mobile (375px) live preview toggle**.
-- ✏️ **Live reactive inputs:** edit names, amounts, pet details, codes and see updates instantly.
-- 📋 **One-click copy buttons:** copy full HTML, JSON parameters, or the EmailJS master template.
-- ⚡ **Direct Test Sender:** send a live test email directly to your inbox via the EmailJS REST API.
+- **Registration code:** random 6 digits, stored hashed, valid 10 min, 5 wrong tries per code, 1 code/60 s, 5 codes/hour per email. Registration is refused unless the email was verified.
+- **Reset link:** random 256-bit token, stored hashed, valid 30 min, single use; resetting signs out every session. The "forgot password" reply is the same whether or not the email exists.
+- Failed sends never start the resend cooldown.

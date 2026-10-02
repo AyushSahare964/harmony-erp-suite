@@ -48,6 +48,9 @@
             <td style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); padding: 22px 28px; color: #ffffff;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
+                  <td align="left" valign="middle" width="64" style="padding-right: 14px;">
+                    <img src="{{clinic_logo_url}}" alt="{{clinic_name}}" width="52" height="52" style="display: block; width: 52px; height: 52px; background-color: #ffffff; border-radius: 10px; padding: 4px;">
+                  </td>
                   <td align="left" valign="middle">
                     <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #bae6fd; margin-bottom: 3px;">
                       {{clinic_tagline}}
@@ -74,7 +77,7 @@
               </h1>
               
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; color: #334155;">
-                Welcome to <b>{{clinic_name}}</b>, <b>{{to_name}}</b>! Use the one-time verification code below to verify your email address and submit your staff registration for review:
+                Hi <b>{{to_name}}</b>, use this code to verify your email address:
               </p>
 
               <!-- OTP Code Highlight Box -->
@@ -88,29 +91,6 @@
                 <div style="font-size: 12px; font-weight: 500; color: #64748b; margin-top: 10px;">
                   &bull; Valid for <b>{{expiry_minutes}} minutes</b> &bull; Do not share this code
                 </div>
-              </div>
-
-              <!-- Metadata Summary Table -->
-              <table role="presentation" width="100%" style="border-collapse: collapse; margin: 18px 0; background-color: #f8fafc; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
-                <tr>
-                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; width: 38%; border-bottom: 1px solid #e2e8f0;">Registered Email</td>
-                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">{{account_email}}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; border-bottom: 1px solid #e2e8f0;">Requested Role</td>
-                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">{{role_name}}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500;">Purpose</td>
-                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 600;">{{purpose}}</td>
-                </tr>
-              </table>
-
-              <!-- Notice Box -->
-              <div style="background-color: #f8fafc; border-left: 4px solid #0284c7; padding: 12px 16px; margin: 18px 0; border-radius: 0 8px 8px 0;">
-                <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #475569;">
-                  Once verified, your account details will be queued for review and approval by the clinic administrator before system access is enabled.
-                </p>
               </div>
 
               <p style="margin: 16px 0 0 0; font-size: 12px; line-height: 1.5; color: #94a3b8;">

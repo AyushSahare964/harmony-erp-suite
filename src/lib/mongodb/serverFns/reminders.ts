@@ -5,8 +5,6 @@ import { BillingReminderModel } from "@/lib/mongodb/models/BillingReminder";
 import { nextSeq } from "@/lib/mongodb/serverFns/counters";
 import { ClinicalVisit } from "@/lib/mongodb/models/ClinicalVisit";
 import { Owner } from "@/lib/mongodb/models/Owner";
-import { sendEmail } from "@/lib/email/emailjs";
-import { paymentDueEmail } from "@/lib/email/templates";
 import { todayIST } from "@/lib/utils/dateUtils";
 
 function toPlain<T>(v: unknown): T {
@@ -98,48 +96,6 @@ export const createReminderFn = createServerFn({ method: "POST" })
       createdAt: (doc.createdAt as Date).toISOString(),
     });
   });
-
-/**
- * Emails owners whose reminder is due today (or overdue) and hasn't been emailed yet.
- * There is no background scheduler, so the staff terminal calls this on load and hourly (Shell.tsx).
- * Owner email is found via the reminder's invoice → visit → owner; reminders without one are skipped.
- */
-export const dispatchDueReminderEmailsFn = createServerFn({ method: "POST" }).handler(
-  async (): Promise<{ sent: number }> => {
-    await connectDB();
-    const due = await BillingReminderModel.find({
-      status: "Pending",
-      scheduledDate: { $lte: todayIST() },
-      emailedAt: { $exists: false },
-      invoiceNo: { $ne: "" },
-    }).limit(50);
-    let sent = 0;
-    for (const r of due) {
-      try {
-        const visit = await ClinicalVisit.findOne({ invoiceNo: r.invoiceNo ?? "" }).lean();
-        const owner = visit ? await Owner.findOne({ ownerId: visit.ownerId }).lean() : null;
-        const to = String(owner?.email || "").trim();
-        if (!to) continue;
-        const mail = paymentDueEmail({
-          ownerName: r.ownerName,
-          petName: r.petName,
-          amount: r.dueAmount,
-          dueDate: r.scheduledDate,
-          ...(r.invoiceNo ? { invoiceNo: r.invoiceNo } : {}),
-          reminderType: r.reminderType,
-        });
-        if (await sendEmail({ to, toName: r.ownerName, ...mail })) {
-          r.emailedAt = new Date();
-          await r.save();
-          sent++;
-        }
-      } catch (e) {
-        console.warn("[dispatchDueReminderEmailsFn] skipped", r.reminderId, e);
-      }
-    }
-    return { sent };
-  }
-);
 
 const ReminderIdInputZ = z.object({ reminderId: z.string().min(1) });
 

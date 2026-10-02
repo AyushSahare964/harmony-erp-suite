@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PendingApprovalRouteImport } from './routes/pending-approval'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as MModuleIdRouteImport } from './routes/m.$moduleId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -29,6 +30,11 @@ const PendingApprovalRoute = PendingApprovalRouteImport.update({
   path: '/pending-approval',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MModuleIdRoute = MModuleIdRouteImport.update({
   id: '/m/$moduleId',
   path: '/m/$moduleId',
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/pending-approval': typeof PendingApprovalRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/m/$moduleId': typeof MModuleIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/pending-approval': typeof PendingApprovalRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/m/$moduleId': typeof MModuleIdRoute
 }
 export interface FileRoutesById {
@@ -52,20 +60,29 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/pending-approval': typeof PendingApprovalRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/m/$moduleId': typeof MModuleIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/pending-approval' | '/m/$moduleId'
+  fullPaths:
+    '/' | '/login' | '/pending-approval' | '/reset-password' | '/m/$moduleId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/pending-approval' | '/m/$moduleId'
-  id: '__root__' | '/' | '/login' | '/pending-approval' | '/m/$moduleId'
+  to: '/' | '/login' | '/pending-approval' | '/reset-password' | '/m/$moduleId'
+  id:
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/pending-approval'
+    | '/reset-password'
+    | '/m/$moduleId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   PendingApprovalRoute: typeof PendingApprovalRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   MModuleIdRoute: typeof MModuleIdRoute
 }
 
@@ -92,6 +109,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PendingApprovalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/m/$moduleId': {
       id: '/m/$moduleId'
       path: '/m/$moduleId'
@@ -106,6 +130,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   PendingApprovalRoute: PendingApprovalRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   MModuleIdRoute: MModuleIdRoute,
 }
 export const routeTree = rootRouteImport

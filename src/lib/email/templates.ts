@@ -5,7 +5,7 @@
  */
 
 import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
-import { type EmailQueryType, resolveTemplateId } from "./emailjs";
+import { type EmailQueryType, resolveTemplateId, logoUrl } from "./emailjs";
 
 // ─── Helpers & Formatting ───────────────────────────────────────────────────
 
@@ -139,6 +139,9 @@ export function renderEmailLayout(opts: {
             <td style="background: linear-gradient(135deg, ${STYLES.primaryColor} 0%, ${STYLES.primaryDark} 100%); padding: 22px 28px; color: #ffffff;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
+                  <td align="left" width="64" style="vertical-align: middle; padding-right: 14px;">
+                    <img src="${esc(logoUrl(CLINIC_CONFIG.logoPath))}" alt="${esc(clinic)}" width="52" height="52" style="display: block; width: 52px; height: 52px; object-fit: contain; background-color: #ffffff; border-radius: 10px; padding: 4px;">
+                  </td>
                   <td align="left" style="vertical-align: middle;">
                     <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #bae6fd; margin-bottom: 3px;">
                       ${esc(tagline)}
@@ -201,73 +204,6 @@ export interface EmailTemplateResult {
   templateParams: Record<string, string>;
 }
 
-// ─── 1. Login Security Alert ───────────────────────────────────────────────
-
-export interface LoginAlertProps {
-  name: string;
-  email: string;
-  role: string;
-  whenIST: string;
-}
-
-export function loginAlertEmail(p: LoginAlertProps): EmailTemplateResult {
-  const queryType: EmailQueryType = "loginAlert";
-  const templateId = resolveTemplateId(queryType);
-  const subject = "Security Alert: New Sign-in to Your Clinic Account";
-  const badge = "SECURITY ALERT";
-  const title = "New Sign-in Detected";
-  const intro = `<p style="margin: 0 0 14px 0; font-size: 14px; line-height: 1.6; color: ${STYLES.slate700};">Hi <b>${esc(p.name)}</b>, your clinic staff account was just used to sign in to the portal.</p>`;
-  const details = renderDetailsTable([
-    ["Account Email", p.email],
-    ["Assigned Role", p.role],
-    ["Sign-in Time (IST)", p.whenIST],
-    ["Security Status", "Successful Authentication"],
-  ]);
-  const warning = renderNoticeBox({
-    variant: "warning",
-    text: "If this was not you, reset your password immediately using 'Forgot password?' on the login screen and inform your Clinic Administrator.",
-  });
-
-  const bodyHtml = `${intro}${details}${warning}`;
-  const address = `${CLINIC_CONFIG.addressLine1 || ""}, ${CLINIC_CONFIG.addressLine2 || ""}`.trim();
-
-  return {
-    subject,
-    queryType,
-    templateId,
-    html: renderEmailLayout({
-      title,
-      badge,
-      preheader: `Sign-in alert for ${p.email} at ${p.whenIST}`,
-      bodyHtml,
-    }),
-    templateParams: {
-      // Matching 1_login_alert.html
-      clinic_name: CLINIC_CONFIG.fullName || "Real Care Small Animal Clinic",
-      clinic_tagline: CLINIC_CONFIG.tagline || "Comprehensive Veterinary & Surgical Care",
-      clinic_address: address,
-      clinic_phone: CLINIC_CONFIG.phone || "",
-      to_name: p.name,
-      to_email: p.email,
-      account_email: p.email,
-      user_role: p.role,
-      login_time: p.whenIST,
-      device_session: "Authorized Web Portal",
-      security_status: "Successful Authentication",
-      // Master template fallbacks
-      subject,
-      title,
-      header_badge: badge,
-      greeting_and_intro: `Hi ${p.name}, your clinic staff account was just used to sign in to the portal.`,
-      highlight_box: "",
-      details_table: details,
-      items_table: "",
-      warning_notice: warning,
-      footer_note: "If this was not you, change your password immediately.",
-    },
-  };
-}
-
 // ─── 2. Staff Registration OTP Verification ────────────────────────────────
 
 export interface RegistrationOTPProps {
@@ -284,23 +220,13 @@ export function registrationOTPEmail(p: RegistrationOTPProps): EmailTemplateResu
   const subject = `Your Staff Registration Verification Code: ${p.code}`;
   const badge = "VERIFICATION";
   const title = "Verify Your Staff Account";
-  const intro = `<p style="margin: 0 0 14px 0; font-size: 14px; line-height: 1.6; color: ${STYLES.slate700};">Welcome to <b>${esc(CLINIC_CONFIG.fullName)}</b>, ${esc(p.name)}! Use the 6-digit verification code below to verify your email address and submit your staff registration for review.</p>`;
+  const intro = `<p style="margin: 0 0 14px 0; font-size: 14px; line-height: 1.6; color: ${STYLES.slate700};">Hi <b>${esc(p.name)}</b>, use this code to verify your email address:</p>`;
   const highlight = renderHighlightBox({
     code: p.code,
     badge: "Registration OTP",
     subtitle: `Expires in ${minutes} minutes · One-time verification code`,
   });
-  const details = renderDetailsTable([
-    ["Email Address", p.email],
-    ["Purpose", "Staff Portal Self-Registration"],
-    ["Validity", `${minutes} minutes`],
-  ]);
-  const notice = renderNoticeBox({
-    variant: "info",
-    text: "Once verified, your account will be reviewed by the clinic administrator before full access is granted.",
-  });
-
-  const bodyHtml = `${intro}${highlight}${details}${notice}`;
+  const bodyHtml = `${intro}${highlight}`;
   const address = `${CLINIC_CONFIG.addressLine1 || ""}, ${CLINIC_CONFIG.addressLine2 || ""}`.trim();
 
   return {
@@ -319,6 +245,7 @@ export function registrationOTPEmail(p: RegistrationOTPProps): EmailTemplateResu
       clinic_tagline: CLINIC_CONFIG.tagline || "Comprehensive Veterinary & Surgical Care",
       clinic_address: address,
       clinic_phone: CLINIC_CONFIG.phone || "",
+      clinic_logo_url: logoUrl(CLINIC_CONFIG.logoPath),
       to_name: p.name,
       to_email: p.email,
       account_email: p.email,
@@ -332,41 +259,39 @@ export function registrationOTPEmail(p: RegistrationOTPProps): EmailTemplateResu
       header_badge: badge,
       greeting_and_intro: `Welcome ${p.name}! Use the verification code below to verify your registration.`,
       highlight_box: highlight,
-      details_table: details,
+      details_table: "",
       items_table: "",
-      warning_notice: notice,
+      warning_notice: "",
       footer_note: `This code expires in ${minutes} minutes.`,
     },
   };
 }
 
-// ─── 3. Password Reset Code ────────────────────────────────────────────────
+// ─── 3. Password Reset Link ────────────────────────────────────────────────
 
 export interface PasswordResetProps {
   name: string;
-  code: string;
+  email: string;
+  /** Full one-time reset URL (https://<app>/reset-password?token=…) */
+  link: string;
   minutes?: number;
 }
 
 export function passwordResetEmail(p: PasswordResetProps): EmailTemplateResult {
   const queryType: EmailQueryType = "passwordReset";
   const templateId = resolveTemplateId(queryType);
-  const minutes = p.minutes || 10;
-  const subject = `Your Password Reset Code: ${p.code}`;
+  const minutes = p.minutes || 30;
+  const subject = "Reset Your Clinic Portal Password";
   const badge = "PASSWORD RESET";
   const title = "Reset Your Password";
-  const intro = `<p style="margin: 0 0 14px 0; font-size: 14px; line-height: 1.6; color: ${STYLES.slate700};">Hi <b>${esc(p.name)}</b>, we received a request to reset your password. Use the security code below to establish a new password:</p>`;
-  const highlight = renderHighlightBox({
-    code: p.code,
-    badge: "One-Time Reset Code",
-    subtitle: `Expires in ${minutes} minutes · Works only once`,
-  });
+  const intro = `<p style="margin: 0 0 14px 0; font-size: 14px; line-height: 1.6; color: ${STYLES.slate700};">Hi <b>${esc(p.name)}</b>, we received a request to reset the password for <b>${esc(p.email)}</b>. Click the button below to choose a new password:</p>`;
+  const button = `<div style="text-align: center; margin: 26px 0;"><a href="${esc(p.link)}" style="display: inline-block; background-color: ${STYLES.primaryColor}; color: #ffffff; font-size: 15px; font-weight: 700; text-decoration: none; padding: 13px 30px; border-radius: 8px;">Reset Password</a><div style="font-size: 12px; color: ${STYLES.slate500}; margin-top: 10px;">Link expires in ${minutes} minutes · Works only once</div></div>`;
   const warning = renderNoticeBox({
     variant: "warning",
-    text: `The code expires in ${minutes} minutes. If you did not request a password reset, you can safely disregard this email — your account remains protected.`,
+    text: "If you did not request a password reset, you can safely ignore this email — your password is unchanged. Never share this link with anyone.",
   });
 
-  const bodyHtml = `${intro}${highlight}${warning}`;
+  const bodyHtml = `${intro}${button}${warning}`;
   const address = `${CLINIC_CONFIG.addressLine1 || ""}, ${CLINIC_CONFIG.addressLine2 || ""}`.trim();
 
   return {
@@ -376,7 +301,7 @@ export function passwordResetEmail(p: PasswordResetProps): EmailTemplateResult {
     html: renderEmailLayout({
       title,
       badge,
-      preheader: `Your reset code is ${p.code} (expires in ${minutes} mins)`,
+      preheader: `Reset your password (link expires in ${minutes} mins)`,
       bodyHtml,
     }),
     templateParams: {
@@ -385,312 +310,22 @@ export function passwordResetEmail(p: PasswordResetProps): EmailTemplateResult {
       clinic_tagline: CLINIC_CONFIG.tagline || "Comprehensive Veterinary & Surgical Care",
       clinic_address: address,
       clinic_phone: CLINIC_CONFIG.phone || "",
+      clinic_logo_url: logoUrl(CLINIC_CONFIG.logoPath),
       to_name: p.name,
-      reset_code: p.code,
+      to_email: p.email,
+      account_email: p.email,
+      reset_link: p.link,
       expiry_minutes: String(minutes),
-      account_email: p.name,
       // Master template fallbacks
       subject,
       title,
       header_badge: badge,
-      greeting_and_intro: `Hi ${p.name}, use this code to reset your password.`,
-      highlight_box: highlight,
+      greeting_and_intro: `Hi ${p.name}, use the link to reset your password.`,
+      highlight_box: button,
       details_table: "",
       items_table: "",
       warning_notice: warning,
       footer_note: "If you did not request this, ignore this email.",
-    },
-  };
-}
-
-// ─── 4. Appointment Confirmation ───────────────────────────────────────────
-
-export interface AppointmentEmailProps {
-  ownerName: string;
-  petName: string;
-  date: string;
-  time?: string;
-  doctor?: string;
-  token?: string | number;
-  reason?: string;
-}
-
-export function appointmentEmail(p: AppointmentEmailProps): EmailTemplateResult {
-  const queryType: EmailQueryType = "appointment";
-  const templateId = resolveTemplateId(queryType);
-  const subject = `Appointment Confirmed for ${p.petName} — ${p.date}`;
-  const badge = "APPOINTMENT";
-  const title = "Your Appointment is Confirmed!";
-  const intro = `<p style="margin: 0 0 14px 0; font-size: 14px; line-height: 1.6; color: ${STYLES.slate700};">Dear <b>${esc(p.ownerName)}</b>, a veterinary consultation has been scheduled for <b>${esc(p.petName)}</b>. Here are the booking details:</p>`;
-  const details = renderDetailsTable([
-    ["Patient (Pet)", p.petName],
-    ["Appointment Date", p.date],
-    ["Time Slot", p.time || "Regular Clinic Hours"],
-    ["Consulting Doctor", p.doctor || CLINIC_CONFIG.doctorName],
-    ["Queue Token #", p.token != null ? String(p.token) : undefined],
-    ["Reason for Visit", p.reason],
-  ]);
-  const tips = renderNoticeBox({
-    variant: "info",
-    text: "Please arrive 10 minutes prior to your slot and bring previous medical records or vaccination cards. To reschedule or cancel, please call the clinic desk.",
-  });
-
-  const bodyHtml = `${intro}${details}${tips}`;
-  const address = `${CLINIC_CONFIG.addressLine1 || ""}, ${CLINIC_CONFIG.addressLine2 || ""}`.trim();
-
-  return {
-    subject,
-    queryType,
-    templateId,
-    html: renderEmailLayout({
-      title,
-      badge,
-      preheader: `Confirmed appointment for ${p.petName} on ${p.date}`,
-      bodyHtml,
-    }),
-    templateParams: {
-      // Matching 4_appointment_confirmation.html
-      clinic_name: CLINIC_CONFIG.fullName || "Real Care Small Animal Clinic",
-      clinic_tagline: CLINIC_CONFIG.tagline || "Comprehensive Veterinary & Surgical Care",
-      clinic_address: address,
-      clinic_phone: CLINIC_CONFIG.phone || "",
-      owner_name: p.ownerName,
-      to_name: p.ownerName,
-      pet_name: p.petName,
-      appointment_date: p.date,
-      appointment_time: p.time || "Regular Clinic Hours",
-      doctor_name: p.doctor || CLINIC_CONFIG.doctorName,
-      queue_token: p.token != null ? String(p.token) : "Walk-in",
-      reason_for_visit: p.reason || "General Veterinary Consultation",
-      // Master template fallbacks
-      subject,
-      title,
-      header_badge: badge,
-      greeting_and_intro: `Dear ${p.ownerName}, your appointment for ${p.petName} is confirmed.`,
-      highlight_box: "",
-      details_table: details,
-      items_table: "",
-      warning_notice: tips,
-      footer_note: `To reschedule, call ${CLINIC_CONFIG.phone || "the clinic"}.`,
-    },
-  };
-}
-
-// ─── 5. Payment Due Reminder ───────────────────────────────────────────────
-
-export interface PaymentDueProps {
-  ownerName: string;
-  petName: string;
-  amount: number;
-  dueDate: string;
-  invoiceNo?: string;
-  reminderType: string;
-}
-
-export function paymentDueEmail(p: PaymentDueProps): EmailTemplateResult {
-  const queryType: EmailQueryType = "paymentDue";
-  const templateId = resolveTemplateId(queryType);
-  const formattedAmt = inr(p.amount);
-  const subject = `Payment Reminder: ${formattedAmt} Due for ${p.petName}`;
-  const badge = "PAYMENT REMINDER";
-  const title = "Payment Due Reminder";
-  const intro = `<p style="margin: 0 0 14px 0; font-size: 14px; line-height: 1.6; color: ${STYLES.slate700};">Dear <b>${esc(p.ownerName)}</b>, this is a courteous reminder that an outstanding payment for <b>${esc(p.petName)}</b> is pending.</p>`;
-  const highlight = renderHighlightBox({
-    code: formattedAmt,
-    badge: "Outstanding Balance",
-    subtitle: `Due Date: ${p.dueDate}`,
-    bg: "#fffbeb",
-    color: "#b45309",
-  });
-  const details = renderDetailsTable([
-    ["Patient (Pet)", p.petName],
-    ["Amount Due", formattedAmt],
-    ["Due Date", p.dueDate],
-    ["Invoice Number", p.invoiceNo],
-    ["Regarding", p.reminderType],
-  ]);
-  const instructions = renderNoticeBox({
-    variant: "info",
-    text: "Please settle this at the hospital counter. If you have already made this payment, please disregard this reminder.",
-  });
-
-  const bodyHtml = `${intro}${highlight}${details}${instructions}`;
-  const address = `${CLINIC_CONFIG.addressLine1 || ""}, ${CLINIC_CONFIG.addressLine2 || ""}`.trim();
-
-  return {
-    subject,
-    queryType,
-    templateId,
-    html: renderEmailLayout({
-      title,
-      badge,
-      preheader: `Payment reminder: ${formattedAmt} due on ${p.dueDate}`,
-      bodyHtml,
-    }),
-    templateParams: {
-      // Matching 5_payment_reminder.html
-      clinic_name: CLINIC_CONFIG.fullName || "Real Care Small Animal Clinic",
-      clinic_tagline: CLINIC_CONFIG.tagline || "Comprehensive Veterinary & Surgical Care",
-      clinic_address: address,
-      clinic_phone: CLINIC_CONFIG.phone || "",
-      owner_name: p.ownerName,
-      to_name: p.ownerName,
-      pet_name: p.petName,
-      amount_due: formattedAmt,
-      due_date: p.dueDate,
-      invoice_no: p.invoiceNo || "N/A",
-      reminder_type: p.reminderType,
-      // Master template fallbacks
-      subject,
-      title,
-      header_badge: badge,
-      greeting_and_intro: `Dear ${p.ownerName}, reminder for payment regarding ${p.petName}.`,
-      highlight_box: highlight,
-      details_table: details,
-      items_table: "",
-      warning_notice: instructions,
-      footer_note: "Please contact our billing desk for any clarifications.",
-    },
-  };
-}
-
-// ─── 6. Clinical Visit Summary & Bill / Prescription ───────────────────────
-
-export interface VisitEmailLine {
-  name: string;
-  quantity: number;
-  unitPrice: number;
-  lineTotal: number;
-  dosageInstructions?: string | undefined;
-}
-
-export interface VisitSummaryProps {
-  ownerName: string;
-  petName: string;
-  date: string;
-  doctor?: string;
-  invoiceNo: string;
-  prescriptionNo: string;
-  diagnosis?: string;
-  notes?: string;
-  nextVisitDate?: string;
-  lines: VisitEmailLine[];
-  totalAmount: number;
-  amountPaid: number;
-  balanceDue: number;
-}
-
-export function visitSummaryEmail(p: VisitSummaryProps): EmailTemplateResult {
-  const queryType: EmailQueryType = "visitSummary";
-  const templateId = resolveTemplateId(queryType);
-  const subject = `Treatment Summary & Invoice ${p.invoiceNo} for ${p.petName}`;
-  const badge = "CLINICAL & BILL";
-  const title = `Treatment Summary & Medical Invoice`;
-  const intro = `<p style="margin: 0 0 14px 0; font-size: 14px; line-height: 1.6; color: ${STYLES.slate700};">Dear <b>${esc(p.ownerName)}</b>, thank you for trusting us with <b>${esc(p.petName)}</b>'s health today. Below is the clinical summary and itemized billing statement:</p>`;
-
-  const details = renderDetailsTable([
-    ["Visit Date", p.date],
-    ["Attending Doctor", p.doctor || CLINIC_CONFIG.doctorName],
-    ["Invoice No.", p.invoiceNo],
-    ["Prescription No.", p.prescriptionNo],
-    ["Clinical Diagnosis", p.diagnosis],
-    ["Doctor's Advice", p.notes],
-    ["Next Review Visit", p.nextVisitDate],
-  ]);
-
-  // Itemized table for prescription & billing
-  const thStyle = `style="text-align: left; padding: 10px 12px; background-color: ${STYLES.slate100}; font-size: 12px; font-weight: 700; color: ${STYLES.slate600}; border-bottom: 2px solid ${STYLES.border};"`;
-  const tdStyle = `style="padding: 10px 12px; border-bottom: 1px solid ${STYLES.border}; font-size: 13px; color: ${STYLES.slate900}; vertical-align: top;"`;
-
-  const rowsHtml = (p.lines || [])
-    .map(
-      (l) => `
-      <tr>
-        <td ${tdStyle}>
-          <b>${esc(l.name)}</b>
-          ${l.dosageInstructions ? `<div style="color: ${STYLES.slate500}; font-size: 12px; margin-top: 3px;">Dosage: ${esc(l.dosageInstructions)}</div>` : ""}
-        </td>
-        <td ${tdStyle} align="center">${esc(l.quantity)}</td>
-        <td ${tdStyle} align="right">${inr(l.lineTotal)}</td>
-      </tr>`
-    )
-    .join("");
-
-  const itemsTable = `
-    <div style="margin: 20px 0;">
-      <div style="font-size: 14px; font-weight: 700; color: ${STYLES.slate900}; margin-bottom: 8px;">
-        Prescription &amp; Billing Statement
-      </div>
-      <table role="presentation" width="100%" style="border-collapse: collapse; border: 1px solid ${STYLES.border}; border-radius: 8px; overflow: hidden;">
-        <thead>
-          <tr>
-            <th ${thStyle}>Item / Medication</th>
-            <th ${thStyle} align="center" style="width: 15%;">Qty</th>
-            <th ${thStyle} align="right" style="width: 25%;">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml || `<tr><td colspan="3" ${tdStyle} align="center" style="color: ${STYLES.slate500};">Consultation &amp; General Examination</td></tr>`}
-          <tr>
-            <td ${tdStyle} colspan="2" align="right"><b>Total Amount:</b></td>
-            <td ${tdStyle} align="right"><b>${inr(p.totalAmount)}</b></td>
-          </tr>
-          <tr>
-            <td ${tdStyle} colspan="2" align="right">Amount Paid:</td>
-            <td ${tdStyle} align="right" style="color: ${STYLES.success}; font-weight: 600;">${inr(p.amountPaid)}</td>
-          </tr>
-          <tr>
-            <td ${tdStyle} colspan="2" align="right"><b>Balance Due:</b></td>
-            <td ${tdStyle} align="right"><b style="color: ${p.balanceDue > 0 ? STYLES.danger : STYLES.success};">${inr(p.balanceDue)}</b></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>`;
-
-  const bodyHtml = `${intro}${details}${itemsTable}`;
-  const address = `${CLINIC_CONFIG.addressLine1 || ""}, ${CLINIC_CONFIG.addressLine2 || ""}`.trim();
-
-  return {
-    subject,
-    queryType,
-    templateId,
-    html: renderEmailLayout({
-      title,
-      badge,
-      preheader: `Visit summary and invoice ${p.invoiceNo} for ${p.petName}`,
-      bodyHtml,
-    }),
-    templateParams: {
-      // Matching 6_visit_summary_bill.html
-      clinic_name: CLINIC_CONFIG.fullName || "Real Care Small Animal Clinic",
-      clinic_tagline: CLINIC_CONFIG.tagline || "Comprehensive Veterinary & Surgical Care",
-      clinic_address: address,
-      clinic_phone: CLINIC_CONFIG.phone || "",
-      owner_name: p.ownerName,
-      to_name: p.ownerName,
-      pet_name: p.petName,
-      visit_date: p.date,
-      doctor_name: p.doctor || CLINIC_CONFIG.doctorName,
-      invoice_no: p.invoiceNo,
-      prescription_no: p.prescriptionNo,
-      diagnosis: p.diagnosis || "General Health Examination",
-      doctor_advice: p.notes || "Follow prescribed instructions.",
-      next_visit_date: p.nextVisitDate || "As needed",
-      itemized_table_rows: rowsHtml,
-      total_amount: inr(p.totalAmount),
-      amount_paid: inr(p.amountPaid),
-      balance_due: inr(p.balanceDue),
-      balance_due_color: p.balanceDue > 0 ? "#dc2626" : "#16a34a",
-      // Master template fallbacks
-      subject,
-      title,
-      header_badge: badge,
-      greeting_and_intro: `Dear ${p.ownerName}, here is the treatment summary for ${p.petName}.`,
-      highlight_box: "",
-      details_table: details,
-      items_table: itemsTable,
-      warning_notice: "",
-      footer_note: "Wishing your pet a swift and healthy recovery!",
     },
   };
 }
