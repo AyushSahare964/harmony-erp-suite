@@ -50,16 +50,20 @@ const defaultErpContext: ErpContextValue = {
   currentUser: null,
   isAuthenticated: false,
   isLoadingAuth: false,
-  login: async () => ({ success: false, message: "Not available outside ErpProvider" }),
-  register: async () => ({ success: false, message: "Not available outside ErpProvider" }),
-  logout: async () => {},
+  login: async (credentials: LoginCredentials) => AuthService.login(credentials),
+  register: async (payload: RegisterPayload) => AuthService.register(payload),
+  logout: async () => AuthService.logout(),
   getRows: (moduleId: string) => WORKSPACES[moduleId]?.rows ?? [],
   addRow: async () => {},
   deleteRow: async () => {},
   resetRows: async () => {},
 };
 
-const ErpContext = createContext<ErpContextValue>(defaultErpContext);
+// Preserve context across Vite HMR so hot module reloading does not reset Context identity
+const ErpContext: React.Context<ErpContextValue> =
+  (globalThis as unknown as { __vetos_erp_context?: React.Context<ErpContextValue> }).__vetos_erp_context ||
+  ((globalThis as unknown as { __vetos_erp_context?: React.Context<ErpContextValue> }).__vetos_erp_context =
+    createContext<ErpContextValue>(defaultErpContext));
 
 // ─── ErpProvider ─────────────────────────────────────────────────────────────
 

@@ -23,7 +23,9 @@
     "test:e2e:report": "playwright show-report",
     "test:codegen": "playwright codegen https://harmony-erp-suite-g28j.vercel.app",
     "reconcile": "node scripts/reconcile.mjs",
-    "db:ensure-indexes": "node scripts/ensure-indexes.mjs"
+    "db:ensure-indexes": "node scripts/ensure-indexes.mjs",
+    "db:backup": "node scripts/backup-mongodb.mjs",
+    "db:restore": "node scripts/restore-mongodb.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

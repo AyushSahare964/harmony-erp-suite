@@ -431,7 +431,7 @@ export function InventoryItemSection({
     const defaultTiming = "After Food";
     const defaultTime = "Morning & Night";
     const defaultRoute = "Oral";
-    const defaultQty = computePrescriptionQty(defaultDose, defaultFreq, defaultDur);
+    const defaultQty = computePrescriptionQty(defaultDose, defaultFreq, defaultDur).displayQty;
 
     const newLine: InventoryItemLine = {
       id: generateStableId("prx"),
@@ -875,7 +875,7 @@ export function InventoryItemSection({
                           size="sm"
                           disabled={isLocked}
                           onClick={() => {
-                            const recomputed = computePrescriptionQty(it.dose, it.frequency, it.duration);
+                            const recomputed = computePrescriptionQty(it.dose, it.frequency, it.duration).displayQty;
                             handleUpdateLine(it.id, "quantity", recomputed);
                           }}
                           title="Recalculate total quantity from dose × frequency × duration"
