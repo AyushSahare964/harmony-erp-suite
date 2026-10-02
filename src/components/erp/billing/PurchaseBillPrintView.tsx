@@ -210,6 +210,7 @@ export function PurchaseBillPrintView({
                     <th className="py-2.5 px-3 w-20 text-center border-r border-blue-400/30">Qty</th>
                     <th className="py-2.5 px-3 w-20 text-center border-r border-blue-400/30">Unit</th>
                     <th className="py-2.5 px-3 w-24 text-right border-r border-blue-400/30">Rate (₹)</th>
+                    <th className="py-2.5 px-3 w-24 text-right border-r border-blue-400/30">MRP (₹)</th>
                     <th className="py-2.5 px-3 w-28 text-right">Total (₹)</th>
                   </tr>
                 </thead>
@@ -240,6 +241,9 @@ export function PurchaseBillPrintView({
                         <td className="py-2.5 px-3 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                           ₹{item.purchaseRate.toFixed(2)}
                         </td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
+                          {item.mrp ? `₹${item.mrp.toFixed(2)}` : "—"}
+                        </td>
                         <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
                           ₹{item.lineTotal.toFixed(2)}
                         </td>
@@ -247,7 +251,7 @@ export function PurchaseBillPrintView({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} className="py-6 text-center text-slate-400">
+                      <td colSpan={8} className="py-6 text-center text-slate-400">
                         No item breakdown recorded. Total amount: ₹{bill.grandTotal.toFixed(2)}
                       </td>
                     </tr>

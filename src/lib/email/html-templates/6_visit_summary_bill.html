@@ -1,0 +1,179 @@
+<!-- 
+  =============================================================================
+  EMAILJS TEMPLATE: Treatment Summary & Medical Bill / Prescription
+  Recommended Template ID: template_visit_summary
+  Subject: Treatment Summary & Invoice {{invoice_no}} for {{pet_name}}
+  To Email: {{to_email}}
+  To Name: {{owner_name}}
+  =============================================================================
+-->
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Treatment Summary &amp; Invoice</title>
+  <style type="text/css">
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+    table { border-collapse: collapse !important; }
+    body { height: 100% !important; margin: 0 !important; padding: 0 !important; width: 100% !important; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    
+    @media screen and (max-width: 600px) {
+      .email-container { width: 100% !important; max-width: 100% !important; border-radius: 0 !important; }
+      .mobile-padding { padding: 20px 16px !important; }
+      .header-title { font-size: 16px !important; }
+      .table-col-qty { width: 12% !important; }
+      .table-col-amt { width: 30% !important; }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #0f172a;">
+  
+  <!-- Preheader preview text (hidden) -->
+  <div style="display: none; max-height: 0px; overflow: hidden; font-size: 1px; line-height: 1px; color: #f1f5f9; opacity: 0;">
+    Clinical summary and invoice {{invoice_no}} for {{pet_name}}. Total: {{total_amount}} (Paid: {{amount_paid}}, Due: {{balance_due}}).
+  </div>
+
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f1f5f9; padding: 32px 12px;">
+    <tr>
+      <td align="center" valign="top">
+        
+        <!-- Main Email Container (600px) -->
+        <table role="presentation" class="email-container" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);">
+          
+          <!-- Clinic Branding Header -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); padding: 22px 28px; color: #ffffff;">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td align="left" valign="middle">
+                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #bae6fd; margin-bottom: 3px;">
+                      {{clinic_tagline}}
+                    </div>
+                    <div class="header-title" style="font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: -0.2px;">
+                      {{clinic_name}}
+                    </div>
+                  </td>
+                  <td align="right" valign="middle">
+                    <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.5px;">
+                      CLINICAL &amp; BILL
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Main Content Body -->
+          <tr>
+            <td class="mobile-padding" style="padding: 30px 28px 24px 28px;">
+              <h1 style="margin: 0 0 14px 0; font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.3;">
+                Treatment Summary &amp; Medical Invoice
+              </h1>
+              
+              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+                Dear <b>{{owner_name}}</b>, thank you for trusting us with <b>{{pet_name}}</b>'s care. Here is the clinical summary and billing breakdown from today's visit:
+              </p>
+
+              <!-- Clinical Details Table -->
+              <table role="presentation" width="100%" style="border-collapse: collapse; margin: 18px 0; background-color: #f8fafc; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; width: 38%; border-bottom: 1px solid #e2e8f0;">Patient (Pet)</td>
+                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 700; border-bottom: 1px solid #e2e8f0;">{{pet_name}}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; border-bottom: 1px solid #e2e8f0;">Visit Date</td>
+                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">{{visit_date}}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; border-bottom: 1px solid #e2e8f0;">Attending Doctor</td>
+                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">{{doctor_name}}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; border-bottom: 1px solid #e2e8f0;">Invoice No.</td>
+                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">{{invoice_no}}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; border-bottom: 1px solid #e2e8f0;">Prescription No.</td>
+                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">{{prescription_no}}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; border-bottom: 1px solid #e2e8f0;">Clinical Diagnosis</td>
+                  <td style="padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">{{diagnosis}}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500; border-bottom: 1px solid #e2e8f0;">Doctor's Advice</td>
+                  <td style="padding: 10px 14px; color: #334155; font-size: 13px; line-height: 1.5; border-bottom: 1px solid #e2e8f0;">{{doctor_advice}}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 14px; color: #64748b; font-size: 13px; font-weight: 500;">Next Review Visit</td>
+                  <td style="padding: 10px 14px; color: #0284c7; font-size: 13px; font-weight: 700;">{{next_visit_date}}</td>
+                </tr>
+              </table>
+
+              <!-- Prescription & Itemized Invoice Table -->
+              <div style="margin: 24px 0 16px 0;">
+                <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">
+                  Prescription &amp; Billing Statement
+                </div>
+                <table role="presentation" width="100%" style="border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                  <thead>
+                    <tr style="background-color: #f1f5f9;">
+                      <th align="left" style="padding: 10px 12px; font-size: 12px; font-weight: 700; color: #475569; border-bottom: 2px solid #e2e8f0;">Item / Medication</th>
+                      <th align="center" class="table-col-qty" style="padding: 10px 12px; font-size: 12px; font-weight: 700; color: #475569; border-bottom: 2px solid #e2e8f0; width: 14%;">Qty</th>
+                      <th align="right" class="table-col-amt" style="padding: 10px 12px; font-size: 12px; font-weight: 700; color: #475569; border-bottom: 2px solid #e2e8f0; width: 26%;">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {{{itemized_table_rows}}}
+                    <tr style="background-color: #f8fafc;">
+                      <td colspan="2" align="right" style="padding: 10px 12px; font-size: 13px; color: #0f172a; border-bottom: 1px solid #e2e8f0;"><b>Total Amount:</b></td>
+                      <td align="right" style="padding: 10px 12px; font-size: 13px; color: #0f172a; border-bottom: 1px solid #e2e8f0;"><b>{{total_amount}}</b></td>
+                    </tr>
+                    <tr>
+                      <td colspan="2" align="right" style="padding: 10px 12px; font-size: 13px; color: #475569; border-bottom: 1px solid #e2e8f0;">Amount Paid:</td>
+                      <td align="right" style="padding: 10px 12px; font-size: 13px; color: #16a34a; font-weight: 700; border-bottom: 1px solid #e2e8f0;">{{amount_paid}}</td>
+                    </tr>
+                    <tr style="background-color: #f8fafc;">
+                      <td colspan="2" align="right" style="padding: 10px 12px; font-size: 13px; color: #0f172a;"><b>Balance Due:</b></td>
+                      <td align="right" style="padding: 10px 12px; font-size: 14px; font-weight: 800; color: {{balance_due_color}};">{{balance_due}}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Care Notice -->
+              <div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px 16px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+                <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #166534;">
+                  Please complete the full course of any prescribed medications as instructed. In case of any adverse symptoms, contact the clinic immediately.
+                </p>
+              </div>
+
+              <p style="margin: 16px 0 0 0; font-size: 13px; line-height: 1.5; color: #64748b;">
+                Wishing <b>{{pet_name}}</b> a swift and healthy recovery!
+              </p>
+            </td>
+          </tr>
+
+          <!-- Clinic Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 18px 28px; font-size: 12px; color: #64748b; line-height: 1.5;">
+              <div style="font-weight: 600; color: #334155; margin-bottom: 2px;">{{clinic_name}}</div>
+              <div>{{clinic_address}} &middot; Tel: {{clinic_phone}}</div>
+              <div style="margin-top: 8px; font-size: 11px; color: #94a3b8;">
+                This electronic bill &amp; prescription is generated by {{clinic_name}}.
+              </div>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

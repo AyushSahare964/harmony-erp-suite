@@ -304,6 +304,7 @@ export function FoodCatalogue() {
                   <th className="px-3 py-3">Pack Size</th>
                   <th className="px-3 py-3">Stock Units</th>
                   <th className="px-3 py-3">Sale Price</th>
+                  <th className="px-3 py-3">MRP</th>
                   <th className="px-3 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -441,6 +442,10 @@ export function FoodCatalogue() {
                           )}
                         </td>
 
+                        <td className="px-3 py-3 font-medium text-foreground">
+                          {item.mrp ? `₹${item.mrp}` : "—"}
+                        </td>
+
                         <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
@@ -500,7 +505,7 @@ export function FoodCatalogue() {
 
                 {visible.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">
                       <Bone className="size-8 mx-auto mb-2 opacity-30 text-amber-500" />
                       No food products match the selected filters.
                     </td>

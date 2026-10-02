@@ -305,6 +305,7 @@ export function MedicineCatalogue() {
                   <th className="px-3 py-3">Authoritative Stock</th>
                   <th className="px-3 py-3">Reorder Point</th>
                   <th className="px-3 py-3">Retail Price</th>
+                  <th className="px-3 py-3">MRP</th>
                   <th className="px-3 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -444,6 +445,10 @@ export function MedicineCatalogue() {
                           )}
                         </td>
 
+                        <td className="px-3 py-3 font-medium text-foreground">
+                          {med.mrp ? `₹${med.mrp}` : "—"}
+                        </td>
+
                         <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
@@ -503,7 +508,7 @@ export function MedicineCatalogue() {
 
                 {visible.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">
                       <Pill className="size-8 mx-auto mb-2 opacity-30 text-emerald-500" />
                       No medicines match the selected filters.
                     </td>

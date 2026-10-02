@@ -18,6 +18,7 @@ import { ROLES, type RoleId } from "@/lib/erp/config";
 import { PetShowcase } from "@/components/erp/PetShowcase";
 import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 import { cn } from "@/lib/utils";
+import { requestPasswordResetFn, resetPasswordFn } from "@/lib/mongodb/serverFns/auth";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -37,7 +38,7 @@ function AuthPage() {
   const { login, register, currentUser, isAuthenticated, isLoadingAuth } = useErp();
   const [seeding, setSeeding] = useState(false);
 
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -45,6 +46,45 @@ function AuthPage() {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+
+  // Forgot-password state
+  const [fpStep, setFpStep] = useState<"email" | "reset">("email");
+  const [fpEmail, setFpEmail] = useState("");
+  const [fpCode, setFpCode] = useState("");
+  const [fpNewPassword, setFpNewPassword] = useState("");
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      if (fpStep === "email") {
+        const res = await requestPasswordResetFn({ data: { email: fpEmail.trim() } });
+        if (res.success) {
+          toast.success(res.message);
+          setFpStep("reset");
+        } else {
+          toast.error(res.message);
+        }
+      } else {
+        const res = await resetPasswordFn({ data: { email: fpEmail.trim(), code: fpCode, newPassword: fpNewPassword } });
+        if (res.success) {
+          toast.success(res.message);
+          setLoginEmail(fpEmail.trim());
+          setLoginPassword("");
+          setFpStep("email");
+          setFpCode("");
+          setFpNewPassword("");
+          setMode("login");
+        } else {
+          toast.error(res.message);
+        }
+      }
+    } catch {
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Register state
   const [regData, setRegData] = useState<RegisterPayload>({
@@ -301,7 +341,7 @@ function AuthPage() {
                       <label className="block text-xs font-semibold text-foreground">Password</label>
                       <button
                         type="button"
-                        onClick={() => toast.info("Admin password: '12345678'  ·  Dev password: 'ayush@123'")}
+                        onClick={() => { setFpEmail(loginEmail); setFpStep("email"); setMode("forgot"); }}
                         className="text-[0.7rem] text-primary hover:underline"
                       >
                         Forgot password?
@@ -355,6 +395,74 @@ function AuthPage() {
                   </button>
                 </form>
 
+              </div>
+            ) : mode === "forgot" ? (
+              /* TAB: FORGOT PASSWORD (emailed one-time code) */
+              <div className="space-y-4 animate-in fade-in duration-150">
+                <div>
+                  <h1 className="text-lg font-bold text-navy">Reset password</h1>
+                  <p className="text-xs text-muted-foreground">
+                    {fpStep === "email"
+                      ? "Enter your staff email and we'll send you a 6-digit code."
+                      : `Enter the code sent to ${fpEmail} and choose a new password.`}
+                  </p>
+                </div>
+                <form onSubmit={handleForgotSubmit} className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold text-foreground">Email</label>
+                    <input
+                      type="email"
+                      required
+                      disabled={fpStep === "reset"}
+                      value={fpEmail}
+                      onChange={(e) => setFpEmail(e.target.value)}
+                      placeholder="staff@vetos.cloud"
+                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-60"
+                    />
+                  </div>
+                  {fpStep === "reset" && (
+                    <>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-foreground">6-digit code</label>
+                        <input
+                          required
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={fpCode}
+                          onChange={(e) => setFpCode(e.target.value.replace(/\D/g, ""))}
+                          placeholder="123456"
+                          className="h-9 w-full rounded-lg border border-input bg-background px-3 text-xs tracking-[0.4em] outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-foreground">New password</label>
+                        <input
+                          type="password"
+                          required
+                          minLength={8}
+                          value={fpNewPassword}
+                          onChange={(e) => setFpNewPassword(e.target.value)}
+                          placeholder="At least 8 characters"
+                          className="h-9 w-full rounded-lg border border-input bg-background px-3 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                    </>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+                  >
+                    {loading ? "Please wait…" : fpStep === "email" ? "Send reset code" : "Update password"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMode("login"); setFpStep("email"); setFpCode(""); setFpNewPassword(""); }}
+                    className="w-full text-center text-[0.7rem] text-primary hover:underline"
+                  >
+                    Back to sign in
+                  </button>
+                </form>
               </div>
             ) : (
               /* TAB: CREATE OPERATOR PROFILE */

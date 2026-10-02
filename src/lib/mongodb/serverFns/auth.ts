@@ -7,9 +7,15 @@ import { createServerFn } from "@tanstack/react-start";
 import { setCookie, getCookie } from "@tanstack/react-start/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import crypto from "node:crypto";
+
 import { connectDB } from "@/lib/mongodb/client";
 import { User, type ApprovalStatus } from "@/lib/mongodb/models/User";
+import { RegistrationOTP } from "@/lib/mongodb/models/RegistrationOTP";
 import { RefreshToken } from "@/lib/mongodb/models/RefreshToken";
+import { PasswordReset } from "@/lib/mongodb/models/PasswordReset";
+import { sendEmail } from "@/lib/email/emailjs";
+import { loginAlertEmail, passwordResetEmail } from "@/lib/email/templates";
 import {
   signAccessToken,
   signRefreshToken,
@@ -46,25 +52,25 @@ function toProfile(user: Record<string, any>): UserProfile {
     : rawBranch;
 
   const profile: UserProfile = {
-    id:             String(user["_id"]),
-    fullName:       String(user["fullName"]),
-    email:          String(user["email"]),
+    id: String(user["_id"]),
+    fullName: String(user["fullName"]),
+    email: String(user["email"]),
     clinicName,
     branch,
-    roleId:         user["roleId"] as RoleId,
-    roleName:       String(user["roleName"]),
-    initials:       String(user["initials"]),
+    roleId: user["roleId"] as RoleId,
+    roleName: String(user["roleName"]),
+    initials: String(user["initials"]),
     approvalStatus: (user["approvalStatus"] || "approved") as ApprovalStatus,
-    createdAt:      user["createdAt"] instanceof Date
+    createdAt: user["createdAt"] instanceof Date
       ? user["createdAt"].toISOString()
       : String(user["createdAt"]),
   };
 
-  profile.phone         = String(user["phone"] || (isDixit ? "+91 87674 84342" : ""));
+  profile.phone = String(user["phone"] || (isDixit ? "+91 87674 84342" : ""));
   profile.licenseNumber = String(user["licenseNumber"] || (isDixit ? "M.S.V.C.-8648" : ""));
   profile.qualification = String(user["qualification"] || (isDixit ? "B.V.Sc & AH, M.V.Sc, PGDAW" : ""));
-  profile.department    = String(user["department"] || (isDixit ? "Clinical Administration & Surgery" : ""));
-  profile.specialty     = (user["specialty"] || (isDixit ? "General Practice" : "Administration")) as NonNullable<UserProfile["specialty"]>;
+  profile.department = String(user["department"] || (isDixit ? "Clinical Administration & Surgery" : ""));
+  profile.specialty = (user["specialty"] || (isDixit ? "General Practice" : "Administration")) as NonNullable<UserProfile["specialty"]>;
   if (user["avatarUrl"]) profile.avatarUrl = String(user["avatarUrl"]);
   return profile;
 }
@@ -81,8 +87,8 @@ async function issueTokens(userId: string, email: string, roleId: string) {
 // ─── loginFn ────────────────────────────────────────────────────────────────
 
 const loginSchema = z.object({
-  email:      z.string().email(),
-  password:   z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(1),
   rememberMe: z.boolean().optional(),
 });
 
@@ -116,7 +122,7 @@ export const loginFn = createServerFn({ method: "POST" })
     if (approvalStatus === "rejected") {
       return {
         success: false,
-        message: user["rejectionReason"] 
+        message: user["rejectionReason"]
           ? `Access request declined: ${user["rejectionReason"]}`
           : "Your account registration was not approved by clinic administration.",
       };
@@ -138,11 +144,20 @@ export const loginFn = createServerFn({ method: "POST" })
 
     setCookie(COOKIE_NAME, refreshToken, {
       httpOnly: true,
-      secure:   process.env["NODE_ENV"] === "production",
+      secure: process.env["NODE_ENV"] === "production",
       sameSite: "lax",
-      path:     "/",
-      expires:  expiresAt,
+      path: "/",
+      expires: expiresAt,
     });
+
+    // Security alert email (fire-and-forget; never blocks or fails the login)
+    const alert = loginAlertEmail({
+      name: String(user["fullName"]),
+      email: String(user["email"]),
+      role: String(user["roleName"] || user["roleId"]),
+      whenIST: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }),
+    });
+    void sendEmail({ to: String(user["email"]), toName: String(user["fullName"]), queryType: "loginAlert", ...alert });
 
     return {
       success: true,
@@ -152,20 +167,81 @@ export const loginFn = createServerFn({ method: "POST" })
     };
   });
 
+// ─── Forgot password (emailed 6-digit code) ─────────────────────────────────
+
+const RESET_TTL_MIN = 10;
+const RESET_MAX_ATTEMPTS = 5;
+const RESET_RESEND_MS = 60_000;
+const sha = (v: string) => crypto.createHash("sha256").update(v).digest("hex");
+
+export const requestPasswordResetFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => z.object({ email: z.string().email() }).parse(raw))
+  .handler(async ({ data }): Promise<{ success: boolean; message: string }> => {
+    await connectDB();
+    const email = data.email.toLowerCase().trim();
+    // Same answer whether or not the account exists, so this can't be used to enumerate staff emails.
+    const generic = { success: true, message: "If that email belongs to a staff account, a reset code has been sent." };
+
+    const user = (await User.findOne({ email }).lean()) as Record<string, any> | null;
+    if (!user || !user["isActive"] || user["approvalStatus"] === "rejected") return generic;
+
+    const existing = await PasswordReset.findOne({ email }).lean();
+    if (existing && Date.now() - new Date(existing.lastSentAt).getTime() < RESET_RESEND_MS) {
+      return { success: false, message: "A code was just sent. Please wait a minute before requesting another." };
+    }
+
+    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+    await PasswordReset.findOneAndUpdate(
+      { email },
+      { $set: { codeHash: sha(`${email}:${code}`), expiresAt: new Date(Date.now() + RESET_TTL_MIN * 60_000), attempts: 0, lastSentAt: new Date() } },
+      { upsert: true }
+    );
+    const mail = passwordResetEmail({ name: String(user["fullName"]), code, minutes: RESET_TTL_MIN });
+    const sent = await sendEmail({ to: email, toName: String(user["fullName"]), ...mail });
+    if (!sent) return { success: false, message: "Could not send the reset email. Please try again or contact your Clinic Administrator." };
+    return generic;
+  });
+
+export const resetPasswordFn = createServerFn({ method: "POST" })
+  .validator((raw: unknown) =>
+    z.object({ email: z.string().email(), code: z.string().regex(/^\d{6}$/), newPassword: z.string().min(8) }).parse(raw)
+  )
+  .handler(async ({ data }): Promise<{ success: boolean; message: string }> => {
+    await connectDB();
+    const email = data.email.toLowerCase().trim();
+    const bad = { success: false, message: "Invalid or expired code." };
+
+    const rec = await PasswordReset.findOne({ email });
+    if (!rec || rec.expiresAt.getTime() < Date.now() || rec.attempts >= RESET_MAX_ATTEMPTS) return bad;
+    if (rec.codeHash !== sha(`${email}:${data.code}`)) {
+      rec.attempts += 1;
+      await rec.save();
+      return bad;
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) return bad;
+    user.passwordHash = await bcrypt.hash(data.newPassword, SALT_ROUNDS);
+    await user.save();
+    await RefreshToken.deleteMany({ userId: user._id }); // sign out every existing session
+    await PasswordReset.deleteOne({ email });
+    return { success: true, message: "Password updated. You can now sign in." };
+  });
+
 // ─── registerFn (Self Registration -> Pending Admin Approval) ───────────────
 
 const registerSchema = z.object({
-  fullName:      z.string().min(2),
-  email:         z.string().email(),
-  password:      z.string().min(6, "Password must be at least 6 characters"),
-  phone:         z.string().optional(),
-  clinicName:    z.string().min(1).default("Harmony Pet Super-Specialty Hospital"),
-  branch:        z.string().min(1).default("Central Hospital · Koramangala"),
-  roleId:        z.enum(["doctor", "admin", "reception", "accounts", "platform"]).default("doctor"),
+  fullName: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  phone: z.string().optional(),
+  clinicName: z.string().min(1).default("Harmony Pet Super-Specialty Hospital"),
+  branch: z.string().min(1).default("Central Hospital · Koramangala"),
+  roleId: z.enum(["doctor", "admin", "reception", "accounts", "platform"]).default("doctor"),
   licenseNumber: z.string().optional(),
   qualification: z.string().optional(),
-  department:    z.string().optional(),
-  specialty:     z.enum(["Canine","Feline","Avian","Exotic","Surgery","General Practice","Administration"]).optional(),
+  department: z.string().optional(),
+  specialty: z.enum(["Canine", "Feline", "Avian", "Exotic", "Surgery", "General Practice", "Administration"]).optional(),
 });
 
 export const registerFn = createServerFn({ method: "POST" })
@@ -180,24 +256,24 @@ export const registerFn = createServerFn({ method: "POST" })
     }
 
     const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
-    const roleName     = ROLES[data.roleId as RoleId]?.name ?? "Clinic Staff";
-    const initials     = getInitials(data.fullName);
+    const roleName = ROLES[data.roleId as RoleId]?.name ?? "Clinic Staff";
+    const initials = getInitials(data.fullName);
 
     const createPayload: Record<string, unknown> = {
-      fullName:       data.fullName.trim(),
-      email:          cleanEmail,
+      fullName: data.fullName.trim(),
+      email: cleanEmail,
       passwordHash,
-      clinicName:     data.clinicName.trim() || "Harmony Pet Super-Specialty Hospital",
-      branch:         data.branch.trim()     || "Central Hospital · Koramangala",
-      roleId:         data.roleId,
+      clinicName: data.clinicName.trim() || "Harmony Pet Super-Specialty Hospital",
+      branch: data.branch.trim() || "Central Hospital · Koramangala",
+      roleId: data.roleId,
       roleName,
       initials,
       approvalStatus: "pending",
-      department:     data.department?.trim() || "Clinical Care",
-      specialty:      data.specialty          || "General Practice",
-      isActive:       true,
+      department: data.department?.trim() || "Clinical Care",
+      specialty: data.specialty || "General Practice",
+      isActive: true,
     };
-    if (data.phone?.trim())         createPayload["phone"]         = data.phone.trim();
+    if (data.phone?.trim()) createPayload["phone"] = data.phone.trim();
     if (data.licenseNumber?.trim()) createPayload["licenseNumber"] = data.licenseNumber.trim();
     if (data.qualification?.trim()) createPayload["qualification"] = data.qualification.trim();
 
@@ -238,26 +314,26 @@ export const listStaffMembersFn = createServerFn({ method: "GET" })
     // Exclude built-in system / developer accounts from the public staff directory
     const users = await User.find({ isSystemAccount: { $ne: true } }).sort({ createdAt: -1 }).lean();
     return JSON.parse(JSON.stringify(users.map((u) => ({
-      id:              String(u._id),
-      fullName:        u.fullName,
-      email:           u.email,
-      phone:           u.phone,
-      clinicName:      u.clinicName,
-      branch:          u.branch,
-      roleId:          u.roleId,
-      roleName:        u.roleName,
-      initials:        u.initials,
-      licenseNumber:   u.licenseNumber,
-      qualification:   u.qualification,
-      department:      u.department,
-      specialty:       u.specialty,
-      approvalStatus:  u.approvalStatus || "approved",
-      approvedBy:      u.approvedBy,
-      approvedAt:      u.approvedAt ? u.approvedAt.toISOString() : undefined,
+      id: String(u._id),
+      fullName: u.fullName,
+      email: u.email,
+      phone: u.phone,
+      clinicName: u.clinicName,
+      branch: u.branch,
+      roleId: u.roleId,
+      roleName: u.roleName,
+      initials: u.initials,
+      licenseNumber: u.licenseNumber,
+      qualification: u.qualification,
+      department: u.department,
+      specialty: u.specialty,
+      approvalStatus: u.approvalStatus || "approved",
+      approvedBy: u.approvedBy,
+      approvedAt: u.approvedAt ? u.approvedAt.toISOString() : undefined,
       rejectionReason: u.rejectionReason,
-      isActive:        u.isActive,
-      lastLoginAt:     u.lastLoginAt ? u.lastLoginAt.toISOString() : undefined,
-      createdAt:       u.createdAt ? u.createdAt.toISOString() : undefined,
+      isActive: u.isActive,
+      lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : undefined,
+      createdAt: u.createdAt ? u.createdAt.toISOString() : undefined,
     }))));
   });
 
@@ -265,8 +341,8 @@ export const listStaffMembersFn = createServerFn({ method: "GET" })
 
 export const approveStaffMemberFn = createServerFn({ method: "POST" })
   .validator((raw: unknown) => z.object({
-    userId:     z.string(),
-    roleId:     z.enum(["doctor", "admin", "reception", "accounts", "platform"]),
+    userId: z.string(),
+    roleId: z.enum(["doctor", "admin", "reception", "accounts", "platform"]),
     department: z.string().optional(),
     approvedBy: z.string().optional(),
   }).parse(raw))
@@ -309,17 +385,17 @@ export const rejectStaffMemberFn = createServerFn({ method: "POST" })
 // ─── createStaffMemberByAdminFn ─────────────────────────────────────────────
 
 const adminCreateSchema = z.object({
-  fullName:      z.string().min(2),
-  email:         z.string().email(),
-  password:      z.string().min(6),
-  phone:         z.string().optional(),
-  clinicName:    z.string().default("Harmony Pet Super-Specialty Hospital"),
-  branch:        z.string().default("Central Hospital · Koramangala"),
-  roleId:        z.enum(["doctor", "admin", "reception", "accounts", "platform"]),
+  fullName: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(6),
+  phone: z.string().optional(),
+  clinicName: z.string().default("Harmony Pet Super-Specialty Hospital"),
+  branch: z.string().default("Central Hospital · Koramangala"),
+  roleId: z.enum(["doctor", "admin", "reception", "accounts", "platform"]),
   licenseNumber: z.string().optional(),
   qualification: z.string().optional(),
-  department:    z.string().default("Clinical Care"),
-  specialty:     z.enum(["Canine","Feline","Avian","Exotic","Surgery","General Practice","Administration"]).default("General Practice"),
+  department: z.string().default("Clinical Care"),
+  specialty: z.enum(["Canine", "Feline", "Avian", "Exotic", "Surgery", "General Practice", "Administration"]).default("General Practice"),
 });
 
 export const createStaffMemberByAdminFn = createServerFn({ method: "POST" })
@@ -333,26 +409,26 @@ export const createStaffMemberByAdminFn = createServerFn({ method: "POST" })
     }
 
     const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
-    const roleName     = ROLES[data.roleId]?.name ?? "Clinic Staff";
-    const initials     = getInitials(data.fullName);
+    const roleName = ROLES[data.roleId]?.name ?? "Clinic Staff";
+    const initials = getInitials(data.fullName);
 
     const createPayload: Record<string, unknown> = {
-      fullName:       data.fullName.trim(),
-      email:          cleanEmail,
+      fullName: data.fullName.trim(),
+      email: cleanEmail,
       passwordHash,
-      clinicName:     data.clinicName || "Harmony Pet Super-Specialty Hospital",
-      branch:         data.branch || "Central Hospital · Koramangala",
-      roleId:         data.roleId,
+      clinicName: data.clinicName || "Harmony Pet Super-Specialty Hospital",
+      branch: data.branch || "Central Hospital · Koramangala",
+      roleId: data.roleId,
       roleName,
       initials,
-      department:     data.department || "Clinical Care",
-      specialty:      data.specialty || "General Practice",
+      department: data.department || "Clinical Care",
+      specialty: data.specialty || "General Practice",
       approvalStatus: "approved",
-      approvedBy:     "Clinic Administrator",
-      approvedAt:     new Date(),
-      isActive:       true,
+      approvedBy: "Clinic Administrator",
+      approvedAt: new Date(),
+      isActive: true,
     };
-    if (data.phone?.trim())         createPayload["phone"]         = data.phone.trim();
+    if (data.phone?.trim()) createPayload["phone"] = data.phone.trim();
     if (data.licenseNumber?.trim()) createPayload["licenseNumber"] = data.licenseNumber.trim();
     if (data.qualification?.trim()) createPayload["qualification"] = data.qualification.trim();
 
@@ -370,19 +446,19 @@ export const createStaffMemberByAdminFn = createServerFn({ method: "POST" })
 // ─── updateStaffMemberFn ───────────────────────────────────────────────────
 
 const updateStaffSchema = z.object({
-  userId:         z.string(),
-  fullName:       z.string().min(2).optional(),
-  email:          z.string().email().optional(),
-  phone:          z.string().optional(),
-  clinicName:     z.string().optional(),
-  branch:         z.string().optional(),
-  roleId:         z.enum(["doctor", "admin", "reception", "accounts", "platform"]).optional(),
-  licenseNumber:  z.string().optional(),
-  qualification:  z.string().optional(),
-  department:     z.string().optional(),
-  specialty:      z.enum(["Canine", "Feline", "Avian", "Exotic", "Surgery", "General Practice", "Administration"]).optional(),
+  userId: z.string(),
+  fullName: z.string().min(2).optional(),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  clinicName: z.string().optional(),
+  branch: z.string().optional(),
+  roleId: z.enum(["doctor", "admin", "reception", "accounts", "platform"]).optional(),
+  licenseNumber: z.string().optional(),
+  qualification: z.string().optional(),
+  department: z.string().optional(),
+  specialty: z.enum(["Canine", "Feline", "Avian", "Exotic", "Surgery", "General Practice", "Administration"]).optional(),
   approvalStatus: z.enum(["approved", "pending", "rejected"]).optional(),
-  isActive:       z.boolean().optional(),
+  isActive: z.boolean().optional(),
 });
 
 export const updateStaffMemberFn = createServerFn({ method: "POST" })
@@ -499,7 +575,7 @@ export const getMeFn = createServerFn({ method: "GET" })
 
       try {
         const payload = verifyRefreshToken(rawToken);
-        const stored  = await RefreshToken.findOne({ tokenHash: hashToken(rawToken) }).lean();
+        const stored = await RefreshToken.findOne({ tokenHash: hashToken(rawToken) }).lean();
         if (!stored) return null;
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -526,42 +602,42 @@ const SYSTEM_CREDENTIALS = [
     // ── Developer / hidden system account ────────────────────────────────────
     // Not shown in the Identity Hub staff list (isSystemAccount: true).
     // Logs in with full admin dashboard access.
-    fullName:        "Ayush Sahare",
-    email:           "ayush.sahare@vit.edu",
-    password:        "ayush@123",
-    phone:           "",
-    clinicName:      "Real Care Small Animal Clinic",
-    branch:          "Nagpur",
-    roleId:          "admin" as RoleId,
-    roleName:        "Clinic Administrator / Medical Director",
-    initials:        "AS",
-    licenseNumber:   "SYS-DEV-0001",
-    qualification:   "B.Tech Computer Science",
-    department:      "System Administration",
-    specialty:       "Administration" as const,
-    approvalStatus:  "approved" as ApprovalStatus,
+    fullName: "Ayush Sahare",
+    email: "ayush.sahare@vit.edu",
+    password: "ayush@123",
+    phone: "",
+    clinicName: "Real Care Small Animal Clinic",
+    branch: "Nagpur",
+    roleId: "admin" as RoleId,
+    roleName: "Clinic Administrator / Medical Director",
+    initials: "AS",
+    licenseNumber: "SYS-DEV-0001",
+    qualification: "B.Tech Computer Science",
+    department: "System Administration",
+    specialty: "Administration" as const,
+    approvalStatus: "approved" as ApprovalStatus,
     isSystemAccount: true,   // ← hidden from staff directory
-    isActive:        true,
+    isActive: true,
   },
   {
     // ── Visible admin — approves registrations ────────────────────────────────
     // Shown in the Identity Hub staff list. Can review & approve new registrations.
-    fullName:        "Dr. Makarand Dixit",
-    email:           "makarand.dixit@gmail.com",
-    password:        "12345678",
-    phone:           "+91 87674 84342",
-    clinicName:      "Real Care Small Animal Clinic",
-    branch:          "Nagpur Main Clinic",
-    roleId:          "admin" as RoleId,
-    roleName:        "Clinic Administrator / Medical Director",
-    initials:        "MD",
-    licenseNumber:   "M.S.V.C.-8648",
-    qualification:   "B.V.Sc & AH, M.V.Sc, PGDAW",
-    department:      "Clinical Administration & Surgery",
-    specialty:       "General Practice" as const,
-    approvalStatus:  "approved" as ApprovalStatus,
+    fullName: "Dr. Makarand Dixit",
+    email: "makarand.dixit@gmail.com",
+    password: "12345678",
+    phone: "+91 87674 84342",
+    clinicName: "Real Care Small Animal Clinic",
+    branch: "Nagpur Main Clinic",
+    roleId: "admin" as RoleId,
+    roleName: "Clinic Administrator / Medical Director",
+    initials: "MD",
+    licenseNumber: "M.S.V.C.-8648",
+    qualification: "B.V.Sc & AH, M.V.Sc, PGDAW",
+    department: "Clinical Administration & Surgery",
+    specialty: "General Practice" as const,
+    approvalStatus: "approved" as ApprovalStatus,
     isSystemAccount: false,  // ← visible in staff directory
-    isActive:        true,
+    isActive: true,
   },
 ];
 

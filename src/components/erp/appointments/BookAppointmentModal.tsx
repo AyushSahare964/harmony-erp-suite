@@ -629,6 +629,7 @@ export function BookAppointmentModal({
         breed: finalPet?.breed || newPetBreed.trim(),
         owner: ownerName.trim() || finalPet?.owner?.name || "Client",
         ownerPhone: formattedOwnerPhone,
+        ownerEmail: ownerEmail.trim() || undefined,
         ownerId: finalPet?.ownerId,
         doctor: doctor || doctorsList[0]?.name || "Dr. Rohit Sharma",
         type: visitType,

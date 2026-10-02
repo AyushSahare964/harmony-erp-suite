@@ -13,6 +13,8 @@ export interface IBillingReminder extends Document {
   priority: "Normal" | "High" | "Urgent";
   status: "Pending" | "Settled" | "Snoozed";
   notes: string;
+  /** Set once the due-date email has gone to the owner. */
+  emailedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,6 +37,7 @@ const BillingReminderSchema = new Schema<IBillingReminder>(
     priority: { type: String, enum: ["Normal", "High", "Urgent"], default: "Normal" },
     status: { type: String, enum: ["Pending", "Settled", "Snoozed"], default: "Pending", index: true },
     notes: { type: String, default: "" },
+    emailedAt: { type: Date },
   },
   { timestamps: true }
 );

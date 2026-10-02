@@ -10,6 +10,8 @@ import { FinanceTransaction } from "@/lib/mongodb/models/FinanceTransaction";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { FoodPurchase } from "@/lib/mongodb/models/FoodPurchase";
 import { nextSeq } from "./counters";
+import { sendEmail } from "@/lib/email/emailjs";
+import { visitSummaryEmail } from "@/lib/email/templates";
 import { calcLineItem, calcBillSummary, roundMoney } from "@/lib/utils/moneyUtils";
 
 function toPlain<T>(v: any): T {
@@ -1492,6 +1494,39 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
         );
       } catch (appErr) {
         console.warn("[Appointment Auto-Sync] Warning during appointment sync:", appErr);
+      }
+    }
+
+    // 6. Email the owner their bill + prescription (once per visit; skipped if no email on file)
+    if (!visit.billEmailSentAt) {
+      try {
+        const owner = await Owner.findOne({ ownerId: visit.ownerId }).lean();
+        const to = String(owner?.email || "").trim();
+        if (to) {
+          const mail = visitSummaryEmail({
+            ownerName: visit.ownerName,
+            petName: visit.petName,
+            date: visit.date,
+            doctor: visit.doctorName,
+            invoiceNo: visit.invoiceNo,
+            prescriptionNo: visit.prescriptionNo,
+            ...(visit.diagnosis ? { diagnosis: visit.diagnosis } : {}),
+            ...(visit.clinicalNotes ? { notes: visit.clinicalNotes } : {}),
+            ...(visit.nextVisitDate ? { nextVisitDate: visit.nextVisitDate } : {}),
+            lines: (visit.items || []).map((l: any) => ({
+              name: l.name, quantity: l.quantity, unitPrice: l.unitPrice,
+              lineTotal: l.lineTotal ?? l.quantity * l.unitPrice, dosageInstructions: l.dosageInstructions,
+            })),
+            totalAmount: visit.totalAmount,
+            amountPaid: visit.amountPaid,
+            balanceDue: visit.balanceDue,
+          });
+          if (await sendEmail({ to, toName: visit.ownerName, ...mail })) {
+            await ClinicalVisit.updateOne({ visitId: visit.visitId }, { $set: { billEmailSentAt: new Date().toISOString() } });
+          }
+        }
+      } catch (mailErr) {
+        console.warn("[finalizeVisitAndBillFn] Bill email skipped:", mailErr);
       }
     }
 

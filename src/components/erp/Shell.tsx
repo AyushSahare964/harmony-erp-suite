@@ -14,6 +14,9 @@ import {
   Building2,
   PawPrint,
   Phone,
+  Boxes,
+  CalendarClock,
+  Receipt,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -25,8 +28,9 @@ import { getIcon } from "./icon";
 import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 import { getMongoStatusFn, type MongoStatusRow } from "@/lib/mongodb/serverFns/status";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
-import { listRemindersFn, settleReminderFn, type BillingReminderRow } from "@/lib/mongodb/serverFns/reminders";
-import { todayIST, formatDisplayDate } from "@/lib/utils/dateUtils";
+import { settleReminderFn, dispatchDueReminderEmailsFn } from "@/lib/mongodb/serverFns/reminders";
+import { getNotificationsFn, type NotificationRow, type NotificationCategory } from "@/lib/mongodb/serverFns/notifications";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -334,30 +338,41 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
   const navigate = useNavigate();
   const { role, roleId, setRoleId, currentUser, logout } = useErp();
 
-  const [reminders, setReminders] = useState<BillingReminderRow[]>([]);
-  const loadReminders = () => {
-    listRemindersFn()
-      .then((rows) => setReminders(rows.filter((r) => r.status === "Pending")))
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationRow[]>([]);
+  const loadNotifications = () => {
+    getNotificationsFn()
+      .then(setNotifications)
       .catch(() => {});
   };
   useEffect(() => {
-    loadReminders();
-    const interval = setInterval(loadReminders, 60_000); // keep the badge fresh across a long shift
-    return () => clearInterval(interval);
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 60_000); // keep the badge fresh across a long shift
+    // Due-date payment emails to owners: no server scheduler exists, so the open terminal triggers it (idempotent).
+    const sendDue = () => void dispatchDueReminderEmailsFn().catch(() => {});
+    sendDue();
+    const dueInterval = setInterval(sendDue, 60 * 60_000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(dueInterval);
+    };
   }, []);
 
-  const sortedReminders = [...reminders].sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
-  const today = todayIST();
-  const overdueCount = reminders.filter((r) => r.scheduledDate < today).length;
+  const criticalCount = notifications.filter((n) => n.severity === "critical").length;
+  const notifGroups: { key: NotificationCategory; label: string; Icon: typeof Boxes }[] = [
+    { key: "stock", label: "Stock & Inventory", Icon: Boxes },
+    { key: "appointments", label: "Appointments & Follow-ups", Icon: CalendarClock },
+    { key: "billing", label: "Billing & Payments", Icon: Receipt },
+  ];
 
   const handleQuickSettle = async (reminderId: string) => {
-    setReminders((prev) => prev.filter((r) => r.reminderId !== reminderId));
+    setNotifications((prev) => prev.filter((n) => n.reminderId !== reminderId));
     try {
       await settleReminderFn({ data: { reminderId } });
       toast.success("Reminder marked as settled!");
     } catch {
       toast.error("Could not update reminder");
-      loadReminders();
+      loadNotifications();
     }
   };
 
@@ -386,87 +401,91 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
       <GlobalSearch />
 
       <div className="ml-auto flex items-center gap-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="relative rounded-lg p-2 hover:bg-muted transition-colors"
-              aria-label={`Notifications${reminders.length ? ` (${reminders.length} pending)` : ""}`}
-              suppressHydrationWarning
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setNotifOpen(true)}
+          className="relative rounded-lg p-2 hover:bg-muted transition-colors"
+          aria-label={`Notifications${notifications.length ? ` (${notifications.length})` : ""}`}
+          suppressHydrationWarning
+        >
+          <Bell className="size-[1.05rem]" />
+          {notifications.length > 0 && (
+            <span
+              className={cn(
+                "absolute right-1 top-1 flex size-4 items-center justify-center rounded-full text-[0.6rem] font-bold text-destructive-foreground",
+                criticalCount > 0 ? "bg-destructive" : "bg-amber-500"
+              )}
             >
-              <Bell className="size-[1.05rem]" />
-              {reminders.length > 0 && (
-                <span
-                  className={cn(
-                    "absolute right-1 top-1 flex size-4 items-center justify-center rounded-full text-[0.6rem] font-bold text-destructive-foreground",
-                    overdueCount > 0 ? "bg-destructive" : "bg-amber-500"
-                  )}
-                >
-                  {reminders.length > 9 ? "9+" : reminders.length}
-                </span>
+              {notifications.length > 9 ? "9+" : notifications.length}
+            </span>
+          )}
+        </motion.button>
+        <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
+          <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col gap-0">
+            <SheetHeader className="border-b border-border p-4">
+              <SheetTitle className="flex items-center gap-2 text-base">
+                Notifications
+                {criticalCount > 0 && (
+                  <span className="rounded-full bg-destructive/10 text-destructive px-2 py-0.5 text-[10px] font-bold">
+                    {criticalCount} urgent
+                  </span>
+                )}
+              </SheetTitle>
+              <SheetDescription className="text-xs">Stock alerts, today's appointments and payments due.</SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              {notifications.length === 0 && (
+                <div className="py-12 text-center text-sm text-muted-foreground">You're all caught up.</div>
               )}
-            </motion.button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80 p-2">
-            <DropdownMenuLabel className="flex items-center justify-between text-xs font-bold">
-              <span>Billing Reminders</span>
-              {overdueCount > 0 && (
-                <span className="rounded-full bg-destructive/10 text-destructive px-2 py-0.5 text-[10px] font-bold">
-                  {overdueCount} overdue
-                </span>
-              )}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {sortedReminders.length === 0 ? (
-              <div className="py-6 text-center text-xs text-muted-foreground">
-                No pending reminders — you're all caught up.
-              </div>
-            ) : (
-              <div className="max-h-80 overflow-y-auto space-y-1">
-                {sortedReminders.slice(0, 8).map((r) => {
-                  const isOverdue = r.scheduledDate < today;
-                  return (
-                    <div
-                      key={r.reminderId}
-                      className="rounded-lg p-2 hover:bg-muted/60 transition-colors text-xs space-y-1"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-foreground truncate">
-                            {r.petName} · {r.ownerName}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {r.reminderType} · ₹{r.dueAmount.toLocaleString("en-IN")}
-                          </p>
-                        </div>
-                        <span
-                          className={cn(
-                            "shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded",
-                            isOverdue ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-600"
-                          )}
-                        >
-                          {isOverdue ? "Overdue" : formatDisplayDate(r.scheduledDate)}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleQuickSettle(r.reminderId)}
-                        className="text-[11px] font-semibold text-primary hover:underline"
+              {notifGroups.map(({ key, label, Icon }) => {
+                const rows = notifications
+                  .filter((n) => n.category === key)
+                  .sort((a, b) => Number(b.severity === "critical") - Number(a.severity === "critical"));
+                if (rows.length === 0) return null;
+                return (
+                  <section key={key} className="space-y-1.5">
+                    <h3 className="flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <Icon className="size-3.5" /> {label}
+                      <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{rows.length}</span>
+                    </h3>
+                    {rows.map((n) => (
+                      <div
+                        key={n.id}
+                        className={cn(
+                          "rounded-lg border-l-4 bg-muted/40 p-2.5 text-xs space-y-1",
+                          n.severity === "critical" ? "border-destructive" : n.severity === "warning" ? "border-amber-500" : "border-primary/60"
+                        )}
                       >
-                        Mark settled
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild className="text-xs font-semibold text-primary cursor-pointer justify-center">
-              <Link to="/m/$moduleId" params={{ moduleId: "billing" }}>View all in Billing Desk</Link>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                        <p className="font-semibold text-foreground">{n.title}</p>
+                        {n.detail && <p className="text-[11px] text-muted-foreground">{n.detail}</p>}
+                        <div className="flex items-center gap-3 pt-0.5">
+                          <Link
+                            to="/m/$moduleId"
+                            params={{ moduleId: n.moduleId }}
+                            onClick={() => setNotifOpen(false)}
+                            className="text-[11px] font-semibold text-primary hover:underline"
+                          >
+                            Open
+                          </Link>
+                          {n.reminderId && (
+                            <button
+                              type="button"
+                              onClick={() => void handleQuickSettle(n.reminderId!)}
+                              className="text-[11px] font-semibold text-primary hover:underline"
+                            >
+                              Mark settled
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </section>
+                );
+              })}
+            </div>
+          </SheetContent>
+        </Sheet>
 
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-left hover:bg-muted transition-colors outline-none focus:ring-2 focus:ring-primary/20">

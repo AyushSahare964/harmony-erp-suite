@@ -959,7 +959,7 @@ export function ProductMasterWizardDialog({
                   freeQty: 0,
                   unit: l.unit,
                   purchaseRate: l.purchasePrice,
-                  mrp: Number(form.mrp) || (l.purchasePrice > 0 ? l.purchasePrice * 1.25 : undefined),
+                  mrp: l.mrp || Number(form.mrp) || undefined,
                   discountPct: 0,
                   gstPct: Number(form.gstRate) || 0,
                   taxableAmount: l.amount,
@@ -1136,37 +1136,6 @@ export function ProductMasterWizardDialog({
             })}
           </div>
         </div>
-
-        {/* Draft Recovery Alert */}
-        {hasSavedDraft && !editing && (
-          <div className="px-6 py-2.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-between text-xs animate-in fade-in">
-            <div className="flex items-center gap-2">
-              <RotateCcw className="h-4 w-4 shrink-0 text-amber-600" />
-              <span>
-                Found an autosaved draft for <strong>{form.productType}</strong> from{" "}
-                <strong>{draftTimestamp || "earlier"}</strong>. Would you like to resume?
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs border-amber-500/30 text-amber-800 dark:text-amber-200"
-                onClick={handleRestoreDraft}
-              >
-                Restore Draft
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs text-muted-foreground hover:text-destructive"
-                onClick={handleDiscardDraft}
-              >
-                Discard
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/* Step Content Panels */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
@@ -2498,6 +2467,7 @@ export function ProductMasterWizardDialog({
               currentProductUnit={form.purchaseUom || form.unit}
               currentOpeningStock={form.openingStock}
               currentPurchasePrice={form.defaultPurchasePrice}
+              currentMrp={form.mrp}
               leadTimeDays={form.leadTimeDays}
               onLeadTimeDaysChange={(v) => updateField("leadTimeDays", v)}
               minOrderQty={form.minOrderQty}

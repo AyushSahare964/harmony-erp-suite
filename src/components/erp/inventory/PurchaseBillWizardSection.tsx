@@ -35,6 +35,7 @@ export interface PurchaseLine {
   quantity: number;
   unit: string;
   purchasePrice: number;
+  mrp?: number | undefined;
   amount: number;
 }
 
@@ -114,6 +115,7 @@ export interface PurchaseBillWizardSectionProps {
   currentProductUnit: string;
   currentOpeningStock: string | number;
   currentPurchasePrice: string | number;
+  currentMrp?: string | number;
   leadTimeDays: string;
   onLeadTimeDaysChange: (val: string) => void;
   minOrderQty: string;
@@ -128,6 +130,7 @@ export function PurchaseBillWizardSection({
   currentProductUnit,
   currentOpeningStock,
   currentPurchasePrice,
+  currentMrp,
   leadTimeDays,
   onLeadTimeDaysChange,
   minOrderQty,
@@ -145,6 +148,7 @@ export function PurchaseBillWizardSection({
   const [rowUom, setRowUom] = useState(currentProductUnit || "PCS");
   const [rowQuantity, setRowQuantity] = useState<number>(1);
   const [rowPurchasePrice, setRowPurchasePrice] = useState<number>(0);
+  const [rowMrp, setRowMrp] = useState<number>(0);
 
   // Dropdown combobox state
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
@@ -199,7 +203,11 @@ export function PurchaseBillWizardSection({
     if (!isNaN(initialPrice) && initialPrice > 0) {
       setRowPurchasePrice(initialPrice);
     }
-  }, [currentProductName, currentProductUnit, currentOpeningStock, currentPurchasePrice]);
+    const initialMrp = Number(currentMrp);
+    if (!isNaN(initialMrp) && initialMrp > 0) {
+      setRowMrp(initialMrp);
+    }
+  }, [currentProductName, currentProductUnit, currentOpeningStock, currentPurchasePrice, currentMrp]);
 
   // Auto-seed initial line item if lines are empty and wizard has current product name
   useEffect(() => {
@@ -214,6 +222,7 @@ export function PurchaseBillWizardSection({
         quantity: qty,
         unit: currentProductUnit || "PCS",
         purchasePrice: price,
+        mrp: Number(currentMrp) || undefined,
         amount: Math.round(qty * price * 100) / 100,
       };
       onChange({ lines: [initialLine] });
@@ -264,6 +273,7 @@ export function PurchaseBillWizardSection({
     setRowProductName(item.name);
     setRowUom(item.purchaseUom || item.salesUom || item.unit || "PCS");
     setRowPurchasePrice(item.defaultPurchasePrice || 0);
+    setRowMrp(item.mrp || 0);
     setIsProductDropdownOpen(false);
   };
 
@@ -285,6 +295,7 @@ export function PurchaseBillWizardSection({
       quantity: rowQuantity || 1,
       unit: rowUom || "PCS",
       purchasePrice: rowPurchasePrice || 0,
+      mrp: rowMrp || undefined,
       amount: calculatedRowAmount,
     };
 
@@ -296,6 +307,7 @@ export function PurchaseBillWizardSection({
     setRowProductName("");
     setRowQuantity(1);
     setRowPurchasePrice(0);
+    setRowMrp(Number(currentMrp) || 0);
   };
 
   const handleRemoveLine = (idx: number) => {
@@ -525,7 +537,7 @@ export function PurchaseBillWizardSection({
               {/* Particulars Input Row */}
               <div className="grid grid-cols-12 gap-2 items-end">
                 {/* Product Name with search combobox */}
-                <div className="col-span-12 md:col-span-4 space-y-1 relative" ref={productDropdownRef}>
+                <div className="col-span-12 md:col-span-3 space-y-1 relative" ref={productDropdownRef}>
                   <Label className="text-xs text-slate-700 dark:text-slate-300">
                     Product Name <span className="text-rose-500">*</span>
                   </Label>
@@ -612,7 +624,7 @@ export function PurchaseBillWizardSection({
                 </div>
 
                 {/* Quantity */}
-                <div className="col-span-6 md:col-span-2 space-y-1">
+                <div className="col-span-6 md:col-span-1 space-y-1">
                   <Label className="text-xs text-slate-700 dark:text-slate-300">
                     Quantity <span className="text-rose-500">*</span>
                   </Label>
@@ -641,6 +653,25 @@ export function PurchaseBillWizardSection({
                       step="any"
                       value={rowPurchasePrice || ""}
                       onChange={(e) => setRowPurchasePrice(parseFloat(e.target.value) || 0)}
+                      placeholder="0.00"
+                      className="h-8 rounded-l-none text-xs font-mono font-semibold bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    />
+                  </div>
+                </div>
+
+                {/* MRP */}
+                <div className="col-span-6 md:col-span-2 space-y-1">
+                  <Label className="text-xs text-slate-700 dark:text-slate-300">MRP</Label>
+                  <div className="flex items-center">
+                    <div className="flex h-8 items-center justify-center px-2.5 bg-[#1976d2] text-white text-xs font-bold rounded-l">
+                      ₹
+                    </div>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={rowMrp || ""}
+                      onChange={(e) => setRowMrp(parseFloat(e.target.value) || 0)}
                       placeholder="0.00"
                       className="h-8 rounded-l-none text-xs font-mono font-semibold bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                     />
@@ -696,6 +727,7 @@ export function PurchaseBillWizardSection({
                     <th className="py-2 px-3 w-24 text-center border-r border-blue-500/30">Quantity</th>
                     <th className="py-2 px-3 w-20 text-center border-r border-blue-500/30">Unit</th>
                     <th className="py-2 px-3 w-28 text-right border-r border-blue-500/30">Purchase Price</th>
+                    <th className="py-2 px-3 w-28 text-right border-r border-blue-500/30">MRP</th>
                     <th className="py-2 px-3 w-28 text-right border-r border-blue-500/30">Amount</th>
                     <th className="py-2 px-2 w-12 text-center">Action</th>
                   </tr>
@@ -703,7 +735,7 @@ export function PurchaseBillWizardSection({
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {state.lines.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-6 text-center text-slate-400 text-xs">
+                      <td colSpan={8} className="py-6 text-center text-slate-400 text-xs">
                         No particulars added. Enter product details above and click the green [+] button.
                       </td>
                     </tr>
@@ -727,6 +759,9 @@ export function PurchaseBillWizardSection({
                         </td>
                         <td className="py-2 px-3 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                           ₹{line.purchasePrice.toFixed(2)}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
+                          {line.mrp ? `₹${line.mrp.toFixed(2)}` : "—"}
                         </td>
                         <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-800">
                           ₹{line.amount.toFixed(2)}

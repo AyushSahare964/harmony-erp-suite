@@ -314,6 +314,7 @@ export function AccessoriesCatalogue() {
                   <th className="px-3 py-3">Material</th>
                   <th className="px-3 py-3">Stock Units</th>
                   <th className="px-3 py-3">Sale Price</th>
+                  <th className="px-3 py-3">MRP</th>
                   <th className="px-3 py-3">Pricing Audit</th>
                   <th className="px-3 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
@@ -447,6 +448,10 @@ export function AccessoriesCatalogue() {
                           )}
                         </td>
 
+                        <td className="px-3 py-3 font-medium text-foreground">
+                          {item.mrp ? `₹${item.mrp}` : "—"}
+                        </td>
+
                         <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                           <span
                             title="Sample baseline pricing tagged for clinic review"
@@ -515,7 +520,7 @@ export function AccessoriesCatalogue() {
 
                 {visible.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">
                       <Tag className="size-8 mx-auto mb-2 opacity-30 text-blue-500" />
                       No accessories match the selected filters.
                     </td>

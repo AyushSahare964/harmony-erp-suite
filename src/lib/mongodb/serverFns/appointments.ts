@@ -3,6 +3,9 @@ import { z } from "zod";
 import { connectDB } from "@/lib/mongodb/client";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { ClinicalVisit } from "@/lib/mongodb/models/ClinicalVisit";
+import { Owner } from "@/lib/mongodb/models/Owner";
+import { sendEmail } from "@/lib/email/emailjs";
+import { appointmentEmail } from "@/lib/email/templates";
 
 function toPlain<T>(v: any): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -117,6 +120,29 @@ export const createAppointmentFn = createServerFn({ method: "POST" })
       moduleId: "appointments",
       data: payload,
     });
+
+    // Confirmation email to the owner (typed-in address, else the one on the owner profile). Never blocks booking.
+    void (async () => {
+      try {
+        const p = payload as Record<string, any>;
+        let to = String(p["ownerEmail"] || "").trim();
+        if (!to && p["ownerId"]) to = String((await Owner.findOne({ ownerId: p["ownerId"] }).lean())?.email || "");
+        if (!to) return;
+        const mail = appointmentEmail({
+          ownerName: String(p["owner"] || "Client"),
+          petName: String(p["pet"] || "your pet"),
+          date: String(p["appointment_date"] || ""),
+          time: p["slot"] || p["time"],
+          doctor: p["doctor"],
+          token: p["token"],
+          reason: p["complaint"] || p["reason"],
+        });
+        await sendEmail({ to, toName: String(p["owner"] || ""), ...mail });
+      } catch (e) {
+        console.warn("[createAppointmentFn] confirmation email skipped:", e);
+      }
+    })();
+
     return toPlain(doc.data);
   });
 
