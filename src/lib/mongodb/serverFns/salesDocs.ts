@@ -22,7 +22,6 @@ import {
   SALES_LINE_TYPES,
   type ISalesLine,
 } from "@/lib/mongodb/models/SalesDoc";
-import { PartyLedgerModel } from "@/lib/mongodb/models/PartyLedger";
 import { StockLedgerEntryModel } from "@/lib/mongodb/models/StockLedgerEntry";
 import { FinDailySummaryModel } from "@/lib/mongodb/models/FinDailySummary";
 import { AuditLogModel } from "@/lib/mongodb/models/AuditLog";
@@ -585,27 +584,6 @@ export const postSalesDocFn = createServerFn({ method: "POST" })
             ctx.session,
           );
 
-          // 4. Party ledger.
-          if (doc.partyId) {
-            const amount = roundMoney(Number(doc.grandTotal ?? 0));
-            await PartyLedgerModel.create(
-              docPayloads([
-                {
-                  partyId: doc.partyId,
-                  entryDate: docDate,
-                  sourceKind: isCreditNote ? "CREDIT_NOTE" : "SALE",
-                  sourceId: String(doc._id),
-                  sourceNumber: docNumber,
-                  narration: isCreditNote ? `Credit note ${docNumber}` : `Invoice ${docNumber}`,
-                  // A sale is a debit to the customer; a credit note reverses it.
-                  debit: isCreditNote ? 0 : amount,
-                  credit: isCreditNote ? amount : 0,
-                },
-              ]),
-              sessionOpt(ctx.session),
-            );
-          }
-
           // 5. Daily summary.
           await bumpDailySummary(
             branchId,
@@ -640,7 +618,6 @@ export const postSalesDocFn = createServerFn({ method: "POST" })
       // Compensation for the non-transactional path: unwind in reverse.
       async () => {
         if (!allocatedNumber) return;
-        await PartyLedgerModel.deleteMany({ sourceNumber: allocatedNumber });
         await StockLedgerEntryModel.deleteMany({ sourceNumber: allocatedNumber });
         await SalesDocModel.updateOne(
           { _id: doc._id },
@@ -848,28 +825,6 @@ export const cancelSalesDocFn = createServerFn({ method: "POST" })
       );
 
       if (isQuotation || doc.status !== "POSTED") return;
-
-      // Reversal rows rather than deletions — the history stays visible.
-      if (doc.partyId) {
-        const amount = roundMoney(Number(doc.grandTotal ?? 0));
-        await PartyLedgerModel.create(
-          docPayloads([
-            {
-              partyId: doc.partyId,
-              entryDate: todayIST(),
-              sourceKind: isCreditNote ? "CREDIT_NOTE" : "SALE",
-              sourceId: String(doc._id),
-              sourceNumber: docNumber,
-              narration: `Cancelled ${docNumber}: ${data.reason}`,
-              debit: isCreditNote ? amount : 0,
-              credit: isCreditNote ? 0 : amount,
-              isReversal: true,
-              reversalOfId: String(doc._id),
-            },
-          ]),
-          sessionOpt(ctx.session),
-        );
-      }
 
       // Put the stock back.
       await writeStockMoves(

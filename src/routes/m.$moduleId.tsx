@@ -13,7 +13,7 @@ import {
 import { ArrowLeft, Download, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Shell } from "@/components/erp/Shell";
 import { InventoryHub } from "@/components/erp/inventory/InventoryHub";
-import { AccountingHub } from "@/components/erp/accounting/AccountingHub";
+import { LedgersHub } from "@/components/erp/ledgers/LedgersHub";
 import { PetOwnerCrmHub } from "@/components/erp/crm/PetOwnerCrmHub";
 import { PatientBillingHub } from "@/components/erp/billing/PatientBillingHub";
 import { AppointmentsQueueHub } from "@/components/erp/appointments/AppointmentsQueueHub";
@@ -131,9 +131,9 @@ function ModulePage() {
     return <InventoryHub initialTab={initialTab} />;
   }
 
-  // ── Accounting module → dedicated AccountingHub with 6-tab hub ──
-  if (moduleId === "accounting") {
-    return <AccountingHub />;
+  // ── Ledgers module → customer / supplier / staff / cash ledgers ──
+  if (moduleId === "ledgers") {
+    return <LedgersHub />;
   }
 
   // ── Pet & Owner CRM module → dedicated PetOwnerCrmHub with dual views ──

@@ -432,9 +432,6 @@ export function AdminDashboardView({
         c.metricLabel = "Unpaid invoices";
         c.metricValue = String(waitingVisits.length);
       }
-    } else if (card.module === "accounting") {
-      c.metricLabel = "Revenue today";
-      c.metricValue = `₹${revTotal.toLocaleString("en-IN")}`;
     } else if (card.module === "hrms") {
       c.metricLabel = "On leave today";
       c.metricValue = String(onLeaveStaff);

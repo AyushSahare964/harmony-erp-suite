@@ -12,11 +12,7 @@ import { z } from "zod";
 import { connectDB } from "@/lib/mongodb/client";
 import { PartyModel } from "@/lib/mongodb/models/Party";
 import { Owner } from "@/lib/mongodb/models/Owner";
-import {
-  PartyLedgerModel,
-  computePartyBalance,
-  computeBalances,
-} from "@/lib/mongodb/models/PartyLedger";
+import { computePartyBalance, computeBalances } from "@/lib/mongodb/partyBalance";
 import { SalesDocModel } from "@/lib/mongodb/models/SalesDoc";
 import { nextSeq } from "./counters";
 import { roundMoney } from "@/lib/utils/moneyUtils";
@@ -129,25 +125,6 @@ export interface PartyPickerRow {
   gstTreatment: string;
   partyType: string;
   ownerId: string;
-}
-
-export interface LedgerEntryRow {
-  _id: string;
-  entryDate: string;
-  sourceKind: string;
-  sourceNumber: string;
-  narration: string;
-  debit: number;
-  credit: number;
-  isReversal: boolean;
-  runningBalance: number;
-}
-
-export interface PartyLedgerResult {
-  openingBalance: number;
-  closingBalance: number;
-  entries: LedgerEntryRow[];
-  nextCursor: string | null;
 }
 
 export interface OutstandingBillRow {
@@ -428,100 +405,18 @@ export const savePartyFn = createServerFn({ method: "POST" })
     return toRow(created.toObject() as unknown as Record<string, unknown>);
   });
 
-/**
- * Opening balance is a ledger row like any other, not a special column.
- * Re-running replaces the previous OPENING row, so editing it cannot
- * double-count.
- */
+/** Opening balance lives on the Party; ledgers read it as the starting balance. */
 export async function writeOpeningRow(
   partyId: string,
   amount: number,
   type: "DR" | "CR",
   openingDate?: string,
 ): Promise<void> {
-  await PartyLedgerModel.deleteMany({ partyId, sourceKind: "OPENING" });
-  if (!amount) return;
-
-  await PartyLedgerModel.create({
-    partyId,
-    entryDate: openingDate || todayIST(),
-    sourceKind: "OPENING",
-    sourceNumber: "OPENING",
-    narration: "Opening balance",
-    debit: type === "DR" ? roundMoney(amount) : 0,
-    credit: type === "CR" ? roundMoney(amount) : 0,
-  });
+  await PartyModel.updateOne(
+    { partyId },
+    { $set: { openingBalance: roundMoney(amount), openingType: type, openingDate: openingDate || todayIST() } },
+  );
 }
-
-// ─── Ledger ───────────────────────────────────────────────────────────────────
-
-export const getPartyLedgerFn = createServerFn({ method: "GET" })
-  .validator((raw: unknown) =>
-    z
-      .object({
-        partyId: z.string().min(1),
-        from: z.string().optional(),
-        to: z.string().optional(),
-        limit: z.number().int().min(1).max(500).default(100),
-        /** Keyset cursor: the previous page's last _id. */
-        cursor: z.string().optional(),
-      })
-      .parse(raw),
-  )
-  .handler(async ({ data }): Promise<PartyLedgerResult> => {
-    await connectDB();
-
-    const filter: Record<string, unknown> = { partyId: data.partyId };
-    if (data.from || data.to) {
-      const range: Record<string, string> = {};
-      if (data.from) range["$gte"] = data.from;
-      if (data.to) range["$lte"] = data.to;
-      filter["entryDate"] = range;
-    }
-    // Keyset paging on (entryDate, _id) — never OFFSET, which degrades badly
-    // once a party has thousands of rows.
-    if (data.cursor) filter["_id"] = { $gt: data.cursor };
-
-    const docs = await PartyLedgerModel.find(filter)
-      .sort({ entryDate: 1, _id: 1 })
-      .limit(data.limit)
-      .lean();
-
-    // The window's opening balance is everything strictly before it.
-    let openingBefore = 0;
-    if (data.from) {
-      const [agg] = await PartyLedgerModel.aggregate<{ debit: number; credit: number }>([
-        { $match: { partyId: data.partyId, entryDate: { $lt: data.from } } },
-        { $group: { _id: null, debit: { $sum: "$debit" }, credit: { $sum: "$credit" } } },
-      ]);
-      openingBefore = roundMoney((agg?.debit ?? 0) - (agg?.credit ?? 0));
-    }
-
-    let running = openingBefore;
-    const entries: LedgerEntryRow[] = docs.map((d) => {
-      const debit = Number(d.debit ?? 0);
-      const credit = Number(d.credit ?? 0);
-      running = roundMoney(running + debit - credit);
-      return {
-        _id: String(d._id),
-        entryDate: String(d.entryDate ?? ""),
-        sourceKind: String(d.sourceKind ?? ""),
-        sourceNumber: String(d.sourceNumber ?? ""),
-        narration: String(d.narration ?? ""),
-        debit,
-        credit,
-        isReversal: Boolean(d.isReversal),
-        runningBalance: running,
-      };
-    });
-
-    return {
-      openingBalance: openingBefore,
-      closingBalance: running,
-      entries,
-      nextCursor: docs.length === data.limit ? String(docs[docs.length - 1]?._id ?? "") : null,
-    };
-  });
 
 // ─── Outstanding + ageing ─────────────────────────────────────────────────────
 

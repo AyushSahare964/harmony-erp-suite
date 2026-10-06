@@ -649,40 +649,6 @@ export const WORKSPACES: Record<string, Workspace> = {
     ],
   },
 
-  accounting: {
-    id: "accounting",
-    icon: "Wallet",
-    title: "Accounting & Finance",
-    subtitle: "Ledgers, P&L, balance sheet, GST and TDS",
-    kpis: [
-      { label: "Net revenue MTD", value: "₹0", trend: "0%", trendTone: "flat" },
-      { label: "Expenses MTD", value: "₹0", trend: "0%", trendTone: "flat" },
-      { label: "Cash & bank", value: "₹0", trend: "0%", trendTone: "flat" },
-      { label: "GST payable", value: "₹0", trend: "none due", trendTone: "flat" },
-    ],
-    seriesLabel: "Net revenue (₹ lakh)",
-    series: series(0, 0, 0, 0, 0, 0),
-    columns: [
-      { key: "entry", label: "Entry" },
-      { key: "date", label: "Date" },
-      { key: "ledger", label: "Ledger" },
-      { key: "narration", label: "Narration" },
-      { key: "amount", label: "Amount", align: "right", kind: "money" },
-      { key: "status", label: "Type", kind: "status" },
-    ],
-    statusKey: "status",
-    rows: [],
-    createLabel: "New Journal Entry",
-    fields: [
-      { key: "entry", label: "Entry no.", type: "text", required: true, placeholder: "JV-3306" },
-      { key: "date", label: "Date", type: "date", required: true },
-      { key: "ledger", label: "Ledger", type: "text", required: true },
-      { key: "narration", label: "Narration", type: "text", required: true },
-      { key: "amount", label: "Amount", type: "number", required: true },
-      { key: "status", label: "Type", type: "select", options: ["Credit", "Debit", "Liability"], required: true },
-    ],
-  },
-
   hrms: {
     id: "hrms",
     icon: "Users",

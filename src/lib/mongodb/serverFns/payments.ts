@@ -24,7 +24,6 @@ import {
 } from "@/lib/mongodb/models/PaymentDoc";
 import { SalesDocModel, derivePaymentStatus } from "@/lib/mongodb/models/SalesDoc";
 import { PurchaseBill } from "@/lib/mongodb/models/PurchaseBill";
-import { PartyLedgerModel } from "@/lib/mongodb/models/PartyLedger";
 import { PartyModel } from "@/lib/mongodb/models/Party";
 import { AuditLogModel } from "@/lib/mongodb/models/AuditLog";
 import { ReminderModel } from "@/lib/mongodb/models/Reminder";
@@ -396,28 +395,6 @@ export const createPaymentFn = createServerFn({ method: "POST" })
           await applyAllocation(r.docKind, r.docId, r.amount, ctx.session);
         }
 
-        // Party ledger: a receipt credits the customer, a payment debits the
-        // supplier. Cleared-only instruments still post — a bounce reverses.
-        if (data.partyId) {
-          await PartyLedgerModel.create(
-            docPayloads([
-              {
-                partyId: data.partyId,
-                entryDate: data.docDate,
-                sourceKind: "PAYMENT",
-                sourceId: createdId,
-                sourceNumber: docNumber,
-                narration:
-                  data.narration ||
-                  (data.direction === "IN" ? `Receipt ${docNumber}` : `Payment ${docNumber}`),
-                debit: data.direction === "OUT" ? totalAmount : 0,
-                credit: data.direction === "IN" ? totalAmount : 0,
-              },
-            ]),
-            sessionOpt(ctx.session),
-          );
-        }
-
         // §6.11 cash position.
         const cashAmount = roundMoney(
           splits.filter((s) => s.payMode === "CASH").reduce((s, x) => s + x.amount, 0),
@@ -433,7 +410,6 @@ export const createPaymentFn = createServerFn({ method: "POST" })
       },
       async () => {
         if (!allocatedNumber) return;
-        await PartyLedgerModel.deleteMany({ sourceNumber: allocatedNumber });
         await PaymentDocModel.deleteOne({ docNumber: allocatedNumber });
       },
     );
@@ -609,26 +585,6 @@ export const cancelPaymentFn = createServerFn({ method: "POST" })
         );
       }
 
-      if (pay.partyId) {
-        await PartyLedgerModel.create(
-          docPayloads([
-            {
-              partyId: pay.partyId,
-              entryDate: todayIST(),
-              sourceKind: "PAYMENT",
-              sourceId: String(pay._id),
-              sourceNumber: docNumber,
-              narration: `Cancelled ${docNumber}: ${data.reason}`,
-              debit: pay.direction === "IN" ? totalAmount : 0,
-              credit: pay.direction === "OUT" ? totalAmount : 0,
-              isReversal: true,
-              reversalOfId: String(pay._id),
-            },
-          ]),
-          sessionOpt(ctx.session),
-        );
-      }
-
       const cashAmount = roundMoney(
         (pay.splits ?? [])
           .filter((s) => s.payMode === "CASH")
@@ -725,28 +681,6 @@ export const updateClearingStatusFn = createServerFn({ method: "POST" })
             ctx.session,
           );
         }
-      }
-
-      if (pay.partyId) {
-        await PartyLedgerModel.create(
-          docPayloads([
-            {
-              partyId: pay.partyId,
-              entryDate: todayIST(),
-              sourceKind: "PAYMENT",
-              sourceId: String(pay._id),
-              sourceNumber: docNumber,
-              narration: `${split.payMode} bounced on ${docNumber}${
-                data.reason ? `: ${data.reason}` : ""
-              }`,
-              debit: pay.direction === "IN" ? amount : 0,
-              credit: pay.direction === "OUT" ? amount : 0,
-              isReversal: true,
-              reversalOfId: String(pay._id),
-            },
-          ]),
-          sessionOpt(ctx.session),
-        );
       }
 
       await bumpDailySummary(

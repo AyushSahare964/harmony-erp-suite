@@ -16,9 +16,9 @@ test.describe('ERP Dashboard & Module Navigation', () => {
   });
 
   test('should allow navigating to core ERP modules', async ({ page }) => {
-    const accountingLink = page.locator('a[href*="/m/accounting"], a:has-text("Accounting")').first();
-    await expect(accountingLink).toBeVisible();
-    await accountingLink.click();
-    await expect(page).toHaveURL(/.*accounting.*/i);
+    const ledgersLink = page.locator('a[href*="/m/ledgers"], a:has-text("Ledgers")').first();
+    await expect(ledgersLink).toBeVisible();
+    await ledgersLink.click();
+    await expect(page).toHaveURL(/.*ledgers.*/i);
   });
 });

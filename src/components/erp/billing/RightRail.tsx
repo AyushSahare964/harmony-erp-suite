@@ -111,7 +111,7 @@ export function RightRail({
 
   const moduleLinks = [
     { label: "Inventory Hub", icon: Layers, href: "/m/inventory" },
-    { label: "Accounting Hub", icon: Building, href: "/m/accounting" },
+    { label: "Ledgers", icon: Building, href: "/m/ledgers" },
     { label: "Pet & Owner CRM", icon: HeartPulse, href: "/m/crm-pets" },
     { label: "Pharmacy Retail", icon: Pill, href: "/m/pharmacy" },
     { label: "Laboratory Diagnostics", icon: TestTube2, href: "/m/laboratory" },
