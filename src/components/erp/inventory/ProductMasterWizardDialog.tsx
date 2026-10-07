@@ -70,6 +70,9 @@ import {
 import { peekItemCodeFn } from "@/lib/mongodb/serverFns/inventory";
 import { createPurchaseBillFn } from "@/lib/mongodb/serverFns/purchaseBills";
 import { todayIST } from "@/lib/utils/dateUtils";
+import { NewItemModal } from "@/components/erp/accounting/NewItemModal";
+import { SupplierBillFormModal } from "@/components/erp/accounting/SupplierBillFormModal";
+import type { InventoryItemRow } from "@/lib/mongodb/serverFns/inventory";
 import {
   PurchaseBillWizardSection,
   type PurchaseBillWizardState,
@@ -506,6 +509,54 @@ function getDefaultFormState(
     allowAlternativeItem: false,
     status: "Active",
   };
+}
+
+// ─── Add flow: New Item → Purchase Bill → back to inventory ──────────────────
+
+function AddItemFlow({
+  open,
+  onClose,
+  defaultType,
+  initialName,
+  onItemCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  defaultType: ProductType;
+  initialName?: string | undefined;
+  onItemCreated?: ((item: Medicine) => void) | undefined;
+}) {
+  const { refetchItems } = useInventory();
+  const [created, setCreated] = useState<InventoryItemRow | null>(null);
+
+  useEffect(() => {
+    if (!open) setCreated(null);
+  }, [open]);
+
+  const finish = () => {
+    setCreated(null);
+    void refetchItems(); // inventory list shows the new item (and any stock change)
+    onClose();
+  };
+
+  return (
+    <>
+      <NewItemModal
+        open={open && !created}
+        onClose={onClose}
+        defaultType={defaultType}
+        initialName={initialName}
+        onSuccess={(item) => {
+          setCreated(item);
+          void refetchItems();
+          onItemCreated?.(item as unknown as Medicine);
+        }}
+      />
+      {created && (
+        <SupplierBillFormModal open onClose={finish} onSuccess={finish} initialItem={created} />
+      )}
+    </>
+  );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -1057,6 +1108,19 @@ export function ProductMasterWizardDialog({
         return null;
     }
   };
+
+  // Add mode → New Item modal, then straight into a purchase bill for that item.
+  if (!editing) {
+    return (
+      <AddItemFlow
+        open={open}
+        onClose={onClose}
+        defaultType={defaultProductType}
+        initialName={initialName}
+        onItemCreated={onItemCreated}
+      />
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>

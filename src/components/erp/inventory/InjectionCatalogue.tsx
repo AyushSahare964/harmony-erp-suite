@@ -116,38 +116,47 @@ export function InjectionCatalogue() {
 
   // Clinical KPIs
   const kpis = useMemo(() => {
-    const active = injectionList.filter((m) => m.status === "Active").length;
-    const coldChain = injectionList.filter((m) => m.status === "Active" && m.injectionDetails?.coldChainRequired).length;
-    const lowStock = injectionList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Low").length;
-    const oos = injectionList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Out of Stock").length;
+    const det = (l: typeof injectionList) => ({ columns: ["Code", "Item", "In stock"], rows: l.map((m) => [m.itemCode, m.name, getTotalQty(m.itemCode)]) });
+    const activeL = injectionList.filter((m) => m.status === "Active");
+    const active = activeL.length;
+    const coldChainL = injectionList.filter((m) => m.status === "Active" && m.injectionDetails?.coldChainRequired);
+    const coldChain = coldChainL.length;
+    const lowStockL = injectionList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Low");
+    const lowStock = lowStockL.length;
+    const oosL = injectionList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Out of Stock");
+    const oos = oosL.length;
 
     return [
       {
         label: "Active Injectables",
         value: String(active),
+        detail: det(activeL),
         trend: `${injectionList.length} total formulations`,
         trendTone: "flat" as const,
       },
       {
         label: "Cold Chain Items",
         value: String(coldChain),
+        detail: det(coldChainL),
         trend: "require 2-8°C storage",
         trendTone: "flat" as const,
       },
       {
         label: "Low Stock Injectables",
         value: String(lowStock),
+        detail: det(lowStockL),
         trend: "below reorder threshold",
         trendTone: lowStock > 0 ? ("down" as const) : ("flat" as const),
       },
       {
         label: "Critical Out of Stock",
         value: String(oos),
+        detail: det(oosL),
         trend: "immediate clinic PO required",
         trendTone: oos > 0 ? ("down" as const) : ("flat" as const),
       },
     ];
-  }, [injectionList, getStockStatus]);
+  }, [injectionList, getStockStatus, getTotalQty]);
 
   if (detailItem) {
     const detailBatches = batches.filter((b) => b.medicineId === detailItem.itemCode || b.itemCode === detailItem.itemCode);

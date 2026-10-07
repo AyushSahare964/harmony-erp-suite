@@ -7,6 +7,8 @@ export interface Kpi {
   value: string;
   trend?: string;
   trendTone?: "up" | "down" | "flat";
+  /** Records behind the number; shown in a popup when the card is clicked. */
+  detail?: { columns: string[]; rows: (string | number)[][] };
 }
 
 export interface Flashcard {

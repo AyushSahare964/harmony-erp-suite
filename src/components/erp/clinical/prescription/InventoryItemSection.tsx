@@ -244,6 +244,8 @@ export function InventoryItemSection({
 }: InventoryItemSectionProps) {
   // Inline add state for Prescribed Medicine (free-text or click from popular)
   const [prescribedAddName, setPrescribedAddName] = useState("");
+  // Take-home meds can come from clinic inventory (has itemCode) or be written for an outside pharmacy.
+  const [medSource, setMedSource] = useState<"inventory" | "outside">("inventory");
 
   const excludeCodes = useMemo(
     () => items.map((it) => it.itemCode).filter(Boolean) as string[],
@@ -485,7 +487,25 @@ export function InventoryItemSection({
       {/* Search / Add Bar Container */}
       {!isLocked && (
         <div className="space-y-2">
-          {section === "PRESCRIBED_MED" ? (
+          {section === "PRESCRIBED_MED" && (
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="font-medium text-muted-foreground mr-0.5">Source:</span>
+              {([["inventory", "From Inventory"], ["outside", "Outside / External Pharmacy"]] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setMedSource(k)}
+                  className={cn(
+                    "px-2.5 py-0.5 rounded-full border font-semibold transition-colors",
+                    medSource === k ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-foreground border-border hover:bg-muted/80"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {section === "PRESCRIBED_MED" && medSource === "outside" ? (
             <div className="space-y-2">
               {/* Free-text input with button */}
               <div className="flex items-center gap-2">
@@ -569,7 +589,9 @@ export function InventoryItemSection({
         <div className="py-5 text-center text-xs text-muted-foreground rounded-lg border border-dashed border-border/80 bg-muted/20">
           <span>
             {section === "PRESCRIBED_MED"
-              ? "No prescribed medicines added yet. Type a medicine name above or pick a quick chip."
+              ? medSource === "outside"
+                ? "No prescribed medicines added yet. Type a medicine name above or pick a quick chip."
+                : "No prescribed medicines added yet. Search the inventory above."
               : "No items added in this section yet. Search above to add."}
           </span>
         </div>
@@ -609,6 +631,9 @@ export function InventoryItemSection({
                         />
                         <Badge variant="outline" className="text-[10px] text-blue-700 border-blue-200 bg-blue-50/50 dark:bg-blue-950/40">
                           {it.route || "Oral"} · {it.unit || "Tablet"}
+                        </Badge>
+                        <Badge variant="outline" className="text-[10px]">
+                          {it.itemCode ? "Inventory" : "Outside"}
                         </Badge>
                       </div>
                       {(it.brand || it.genericName || it.strength) && (

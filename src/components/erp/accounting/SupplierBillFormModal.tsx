@@ -25,6 +25,8 @@ import { getItemsFn, type InventoryItemRow } from "@/lib/mongodb/serverFns/inven
 import { createPurchaseBillFn } from "@/lib/mongodb/serverFns/purchaseBills";
 import { BillingReminderModal } from "@/components/erp/billing/BillingReminderModal";
 import { NewSupplierModal } from "./NewSupplierModal";
+import { NewItemModal } from "./NewItemModal";
+import { getAvailableUnits, convertToBase, resolveUnitPrice } from "@/lib/inventory/packagingUtils";
 import { toast } from "sonner";
 
 interface SupplierBillFormModalProps {
@@ -32,6 +34,8 @@ interface SupplierBillFormModalProps {
   onClose: () => void;
   onSuccess?: () => void;
   initialSupplierId?: string;
+  /** Pre-fills the particulars row with this item (used right after creating an item) */
+  initialItem?: InventoryItemRow | undefined;
 }
 
 interface PurchaseLine {
@@ -44,6 +48,10 @@ interface PurchaseLine {
   purchasePrice: number;
   amount: number; // taxable value (qty x price)
   gstPct: number;
+  itemCode?: string | undefined;
+  hsnCode?: string | undefined;
+  /** e.g. "= 20 Tablet" when billed in Strip/Box */
+  baseLabel?: string | undefined;
 }
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -108,6 +116,7 @@ export function SupplierBillFormModal({
   onClose,
   onSuccess,
   initialSupplierId,
+  initialItem,
 }: SupplierBillFormModalProps) {
   const [suppliers, setSuppliers] = useState<SupplierMasterRow[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([]);
@@ -144,6 +153,23 @@ export function SupplierBillFormModal({
   const [remarks, setRemarks] = useState("");
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showNewSupplierModal, setShowNewSupplierModal] = useState(false);
+  const [showNewItemModal, setShowNewItemModal] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<InventoryItemRow | null>(null);
+
+  // Units offered for the selected item: Box / Strip / Tablet (large -> single)
+  const hierarchy = selectedItem?.packagingHierarchy;
+  const uomOptions = hierarchy ? [...getAvailableUnits(hierarchy)].reverse() : COMMON_UOMS;
+  const baseLabelFor = (qty: number, unit: string) =>
+    hierarchy && unit !== hierarchy.baseUnit
+      ? `= ${convertToBase(qty, unit, hierarchy)} ${hierarchy.baseUnit}`
+      : undefined;
+
+  const handleUomChange = (u: string) => {
+    setUom(u);
+    if (selectedItem && hierarchy) {
+      setPurchasePrice(resolveUnitPrice(selectedItem.defaultPurchasePrice || 0, u, hierarchy));
+    }
+  };
 
   // Auto-refresh suppliers after adding a new supplier
   const handleSupplierCreated = (created: { _id: string; name: string }) => {
@@ -165,6 +191,7 @@ export function SupplierBillFormModal({
       .then(([sups, invItems]) => {
         setSuppliers(sups || []);
         setInventoryItems(invItems || []);
+        if (initialItem) handleSelectProduct(initialItem);
         if (sups && sups.length > 0 && !supplierId && sups[0]) {
           setSupplierId(sups[0]._id);
         }
@@ -229,10 +256,18 @@ export function SupplierBillFormModal({
 
   // Select an item from combobox
   const handleSelectProduct = (item: InventoryItemRow) => {
+    setSelectedItem(item);
     setProductName(item.name);
     setUom(item.purchaseUom || item.salesUom || item.unit || "PCS");
     setPurchasePrice(item.defaultPurchasePrice || 0);
+    if (GST_RATES.includes(item.gstRate)) setGstPct(item.gstRate);
     setIsProductDropdownOpen(false);
+  };
+
+  // A freshly created item: reload masters and pick it
+  const handleItemCreated = (item: InventoryItemRow) => {
+    getItemsFn({ data: { status: "Active" } }).then((its) => setInventoryItems(its || []));
+    handleSelectProduct(item);
   };
 
   // Add line to table
@@ -256,6 +291,9 @@ export function SupplierBillFormModal({
       purchasePrice: purchasePrice || 0,
       amount: calculatedParticularsAmount,
       gstPct: effectiveGstPct,
+      itemCode: selectedItem?.itemCode,
+      hsnCode: selectedItem?.hsnCode,
+      baseLabel: baseLabelFor(quantity || 1, uom || "PCS"),
     };
 
     setLines((prev) => [...prev, newLine]);
@@ -263,6 +301,7 @@ export function SupplierBillFormModal({
 
     // Reset entry row for fast next entry
     setProductName("");
+    setSelectedItem(null);
     setQuantity(1);
     setPurchasePrice(0);
   };
@@ -314,8 +353,9 @@ export function SupplierBillFormModal({
           items: lines.map((l, idx) => ({
             lineNo: idx + 1,
             itemType: "INVENTORY",
+            inventoryItemId: l.itemCode,
             description: l.productName,
-            hsnCode: "3004",
+            hsnCode: l.hsnCode || "3004",
             qty: l.quantity,
             freeQty: 0,
             unit: l.unit,
@@ -551,12 +591,13 @@ export function SupplierBillFormModal({
                     <Label className="text-xs text-slate-700 dark:text-slate-300">
                       Product Name <span className="text-rose-500">*</span>
                     </Label>
-                    <div className="relative flex items-center">
+                    <div className="relative flex items-center gap-1.5">
                       <Input
                         value={productName}
                         onFocus={() => setIsProductDropdownOpen(true)}
                         onChange={(e) => {
                           setProductName(e.target.value);
+                          setSelectedItem(null);
                           setIsProductDropdownOpen(true);
                         }}
                         placeholder=""
@@ -565,7 +606,7 @@ export function SupplierBillFormModal({
                       <button
                         type="button"
                         onClick={() => setIsProductDropdownOpen((prev) => !prev)}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                        className="absolute right-10 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
                         tabIndex={-1}
                       >
                         <ChevronDown
@@ -573,6 +614,14 @@ export function SupplierBillFormModal({
                             isProductDropdownOpen ? "rotate-180 text-blue-600" : ""
                           }`}
                         />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowNewItemModal(true)}
+                        title="Add New Item (Medicine / Injection / Food / Accessory)"
+                        className="h-7 w-7 flex items-center justify-center rounded bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-colors shrink-0"
+                      >
+                        <Plus className="size-3.5" />
                       </button>
                     </div>
 
@@ -626,12 +675,12 @@ export function SupplierBillFormModal({
                   {/* UoM (col-span-2) */}
                   <div className="col-span-6 md:col-span-2 space-y-1">
                     <Label className="text-xs text-slate-700 dark:text-slate-300">UoM</Label>
-                    <Select value={uom} onValueChange={setUom}>
+                    <Select value={uom} onValueChange={handleUomChange}>
                       <SelectTrigger className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {COMMON_UOMS.map((u) => (
+                        {uomOptions.map((u) => (
                           <SelectItem key={u} value={u} className="text-xs">
                             {u}
                           </SelectItem>
@@ -653,6 +702,9 @@ export function SupplierBillFormModal({
                       onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
                       className="h-7 text-xs text-center font-mono font-bold bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                     />
+                    {baseLabelFor(quantity || 0, uom) && (
+                      <p className="text-[10px] font-mono text-slate-500 text-center">{baseLabelFor(quantity || 0, uom)}</p>
+                    )}
                   </div>
 
                   {/* Purchase Price * with Blue ₹ Box (col-span-2) */}
@@ -782,6 +834,7 @@ export function SupplierBillFormModal({
                           </td>
                           <td className="py-2 px-4 text-center text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
                             {line.unit}
+                            {line.baseLabel && <div className="text-[10px] font-mono text-slate-400">{line.baseLabel}</div>}
                           </td>
                           <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                             {line.purchasePrice.toFixed(2)}
@@ -933,6 +986,17 @@ export function SupplierBillFormModal({
         <BillingReminderModal
           open={showReminderModal}
           onClose={() => setShowReminderModal(false)}
+        />
+      )}
+
+      {showNewItemModal && (
+        <NewItemModal
+          open={showNewItemModal}
+          onClose={() => setShowNewItemModal(false)}
+          onSuccess={handleItemCreated}
+          initialName={productName.trim()}
+          supplierId={supplierId}
+          supplierName={suppliers.find((s) => s._id === supplierId)?.name}
         />
       )}
 

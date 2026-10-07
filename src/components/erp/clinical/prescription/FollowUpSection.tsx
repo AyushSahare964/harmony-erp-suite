@@ -28,6 +28,8 @@ export interface FollowUpEntry {
   notes?: string;
   /** Token of the appointment created on the Appointments board for this follow-up. Prevents duplicate bookings on re-save. */
   appointmentToken?: string;
+  /** Tokens of every appointment booked for this follow-up (one per day for N-day treatment follow-ups). */
+  appointmentTokens?: string[];
 }
 
 export interface FollowUpBloodTestItem {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
 import {
   Bar,
   BarChart,
@@ -60,12 +61,12 @@ function formatAppointmentDate(dateStr?: string | null) {
     if (pYear && pMonth && pDay) {
       const dateObj = new Date(Number(pYear), Number(pMonth) - 1, Number(pDay));
       if (!isNaN(dateObj.getTime())) {
-        return dateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+        return formatDisplayDate(dateObj);
       }
     }
     const d = new Date(dateStr);
     if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+      return formatDisplayDate(d);
     }
     return dateStr;
   } catch {
@@ -232,6 +233,14 @@ export function AppointmentsQueueHub() {
   const noShowsCount = useMemo(() => {
     return appointments.filter((a) => a.status === "No-show").length;
   }, [appointments]);
+
+  const apptDetail = (list: any[]) => ({
+    columns: ["Token", "Pet", "Owner", "Doctor", "Date", "Status"],
+    rows: list.map((a) => [a.token ?? "-", a.pet ?? "-", a.owner ?? "-", a.doctor ?? "-", formatDisplayDate((a.appointment_date || a.date || "").split("T")[0]) || "-", a.status ?? "-"]),
+  });
+  const inQueueList = appointments.filter((a) => a.status === "Waiting" || a.status === "In consultation");
+  const todayList = appointments.filter((a) => (a.appointment_date || a.date || "").split("T")[0] === todayStr);
+  const noShowList = appointments.filter((a) => a.status === "No-show");
 
   const avgWaitMin = useMemo(() => {
     return inQueueCount > 0 ? inQueueCount * 4 : 0;
@@ -448,19 +457,19 @@ export function AppointmentsQueueHub() {
         {/* Top 4 KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "IN QUEUE NOW", value: String(inQueueCount), trend: inQueueCount > 0 ? "+2 vs yesterday" : "Queue clear", trendTone: "up" }}
+            kpi={{ label: "IN QUEUE NOW", value: String(inQueueCount), trend: inQueueCount > 0 ? "+2 vs yesterday" : "Queue clear", trendTone: "up", detail: apptDetail(inQueueList) }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "TODAY'S APPOINTMENTS", value: String(todaysAppointmentsCount), trend: `${remainingTodayCount} remaining`, trendTone: "flat" }}
+            kpi={{ label: "TODAY'S APPOINTMENTS", value: String(todaysAppointmentsCount), trend: `${remainingTodayCount} remaining`, trendTone: "flat", detail: apptDetail(todayList) }}
             index={1}
           />
           <KpiCard
-            kpi={{ label: "AVG. WAIT", value: `${avgWaitMin} min`, trend: inQueueCount > 0 ? "-3 min" : "No wait", trendTone: "up" }}
+            kpi={{ label: "AVG. WAIT", value: `${avgWaitMin} min`, trend: inQueueCount > 0 ? "-3 min" : "No wait", trendTone: "up", detail: apptDetail(inQueueList) }}
             index={2}
           />
           <KpiCard
-            kpi={{ label: "NO-SHOWS", value: String(noShowsCount), trend: noShowsCount > 0 ? "+1" : "None", trendTone: "down" }}
+            kpi={{ label: "NO-SHOWS", value: String(noShowsCount), trend: noShowsCount > 0 ? "+1" : "None", trendTone: "down", detail: apptDetail(noShowList) }}
             index={3}
           />
         </div>
@@ -570,54 +579,6 @@ export function AppointmentsQueueHub() {
           )}
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-          className="erp-card p-5 space-y-3"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">APPOINTMENTS PER MONTH</p>
-              <p className="text-[11px] text-muted-foreground">Monthly patient visit volume and doctor encounters</p>
-            </div>
-            <Badge variant="outline" className="text-xs font-semibold text-primary bg-primary/10">
-              Avg. {avgMonthlyAppointments} / month
-            </Badge>
-          </div>
-
-          <div className="h-[210px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyAppointmentsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                <XAxis
-                  dataKey="name"
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
-                  domain={[0, maxAppointmentCount > 0 ? "auto" : 5]}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  cursor={{ fill: "var(--color-muted)" }}
-                  contentStyle={{
-                    borderRadius: 10,
-                    border: "1px solid var(--color-border)",
-                    fontSize: 12,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-                  }}
-                  formatter={(val: any) => [`${val} appointments`, "Volume"]}
-                />
-                <Bar dataKey="value" fill="#2563eb" radius={[6, 6, 0, 0]} maxBarSize={48} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </motion.div>
 
         {/* Live Queue and Appointments Table (Exact Screenshot Match) */}
         <motion.div

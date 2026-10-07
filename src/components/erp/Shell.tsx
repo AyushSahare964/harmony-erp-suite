@@ -53,7 +53,7 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
 
   // Hidden from the sidebar by request — the routes/dashboard cards still exist,
   // this only removes them from left-nav navigation.
-  const HIDDEN_SIDEBAR_MODULES = new Set(["hrms", "marketing", "pharmacy", "communication", "integrations", "billing-suite"]);
+  const HIDDEN_SIDEBAR_MODULES = new Set(["hrms", "marketing", "pharmacy", "communication", "integrations", "billing-suite", "accounting"]);
 
   const seen = new Set<string>();
   const navItems = roleModules(role).filter((c) => {
@@ -62,6 +62,10 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
     seen.add(c.module);
     return true;
   });
+  // Pin Inventory, Appointments, Billing right after Home Dashboard (positions 2-4); stable sort keeps the rest in order.
+  const PINNED = ["inventory", "appointments", "billing"];
+  const rank = (m: string) => { const i = PINNED.indexOf(m); return i < 0 ? PINNED.length : i; };
+  navItems.sort((a, b) => rank(a.module) - rank(b.module));
 
   return (
     <div className="flex h-full w-[260px] flex-col border-r border-sidebar-border bg-sidebar select-none">

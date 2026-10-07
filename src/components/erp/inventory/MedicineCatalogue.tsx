@@ -125,33 +125,41 @@ export function MedicineCatalogue() {
 
   // Clinical KPIs
   const kpis = useMemo(() => {
-    const active = medicinesList.filter((m) => m.status === "Active").length;
-    const lowStock = medicinesList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Low").length;
-    const oos = medicinesList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Out of Stock").length;
+    const det = (l: typeof medicinesList) => ({ columns: ["Code", "Item", "In stock"], rows: l.map((m) => [m.itemCode, m.name, getTotalQty(m.itemCode)]) });
+    const activeL = medicinesList.filter((m) => m.status === "Active");
+    const active = activeL.length;
+    const lowStockL = medicinesList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Low");
+    const lowStock = lowStockL.length;
+    const oosL = medicinesList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Out of Stock");
+    const oos = oosL.length;
     const totalUnits = medicinesList.reduce((acc, m) => acc + getTotalQty(m.itemCode), 0);
 
     return [
       {
         label: "Active Pharmaceuticals",
         value: String(active),
+        detail: det(activeL),
         trend: `${medicinesList.length} total drug formulations`,
         trendTone: "flat" as const,
       },
       {
         label: "Total Units in Dispensary",
         value: String(totalUnits),
+        detail: det(medicinesList.filter((m) => getTotalQty(m.itemCode) > 0)),
         trend: "tablets, vials, syrups & drops",
         trendTone: totalUnits > 0 ? ("up" as const) : ("flat" as const),
       },
       {
         label: "Low Stock Formulations",
         value: String(lowStock),
+        detail: det(lowStockL),
         trend: "below reorder threshold",
         trendTone: lowStock > 0 ? ("down" as const) : ("flat" as const),
       },
       {
         label: "Critical Out of Stock",
         value: String(oos),
+        detail: det(oosL),
         trend: "immediate clinic PO required",
         trendTone: oos > 0 ? ("down" as const) : ("flat" as const),
       },
