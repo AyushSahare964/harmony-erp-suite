@@ -40,6 +40,7 @@ import { ConsultationFeeSection } from "./ConsultationFeeSection";
 import { FollowUpSection, type FollowUpState } from "./FollowUpSection";
 import { LaboratoryOrderSection, type LaboratoryState } from "./LaboratoryOrderSection";
 import { LivePrescriptionSummaryPanel } from "./LivePrescriptionSummaryPanel";
+import { ActiveSchemeBanner } from "./ActiveSchemeBanner";
 
 import { savePrescriptionSectionFn } from "@/lib/mongodb/serverFns/clinical";
 import { createAppointmentFn, updateAppointmentFn, deleteAppointmentFn } from "@/lib/mongodb/serverFns/appointments";
@@ -1490,6 +1491,18 @@ export function PrescriptionWorkflow({
           )}
         </div>
       </div>
+
+      {/* Ongoing discount scheme highlight */}
+      <ActiveSchemeBanner
+        disabled={isSettled}
+        onApply={(pct) => {
+          const apply = (l: InventoryItemLine) => ({ ...l, discountPercent: pct });
+          setAnimalFood((a) => a.map(apply));
+          setPrescribedFood((a) => a.map(apply));
+          setAccessories((a) => a.map(apply));
+          toast.success(`${pct}% applied to food & accessories. Save each section to keep it.`);
+        }}
+      />
 
       {/* ── 2-Column Responsive Workspace: Sections + Sticky Live Summary ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
