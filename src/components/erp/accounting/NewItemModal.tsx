@@ -30,7 +30,15 @@ interface NewItemModalProps {
 
 const GST_RATES = [0, 5, 12, 18, 28];
 const DOSAGE_FORMS = ["Tablet", "Capsule", "Syrup", "Suspension", "Drops", "Ointment", "Cream", "Powder"];
-const UNIT_SUGGESTIONS = ["Tablet", "Capsule", "Strip", "Box", "Vial", "Bottle", "Tube", "Pack", "Bag", "Piece", "ml", "Gm", "Kg"];
+const UNIT_SUGGESTIONS = [
+  "Tablet", "Capsule", "Strip", "Blister", "Box", "Carton", "Case", "Vial", "Ampoule", "Bottle", "Tube", "Sachet", "Pouch",
+  "Pack", "Packet", "Bag", "Sack", "Jar", "Can", "Tin", "Tray", "Roll", "Set", "Kit", "Dozen", "Pair", "Piece", "Unit",
+  "Syringe", "Dose", "Pellet", "Drop", "ml", "Ltr", "Gm", "Kg", "Mg",
+];
+const SUB_GROUPS = [
+  "Antibiotics", "Liver Supplement", "Kidney Supplement", "Supplement", "Antisteroids", "NSAID", "Gut Support",
+  "Medicated Shampoo", "Shampoo", "Multivitamin", "Calcium Supplement",
+];
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const CATEGORIES: { type: ProductType; label: string; category: string; Icon: LucideIcon; tint: string }[] = [
@@ -69,6 +77,39 @@ function presetPkg(type: ProductType, dosageForm: string): Pkg {
   if (/ointment|cream/i.test(dosageForm)) return p("Gm", "Tube", "30");
   if (/powder/i.test(dosageForm)) return p("Gm", "Pack", "100");
   return { baseUnit: dosageForm === "Capsule" ? "Capsule" : "Tablet", interUnit: "Strip", basePerInter: "10", purchaseUnit: "Box", perPurchase: "10", hasInter: true };
+}
+
+/** Free-text input with a searchable dropdown: shows all options on focus, substring-filters as you type. */
+function Combo({ value, onChange, options, className, placeholder }: { value: string; onChange: (v: string) => void; options: string[]; className?: string; placeholder?: string }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState(false);
+  const q = value.trim().toLowerCase();
+  const list = typed && q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+  return (
+    <div className="relative">
+      <Input
+        value={value}
+        placeholder={placeholder}
+        className={className}
+        onFocus={() => { setTyped(false); setOpen(true); }}
+        onBlur={() => setOpen(false)}
+        onChange={(e) => { onChange(e.target.value); setTyped(true); setOpen(true); }}
+      />
+      {open && list.length > 0 && (
+        <ul className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 py-1 shadow-lg">
+          {list.map((o) => (
+            <li
+              key={o}
+              onMouseDown={(e) => { e.preventDefault(); onChange(o); setOpen(false); }}
+              className="cursor-pointer px-2.5 py-1 text-xs hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              {o}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function Box({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
@@ -327,7 +368,9 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
                 <Row label={isRx ? "Generic Name" : "Description"}>{txt(genericName, setGenericName)}</Row>
                 <Row label="Brand">{txt(brand, setBrand)}</Row>
                 <Row label="Manufacturer">{txt(manufacturer, setManufacturer)}</Row>
-                <Row label="Sub Group">{txt(subGroup, setSubGroup, isRx ? "e.g. Antibiotics, Vaccines" : "e.g. Dog Food, Gear")}</Row>
+                <Row label="Sub Group">
+                  <Combo value={subGroup} onChange={setSubGroup} options={SUB_GROUPS} className={inputCls} placeholder={isRx ? "e.g. Antibiotics, Vaccines" : "e.g. Dog Food, Gear"} />
+                </Row>
                 {type === "MEDICINE" && (
                   <>
                     <Row label="Strength">{txt(strength, setStrength, "e.g. 250mg")}</Row>
@@ -357,9 +400,8 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
               </Box>
 
               <Box title="Packaging Hierarchy (Purchase → Single Unit)">
-                <datalist id="pkg-units">{UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}</datalist>
                 <Row label="Single (Base) Unit" required>
-                  <Input list="pkg-units" value={pkg.baseUnit} onChange={(e) => setP({ baseUnit: e.target.value })} className={inputCls} />
+                  <Combo value={pkg.baseUnit} onChange={(v) => setP({ baseUnit: v })} options={UNIT_SUGGESTIONS} className={inputCls} />
                 </Row>
                 <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
                   <input type="checkbox" checked={pkg.hasInter} onChange={(e) => setP({ hasInter: e.target.checked, interUnit: e.target.checked ? pkg.interUnit || "Strip" : "", basePerInter: e.target.checked ? pkg.basePerInter || "10" : "" })} />
@@ -368,7 +410,7 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
                 {pkg.hasInter && (
                   <>
                     <Row label="Middle Unit">
-                      <Input list="pkg-units" value={pkg.interUnit} onChange={(e) => setP({ interUnit: e.target.value })} className={inputCls} />
+                      <Combo value={pkg.interUnit} onChange={(v) => setP({ interUnit: v })} options={UNIT_SUGGESTIONS} className={inputCls} />
                     </Row>
                     <Row label={`${pkg.baseUnit || "Base"} per ${pkg.interUnit || "middle"}`}>
                       <Input type="number" min="1" value={pkg.basePerInter} onChange={(e) => setP({ basePerInter: e.target.value })} className={cn(inputCls, "font-mono")} />
@@ -376,7 +418,7 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
                   </>
                 )}
                 <Row label="Purchase Unit" required>
-                  <Input list="pkg-units" value={pkg.purchaseUnit} onChange={(e) => setP({ purchaseUnit: e.target.value })} className={inputCls} />
+                  <Combo value={pkg.purchaseUnit} onChange={(v) => setP({ purchaseUnit: v })} options={UNIT_SUGGESTIONS} className={inputCls} />
                 </Row>
                 <Row label={`${pkg.hasInter ? pkg.interUnit || "Middle" : pkg.baseUnit || "Base"} per ${pkg.purchaseUnit || "purchase unit"}`}>
                   <Input type="number" min="1" value={pkg.perPurchase} onChange={(e) => setP({ perPurchase: e.target.value })} className={cn(inputCls, "font-mono")} />

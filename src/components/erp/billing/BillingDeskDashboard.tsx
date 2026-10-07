@@ -304,12 +304,7 @@ export function BillingDeskDashboard({
     const updateTime = () => {
       const now = new Date();
       const timeStr = now.toLocaleTimeString("en-GB", { hour12: false });
-      const dateStr = now.toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      });
+      const dateStr = `${now.toLocaleDateString("en-GB", { weekday: "long" })}, ${formatDisplayDate(now)}`;
       setCurrentTime(timeStr);
       setCurrentDateString(dateStr);
     };

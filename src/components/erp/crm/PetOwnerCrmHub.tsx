@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bar,
@@ -87,7 +88,8 @@ export function PetOwnerCrmHub() {
 
   // Patient profile drawer / modal
   const [selectedPetDetail, setSelectedPetDetail] = useState<any | null>(null);
-  const initialDeepLinkHandled = useRef(false);
+  const navigate = useNavigate();
+  const deepPetId = (useSearch({ strict: false }) as { petId?: string }).petId;
 
   // OPD consultation workspace modal
   const [showVisitModal, setShowVisitModal] = useState(false);
@@ -101,6 +103,13 @@ export function PetOwnerCrmHub() {
     void loadData();
   }, []);
 
+  // Global-search deep link (?petId=…): open that patient whenever the param appears, then clear it.
+  useEffect(() => {
+    if (!deepPetId || loading) return;
+    setSelectedPetDetail(pets.find((p) => p.petId === deepPetId) ?? { petId: deepPetId });
+    void navigate({ to: ".", search: (s: any) => ({ ...s, petId: undefined, petName: undefined }), replace: true } as any);
+  }, [deepPetId, loading, pets]);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -110,26 +119,6 @@ export function PetOwnerCrmHub() {
       ]);
       setPets(petsData || []);
       setOwners(ownersData || []);
-
-      // Auto-open patient record ONLY ONCE on initial mount if petId was passed via URL search param
-      if (!initialDeepLinkHandled.current) {
-        initialDeepLinkHandled.current = true;
-        try {
-          const params = new URLSearchParams(window.location.search);
-          const deepPetId = params.get("petId");
-          if (deepPetId) {
-            const match = (petsData || []).find((p: any) => p.petId === deepPetId);
-            if (match) {
-              setSelectedPetDetail(match);
-            }
-            // Clear search params so subsequent reloads/saves never re-trigger popup
-            const url = new URL(window.location.href);
-            url.searchParams.delete("petId");
-            url.searchParams.delete("petName");
-            window.history.replaceState({}, "", url.toString());
-          }
-        } catch (_) { /* ignore URL parse errors */ }
-      }
     } catch (err) {
       console.error(err);
       toast.error("Could not load CRM records");
@@ -137,6 +126,11 @@ export function PetOwnerCrmHub() {
       setLoading(false);
     }
   };
+
+  const petDetail = (list: any[]) => ({
+    columns: ["Pet ID", "Name", "Species", "Breed", "Owner"],
+    rows: list.map((p) => [p.petId ?? "-", p.name ?? "-", p.species ?? "-", p.breed ?? "-", p.owner?.name ?? "-"]),
+  });
 
   // KPIs
   const totalPets = pets.length;
@@ -368,11 +362,11 @@ export function PetOwnerCrmHub() {
         {/* ── KPI Stat Cards Grid (Screenshot 1) ─────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
-            kpi={{ label: "REGISTERED PETS", value: String(totalPets), trend: totalPets > 0 ? "+0 today" : "0 today", trendTone: "flat" }}
+            kpi={{ label: "REGISTERED PETS", value: String(totalPets), trend: totalPets > 0 ? "+0 today" : "0 today", trendTone: "flat", detail: petDetail(pets) }}
             index={0}
           />
           <KpiCard
-            kpi={{ label: "OWNERS", value: String(totalOwners), trend: totalOwners > 0 ? "+0 today" : "0 today", trendTone: "flat" }}
+            kpi={{ label: "OWNERS", value: String(totalOwners), trend: totalOwners > 0 ? "+0 today" : "0 today", trendTone: "flat", detail: { columns: ["Owner", "Phone", "Pets"], rows: owners.map((o) => [o.name ?? "-", o.phone ?? "-", o.pets?.length ?? 0]) } }}
             index={1}
           />
           <KpiCard
@@ -380,59 +374,11 @@ export function PetOwnerCrmHub() {
             index={2}
           />
           <KpiCard
-            kpi={{ label: "VACCINATION DUE", value: String(vaccDueCount), trend: "next 14 days", trendTone: "flat" }}
+            kpi={{ label: "VACCINATION DUE", value: String(vaccDueCount), trend: "next 14 days", trendTone: "flat", detail: petDetail(pets.filter((p) => p.status === "Vaccination due")) }}
             index={3}
           />
         </div>
 
-        {/* ── New Registrations Chart (Screenshot 1) ─────────────────────────── */}
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-          className="erp-card p-5 space-y-3"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">NEW REGISTRATIONS</p>
-              <p className="text-[11px] text-muted-foreground">Monthly patient onboarding pace</p>
-            </div>
-            <Badge variant="outline" className="text-xs font-semibold text-primary bg-primary/10">
-              Avg. {avgMonthlyRegistrations} / month
-            </Badge>
-          </div>
-
-          <div className="h-[210px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                <XAxis
-                  dataKey="name"
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  allowDecimals={false}
-                  tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
-                />
-                <Tooltip
-                  cursor={{ fill: "var(--color-muted)" }}
-                  contentStyle={{
-                    borderRadius: 10,
-                    border: "1px solid var(--color-border)",
-                    fontSize: 12,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-                  }}
-                  formatter={(val: any) => [`${val} registrations`, "Patients"]}
-                />
-                <Bar dataKey="value" fill="#2563eb" radius={[6, 6, 0, 0]} maxBarSize={48} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </motion.div>
 
         {/* ── Dual Tab Selector: View Patients (Screenshot 1) vs View Owners (Screenshot 2) ── */}
         <div className="flex items-center justify-between border-b border-border pb-2">

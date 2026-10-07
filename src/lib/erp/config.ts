@@ -7,6 +7,8 @@ export interface Kpi {
   value: string;
   trend?: string;
   trendTone?: "up" | "down" | "flat";
+  /** Records behind the number; shown in a popup when the card is clicked. */
+  detail?: { columns: string[]; rows: (string | number)[][] };
 }
 
 export interface Flashcard {
@@ -158,16 +160,6 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             metricValue: "₹1,24,850",
             accent: "blue",
             badge: "Billing",
-          },
-          {
-            module: "accounting",
-            icon: "Wallet",
-            title: "Accounting & Finance",
-            subtitle: "Revenue ledger, journal entries & P&L snapshot",
-            metricLabel: "MTD Revenue",
-            metricValue: "₹0",
-            accent: "blue",
-            badge: "Finance",
           },
         ],
       },
@@ -376,16 +368,6 @@ export const ROLES: Record<RoleId, RoleConfig> = {
         category: "Finance & People",
         cards: [
           {
-            module: "accounting",
-            icon: "Wallet",
-            title: "Accounting & Finance (view)",
-            subtitle: "Ledgers, P&L and cash flow snapshot",
-            metricLabel: "Net revenue MTD",
-            metricValue: "₹0",
-            trend: "0%",
-            trendTone: "flat",
-          },
-          {
             module: "identity-global",
             icon: "Shield",
             title: "Identity, Role & Access Control",
@@ -559,16 +541,6 @@ export const ROLES: Record<RoleId, RoleConfig> = {
       {
         category: "Finance & People",
         cards: [
-          {
-            module: "accounting",
-            icon: "Wallet",
-            title: "Accounting & Finance",
-            subtitle: "Ledgers, P&L, balance sheet, GST/TDS",
-            metricLabel: "Net revenue MTD",
-            metricValue: "₹0",
-            trend: "0%",
-            trendTone: "flat",
-          },
           {
             module: "payroll",
             icon: "Users",

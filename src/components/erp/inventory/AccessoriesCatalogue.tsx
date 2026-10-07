@@ -131,33 +131,41 @@ export function AccessoriesCatalogue() {
 
   // Accessories KPIs
   const kpis = useMemo(() => {
-    const active = accessoriesList.filter((m) => m.status === "Active").length;
-    const lowStock = accessoriesList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Low").length;
-    const oos = accessoriesList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Out of Stock").length;
+    const det = (l: typeof accessoriesList) => ({ columns: ["Code", "Item", "In stock"], rows: l.map((m) => [m.itemCode, m.name, getTotalQty(m.itemCode)]) });
+    const activeL = accessoriesList.filter((m) => m.status === "Active");
+    const active = activeL.length;
+    const lowStockL = accessoriesList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Low");
+    const lowStock = lowStockL.length;
+    const oosL = accessoriesList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Out of Stock");
+    const oos = oosL.length;
     const totalUnits = accessoriesList.reduce((acc, m) => acc + getTotalQty(m.itemCode), 0);
 
     return [
       {
         label: "Active Accessories",
         value: String(active),
+        detail: det(activeL),
         trend: `${accessoriesList.length} items registered`,
         trendTone: "flat" as const,
       },
       {
         label: "Total Units in Stock",
         value: String(totalUnits),
+        detail: det(accessoriesList.filter((m) => getTotalQty(m.itemCode) > 0)),
         trend: "across collars, beds, bowls & gear",
         trendTone: totalUnits > 0 ? ("up" as const) : ("flat" as const),
       },
       {
         label: "Low Stock Items",
         value: String(lowStock),
+        detail: det(lowStockL),
         trend: "need replenishment",
         trendTone: lowStock > 0 ? ("down" as const) : ("flat" as const),
       },
       {
         label: "Out of Stock",
         value: String(oos),
+        detail: det(oosL),
         trend: "0 stock on floor",
         trendTone: oos > 0 ? ("down" as const) : ("flat" as const),
       },

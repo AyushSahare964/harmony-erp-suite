@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { formatDisplayDate } from "@/lib/utils/dateUtils";
 import {
   X,
   User,
@@ -374,7 +375,7 @@ export function StaffProfileModal({ open, staff, onClose, onUpdated, onDeleted }
               {staff.createdAt && (
                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground pt-1">
                   <Calendar className="size-3" />
-                  <span>Account Registered: {new Date(staff.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                  <span>Account Registered: {formatDisplayDate(staff.createdAt)}</span>
                   {staff.approvedBy && <span>· Approved by: {staff.approvedBy}</span>}
                 </div>
               )}

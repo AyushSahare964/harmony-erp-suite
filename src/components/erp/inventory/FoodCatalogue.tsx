@@ -124,33 +124,41 @@ export function FoodCatalogue() {
 
   // Nutrition KPIs
   const kpis = useMemo(() => {
-    const active = foodList.filter((m) => m.status === "Active").length;
-    const lowStock = foodList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Low").length;
-    const oos = foodList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Out of Stock").length;
+    const det = (l: typeof foodList) => ({ columns: ["Code", "Item", "In stock"], rows: l.map((m) => [m.itemCode, m.name, getTotalQty(m.itemCode)]) });
+    const activeL = foodList.filter((m) => m.status === "Active");
+    const active = activeL.length;
+    const lowStockL = foodList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Low");
+    const lowStock = lowStockL.length;
+    const oosL = foodList.filter((m) => m.status === "Active" && getStockStatus(m.itemCode) === "Out of Stock");
+    const oos = oosL.length;
     const totalUnits = foodList.reduce((acc, m) => acc + getTotalQty(m.itemCode), 0);
 
     return [
       {
         label: "Active Food Diets",
         value: String(active),
+        detail: det(activeL),
         trend: `${foodList.length} total SKU items`,
         trendTone: "flat" as const,
       },
       {
         label: "Total Units in Stock",
         value: String(totalUnits),
+        detail: det(foodList.filter((m) => getTotalQty(m.itemCode) > 0)),
         trend: "across canine & feline diets",
         trendTone: totalUnits > 0 ? ("up" as const) : ("flat" as const),
       },
       {
         label: "Low Stock Diets",
         value: String(lowStock),
+        detail: det(lowStockL),
         trend: "below reorder threshold",
         trendTone: lowStock > 0 ? ("down" as const) : ("flat" as const),
       },
       {
         label: "Out of Stock",
         value: String(oos),
+        detail: det(oosL),
         trend: "immediate vendor PO needed",
         trendTone: oos > 0 ? ("down" as const) : ("flat" as const),
       },

@@ -397,50 +397,6 @@ export function BoardingSwimmingHub() {
               />
             </div>
 
-            {/* OCCUPANCY % Monthly Bar Chart (Dynamic Last 6 Months) */}
-            <div className="erp-card p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">OCCUPANCY</p>
-                  <p className="text-[11px] text-muted-foreground">Monthly kennel suite utilization</p>
-                </div>
-                <Badge variant="outline" className="text-xs font-semibold text-primary bg-primary/10">
-                  Peak: {peakOccupancy} stays
-                </Badge>
-              </div>
-
-              <div className="h-[210px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={occupancySeries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                    <XAxis
-                      dataKey="name"
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      allowDecimals={false}
-                      tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "var(--color-muted)" }}
-                      contentStyle={{
-                        borderRadius: 10,
-                        border: "1px solid var(--color-border)",
-                        fontSize: 12,
-                        boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-                      }}
-                      formatter={(val: any) => [`${val} stays`, "Bookings"]}
-                    />
-                    <Bar dataKey="value" fill="#2563eb" radius={[6, 6, 0, 0]} maxBarSize={48} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
             {/* Boarding Stays Table (Screenshot 1: BOOKING, PET, KENNEL, CHECK-IN, CHECK-OUT, RATE/DAY, STATUS) */}
             <div className="erp-card overflow-hidden shadow-xs space-y-0">
               <div className="flex flex-wrap items-center gap-3 border-b border-border p-4 bg-card">
