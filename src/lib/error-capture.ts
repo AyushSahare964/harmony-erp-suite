@@ -53,7 +53,18 @@ function isErrorLike(value: unknown): value is Error {
 // unhandled-error logging, which this file cannot hook directly — are both
 // recorded for consumeLastCapturedError and expanded before serialization.
 const originalConsoleError = console.error.bind(console);
+
+// Node emits "aborted" when the browser drops a request mid-flight (tab closed, navigation,
+// HMR reload, cancelled prefetch). Nothing to fix server-side, so keep it out of the logs.
+function isClientAbort(arg: unknown): boolean {
+  for (let e = arg, i = 0; e instanceof Error && i < CAUSE_DEPTH_LIMIT; e = e.cause, i++) {
+    if (e.message === "aborted" || (e as { code?: unknown }).code === "ECONNRESET") return true;
+  }
+  return false;
+}
+
 console.error = (...args: unknown[]) => {
+  if (args.some(isClientAbort)) return;
   const expanded = args.map((arg) => {
     if (!isErrorLike(arg)) return arg;
     record(arg);
