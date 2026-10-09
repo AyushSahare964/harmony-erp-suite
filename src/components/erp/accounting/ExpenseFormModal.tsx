@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { todayIST } from "@/lib/utils/dateUtils";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   listExpenseCategoriesFn,
   listPaymentAccountsFn,
@@ -186,11 +187,11 @@ export function ExpenseFormModal({ open, onClose, onSuccess }: ExpenseFormModalP
                     Date
                   </Label>
                   <div className="col-span-8">
-                    <Input
-                      type="date"
+                    <DatePicker
                       value={expenseDate}
-                      onChange={(e) => setExpenseDate(e.target.value)}
-                      className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-mono"
+                      onChange={setExpenseDate}
+                      placeholder="Select expense date"
+                      className="h-7 text-xs"
                     />
                   </div>
                 </div>

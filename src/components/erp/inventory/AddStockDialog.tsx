@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue,
@@ -275,10 +276,10 @@ export function AddStockDialog({
                 <Input value={form.batchNo} onChange={(e) => set("batchNo", e.target.value)} placeholder="e.g. AMX-2025-01" />
               </F>
               <F label="Manufacturing Date">
-                <Input type="date" value={form.manufacturingDate} onChange={(e) => set("manufacturingDate", e.target.value)} />
+                <DatePicker value={form.manufacturingDate} onChange={(val) => set("manufacturingDate", val)} placeholder="Select mfg date" />
               </F>
               <F label="Expiry Date" required>
-                <Input type="date" value={form.expiryDate} onChange={(e) => set("expiryDate", e.target.value)} />
+                <DatePicker value={form.expiryDate} onChange={(val) => set("expiryDate", val)} placeholder="Select expiry date" showPresets={true} />
               </F>
             </div>
           </section>
@@ -300,7 +301,7 @@ export function AddStockDialog({
                 <Input value={form.invoiceBillNo} onChange={(e) => set("invoiceBillNo", e.target.value)} placeholder="e.g. INV-20055" />
               </F>
               <F label="Received Date" required>
-                <Input type="date" value={form.receivedDate} onChange={(e) => set("receivedDate", e.target.value)} />
+                <DatePicker value={form.receivedDate} onChange={(val) => set("receivedDate", val)} placeholder="Select received date" />
               </F>
             </div>
           </section>
