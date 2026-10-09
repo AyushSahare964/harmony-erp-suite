@@ -1,5 +1,6 @@
 import {
   Activity,
+  BadgePercent,
   BarChart3,
   Bone,
   Boxes,
@@ -29,6 +30,7 @@ import {
 
 const MAP: Record<string, LucideIcon> = {
   Activity,
+  BadgePercent,
   BarChart3,
   Bone,
   Boxes,

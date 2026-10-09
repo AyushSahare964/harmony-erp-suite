@@ -386,6 +386,15 @@ export const ROLES: Record<RoleId, RoleConfig> = {
             metricValue: "4",
           },
           {
+            module: "discount-schemes",
+            icon: "BadgePercent",
+            title: "Discount Schemes",
+            subtitle: "Create special offers for clients",
+            metricLabel: "Offers for clients",
+            metricValue: "Manage",
+            accent: "green",
+          },
+          {
             module: "identity-global",
             icon: "Shield",
             title: "Identity, Role & Access Control",

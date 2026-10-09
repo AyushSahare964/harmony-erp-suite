@@ -24,6 +24,7 @@ import { BillingHub } from "@/components/erp/billing/BillingHub";
 
 import { FoodNutritionHub } from "@/components/erp/nutrition/FoodNutritionHub";
 import { ClinicalReportsHub } from "@/components/erp/reports/ClinicalReportsHub";
+import { DiscountSchemesHub } from "@/components/erp/discounts/DiscountSchemesHub";
 import { IdentityAccessHub } from "@/components/erp/identity/IdentityAccessHub";
 import { KpiCard } from "@/components/erp/KpiCard";
 
@@ -196,6 +197,11 @@ function ModulePage() {
     moduleId === "reports-platform"
   ) {
     return <ClinicalReportsHub />;
+  }
+
+  // ── Discount Schemes (admin) ──
+  if (moduleId === "discount-schemes") {
+    return <DiscountSchemesHub />;
   }
 
   // ── Identity, Role & Access module → dedicated IdentityAccessHub ──
