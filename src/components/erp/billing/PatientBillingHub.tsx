@@ -22,6 +22,7 @@ import { SupplierLedgerModal } from "@/components/erp/accounting/SupplierLedgerM
 import { type SupplierMasterRow } from "@/lib/mongodb/serverFns/masters";
 import { DailySummaryModal } from "./DailySummaryModal";
 import { StockSummaryModal } from "./StockSummaryModal";
+import { PurchaseOrderModal } from "./PurchaseOrderModal";
 
 function PatientBillingHubInner() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -48,6 +49,7 @@ function PatientBillingHubInner() {
   // Summary Modals
   const [showDailySummary, setShowDailySummary] = useState(false);
   const [showStockSummary, setShowStockSummary] = useState(false);
+  const [showPurchaseOrderModal, setShowPurchaseOrderModal] = useState(false);
 
   // Full Patient Bill Details Modal
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
@@ -113,6 +115,9 @@ function PatientBillingHubInner() {
         e.preventDefault();
         setPayInvoiceNo(undefined);
         setShowPaymentInModal(true);
+      } else if (e.altKey && (e.key === "o" || e.key === "O")) {
+        e.preventDefault();
+        setShowPurchaseOrderModal(true);
       }
     };
 
@@ -136,6 +141,7 @@ function PatientBillingHubInner() {
             onNewInvoice={() => setShowNewInvoiceModal(true)}
             onNewQuotation={() => setShowQuotationModal(true)}
             onAddPurchase={() => setShowPurchaseBillModal(true)}
+            onAddPurchaseOrder={() => setShowPurchaseOrderModal(true)}
             onAddExpense={() => setShowExpenseModal(true)}
             onPaymentIn={(invoiceNo) => {
               setPayInvoiceNo(invoiceNo);
@@ -176,6 +182,7 @@ function PatientBillingHubInner() {
           onPaymentOut={() => setShowExpenseModal(true)}
           onOpenDailySummary={() => setShowDailySummary(true)}
           onOpenStockSummary={() => setShowStockSummary(true)}
+          onPurchaseOrder={() => setShowPurchaseOrderModal(true)}
         />
 
         {/* ── 1. Full Patient Bill Detail Modal ── */}
@@ -262,6 +269,13 @@ function PatientBillingHubInner() {
         <StockSummaryModal
           open={showStockSummary}
           onClose={() => setShowStockSummary(false)}
+        />
+
+        {/* ── 13. Purchase Order Modal ── */}
+        <PurchaseOrderModal
+          open={showPurchaseOrderModal}
+          onClose={() => setShowPurchaseOrderModal(false)}
+          onSuccess={() => setPurchasesRefreshKey((k) => k + 1)}
         />
 
         {/* ── 11. New / Edit Supplier Profile Modal (Matches Image 1 & 2) ── */}

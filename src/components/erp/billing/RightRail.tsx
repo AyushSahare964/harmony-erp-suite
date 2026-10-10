@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  ClipboardList,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
@@ -45,6 +46,7 @@ interface RightRailProps {
   onOpenDailySummary: () => void;
   onOpenStockSummary: () => void;
   onOpenGstCalc?: () => void;
+  onPurchaseOrder?: () => void;
   className?: string;
 }
 
@@ -60,6 +62,7 @@ export function RightRail({
   onOpenDailySummary,
   onOpenStockSummary,
   onOpenGstCalc,
+  onPurchaseOrder,
   className,
 }: RightRailProps) {
   const [pinned, setPinned] = useState(false);
@@ -96,6 +99,7 @@ export function RightRail({
     { label: "New Invoice", icon: Receipt, shortcut: "F2", action: onNewInvoice, color: "text-emerald-600 dark:text-emerald-400" },
     { label: "New Quotation", icon: FileText, shortcut: "Alt+Q", action: onNewQuotation, color: "text-indigo-600 dark:text-indigo-400" },
     { label: "Add Purchase", icon: ShoppingBag, shortcut: "Alt+P", action: onAddPurchase, color: "text-blue-600 dark:text-blue-400" },
+    { label: "Purchase Order", icon: ClipboardList, shortcut: "Alt+O", action: onPurchaseOrder, color: "text-orange-600 dark:text-orange-400" },
     { label: "Add Expense", icon: Wallet, shortcut: "Alt+E", action: onAddExpense, color: "text-amber-600 dark:text-amber-400" },
     { label: "Add Client", icon: UserPlus, shortcut: "Alt+C", action: onAddCustomer, color: "text-purple-600 dark:text-purple-400" },
     { label: "Add Reminder", icon: Bell, shortcut: "Alt+R", action: onAddReminder, color: "text-sky-600 dark:text-sky-400" },

@@ -52,6 +52,10 @@ interface PurchaseLine {
   hsnCode?: string | undefined;
   /** e.g. "= 20 Tablet" when billed in Strip/Box */
   baseLabel?: string | undefined;
+  batchNo?: string | undefined;
+  mrp: number;
+  freeQty: number;
+  discountPct: number;
 }
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -133,10 +137,15 @@ export function SupplierBillFormModal({
   // Groupbox 2: Particulars entry row
   const [particularsMode, setParticularsMode] = useState<"Tagging" | "ItemCode">("Tagging");
   const [productName, setProductName] = useState("");
-  const [uom, setUom] = useState("PCS");
-  const [quantity, setQuantity] = useState<number>(1);
+  const [uom, setUom] = useState("");
+  const [quantity, setQuantity] = useState<number>(0);
   const [purchasePrice, setPurchasePrice] = useState<number>(0);
-  const [gstPct, setGstPct] = useState<number>(18);
+  const [gstPct, setGstPct] = useState<number | null>(null);
+  const [hsnCode, setHsnCode] = useState("");
+  const [batchNo, setBatchNo] = useState("");
+  const [mrp, setMrp] = useState<number>(0);
+  const [freeQty, setFreeQty] = useState<number>(0);
+  const [discountPct, setDiscountPct] = useState<number>(0);
   const isGst = purchaseType === "GST";
   const isInterState = placeOfSupply !== CLINIC_STATE;
 
@@ -182,9 +191,7 @@ export function SupplierBillFormModal({
   useEffect(() => {
     if (!open) return;
 
-    // Generate suggested purchase bill number
-    const rnd = Math.floor(1000 + Math.random() * 9000);
-    setPurchaseBillNo(`PB-2026-${rnd}`);
+    setPurchaseBillNo("");
     setBillDate(todayIST());
 
     Promise.all([listSuppliersFn(), getItemsFn({ data: { status: "Active" } })])
@@ -234,10 +241,10 @@ export function SupplierBillFormModal({
   const calculatedParticularsAmount = useMemo(() => {
     const qty = quantity || 0;
     const price = purchasePrice || 0;
-    return Math.max(0, Math.round(qty * price * 100) / 100);
-  }, [quantity, purchasePrice]);
+    return Math.max(0, r2(qty * price * (1 - (discountPct || 0) / 100)));
+  }, [quantity, purchasePrice, discountPct]);
 
-  const effectiveGstPct = isGst ? gstPct : 0;
+  const effectiveGstPct = isGst ? (gstPct ?? 0) : 0;
   const calculatedParticularsTax = r2((calculatedParticularsAmount * effectiveGstPct) / 100);
 
   // Per-line GST, derived at render time so switching Purchase Type re-prices every line
@@ -260,6 +267,8 @@ export function SupplierBillFormModal({
     setProductName(item.name);
     setUom(item.purchaseUom || item.salesUom || item.unit || "PCS");
     setPurchasePrice(item.defaultPurchasePrice || 0);
+    setMrp(item.mrp || 0);
+    setHsnCode(item.hsnCode || "");
     if (GST_RATES.includes(item.gstRate)) setGstPct(item.gstRate);
     setIsProductDropdownOpen(false);
   };
@@ -292,7 +301,11 @@ export function SupplierBillFormModal({
       amount: calculatedParticularsAmount,
       gstPct: effectiveGstPct,
       itemCode: selectedItem?.itemCode,
-      hsnCode: selectedItem?.hsnCode,
+      hsnCode: hsnCode.trim() || selectedItem?.hsnCode,
+      batchNo: batchNo.trim() || undefined,
+      mrp: mrp || 0,
+      freeQty: freeQty || 0,
+      discountPct: discountPct || 0,
       baseLabel: baseLabelFor(quantity || 1, uom || "PCS"),
     };
 
@@ -302,8 +315,15 @@ export function SupplierBillFormModal({
     // Reset entry row for fast next entry
     setProductName("");
     setSelectedItem(null);
-    setQuantity(1);
+    setQuantity(0);
+    setUom("");
+    setGstPct(null);
     setPurchasePrice(0);
+    setMrp(0);
+    setHsnCode("");
+    setBatchNo("");
+    setFreeQty(0);
+    setDiscountPct(0);
   };
 
   // Remove line
@@ -357,11 +377,12 @@ export function SupplierBillFormModal({
             description: l.productName,
             hsnCode: l.hsnCode || "3004",
             qty: l.quantity,
-            freeQty: 0,
+            freeQty: l.freeQty,
+            batchNo: l.batchNo,
             unit: l.unit,
             purchaseRate: l.purchasePrice,
-            mrp: l.purchasePrice * 1.25,
-            discountPct: 0,
+            mrp: l.mrp || l.purchasePrice,
+            discountPct: l.discountPct,
             gstPct: lineGst(l),
             taxableAmount: l.amount,
             taxAmount: lineTax(l),
@@ -677,7 +698,7 @@ export function SupplierBillFormModal({
                     <Label className="text-xs text-slate-700 dark:text-slate-300">UoM</Label>
                     <Select value={uom} onValueChange={handleUomChange}>
                       <SelectTrigger className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700">
-                        <SelectValue />
+                        <SelectValue placeholder="" />
                       </SelectTrigger>
                       <SelectContent>
                         {uomOptions.map((u) => (
@@ -732,12 +753,12 @@ export function SupplierBillFormModal({
                   <div className="col-span-6 md:col-span-1 space-y-1">
                     <Label className="text-xs text-slate-700 dark:text-slate-300">GST %</Label>
                     <Select
-                      value={String(effectiveGstPct)}
+                      value={isGst && gstPct === null ? "" : String(effectiveGstPct)}
                       onValueChange={(v) => setGstPct(Number(v))}
                       disabled={!isGst}
                     >
                       <SelectTrigger className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700">
-                        <SelectValue />
+                        <SelectValue placeholder="" />
                       </SelectTrigger>
                       <SelectContent>
                         {GST_RATES.map((r) => (
@@ -783,6 +804,29 @@ export function SupplierBillFormModal({
                   </div>
                 </div>
 
+                {/* Invoice-style details: HSN, Batch, Exp, MRP, Free, Disc% */}
+                <div className="grid grid-cols-12 gap-2 items-end">
+                  {([
+                    ["HSN", "text", hsnCode, (v: string) => setHsnCode(v)],
+                    ["Batch", "text", batchNo, (v: string) => setBatchNo(v)],
+                    ["MRP", "number", mrp || "", (v: string) => setMrp(parseFloat(v) || 0)],
+                    ["Free Qty", "number", freeQty || "", (v: string) => setFreeQty(parseFloat(v) || 0)],
+                    ["Disc %", "number", discountPct || "", (v: string) => setDiscountPct(Math.min(100, parseFloat(v) || 0))],
+                  ] as const).map(([label, type, value, onChange]) => (
+                    <div key={label} className="col-span-6 md:col-span-2 space-y-1">
+                      <Label className="text-xs text-slate-700 dark:text-slate-300">{label}</Label>
+                      <Input
+                        type={type}
+                        min={type === "number" ? "0" : undefined}
+                        step={type === "number" ? "any" : undefined}
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        className="h-7 text-xs font-mono bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                    </div>
+                  ))}
+                </div>
+
                 {/* Second Row: Serial No. (Yellow background box matching screenshot) */}
                 <div className="flex items-center gap-2 pt-1">
                   <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Serial No.</span>
@@ -801,9 +845,12 @@ export function SupplierBillFormModal({
                     <tr className="bg-[#1976d2] text-white font-bold text-xs select-none">
                       <th className="py-2 px-4 w-16 text-center border-r border-blue-500/30">S. No.</th>
                       <th className="py-2 px-4 border-r border-blue-500/30">Product Name</th>
+                      <th className="py-2 px-4 w-24 text-center border-r border-blue-500/30">Batch</th>
                       <th className="py-2 px-4 w-28 text-center border-r border-blue-500/30">Quantity</th>
                       <th className="py-2 px-4 w-24 text-center border-r border-blue-500/30">Unit</th>
+                      <th className="py-2 px-4 w-24 text-right border-r border-blue-500/30">MRP</th>
                       <th className="py-2 px-4 w-32 text-right border-r border-blue-500/30">Purchase Price</th>
+                      <th className="py-2 px-4 w-20 text-right border-r border-blue-500/30">Disc %</th>
                       <th className="py-2 px-4 w-32 text-right border-r border-blue-500/30">Taxable</th>
                       <th className="py-2 px-4 w-28 text-right border-r border-blue-500/30">GST</th>
                       <th className="py-2 px-4 w-32 text-right border-r border-blue-500/30">Amount</th>
@@ -813,7 +860,7 @@ export function SupplierBillFormModal({
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-8 text-center text-slate-400">
+                        <td colSpan={12} className="py-8 text-center text-slate-400">
                           No particulars added. Enter product details above and click the green [+] button.
                         </td>
                       </tr>
@@ -829,15 +876,25 @@ export function SupplierBillFormModal({
                           <td className="py-2 px-4 font-medium text-slate-800 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
                             {line.productName}
                           </td>
+                          <td className="py-2 px-4 text-center font-mono text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
+                            {line.batchNo || "-"}
+                          </td>
                           <td className="py-2 px-4 text-center font-mono font-semibold text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                             {line.quantity}
+                            {line.freeQty > 0 && <span className="ml-1 text-[10px] text-emerald-600">+{line.freeQty} free</span>}
                           </td>
                           <td className="py-2 px-4 text-center text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
                             {line.unit}
                             {line.baseLabel && <div className="text-[10px] font-mono text-slate-400">{line.baseLabel}</div>}
                           </td>
                           <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
+                            {line.mrp ? line.mrp.toFixed(2) : "-"}
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                             {line.purchasePrice.toFixed(2)}
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
+                            {line.discountPct.toFixed(2)}
                           </td>
                           <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                             {line.amount.toFixed(2)}

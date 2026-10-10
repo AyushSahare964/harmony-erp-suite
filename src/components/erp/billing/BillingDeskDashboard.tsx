@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+﻿import { useState, useMemo, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -49,6 +49,8 @@ import {
   AlertTriangle,
   ExternalLink,
   Trash2,
+  ClipboardList,
+  ThermometerSnowflake,
 } from "lucide-react";
 import { useInventory } from "@/components/erp/inventory/useInventoryStore";
 import {
@@ -100,17 +102,20 @@ import {
 } from "@/lib/mongodb/serverFns/masters";
 import { listOwnersWithPetsFn } from "@/lib/mongodb/serverFns/crm";
 import { PurchaseBillPrintView } from "./PurchaseBillPrintView";
+import { PurchaseOrderPrintView } from "./PurchaseOrderPrintView";
+import { type ClinicPurchaseOrderRecord } from "./PurchaseOrderModal";
 import { cn } from "@/lib/utils";
 
 interface BillingDeskDashboardProps {
   invoices: any[];
   loading?: boolean;
-  /** Deep link from Global Search — filter the invoice register to this patient and highlight it. */
+  /** Deep link from Global Search â€” filter the invoice register to this patient and highlight it. */
   deepLinkPet?: { petId: string; petName: string } | null;
   onRefresh: () => void;
   onNewInvoice: () => void;
   onNewQuotation: () => void;
   onAddPurchase: () => void;
+  onAddPurchaseOrder?: () => void;
   onAddExpense: () => void;
   onPaymentIn: (invoiceNo?: string) => void;
   onPaymentOut: () => void;
@@ -135,6 +140,7 @@ export function BillingDeskDashboard({
   onNewInvoice,
   onNewQuotation,
   onAddPurchase,
+  onAddPurchaseOrder,
   onAddExpense,
   onPaymentIn,
   onPaymentOut,
@@ -167,8 +173,31 @@ export function BillingDeskDashboard({
 
   // Big Documents Register Tab State
   const [registerTab, setRegisterTab] = useState<
-    "invoices" | "quotations" | "creditNotes" | "payments" | "purchases" | "expenses" | "suppliers" | "clients"
+    "invoices" | "quotations" | "creditNotes" | "payments" | "purchases" | "purchaseOrders" | "expenses" | "suppliers" | "clients"
   >("invoices");
+
+  // Purchase Orders â€” stored in localStorage by PurchaseOrderModal
+  const [purchaseOrders, setPurchaseOrders] = useState<ClinicPurchaseOrderRecord[]>([]);
+  const [poSearchQuery, setPoSearchQuery] = useState("");
+  const [selectedPurchaseOrder, setSelectedPurchaseOrder] = useState<ClinicPurchaseOrderRecord | null>(null);
+  const [showPurchaseOrderPrintView, setShowPurchaseOrderPrintView] = useState(false);
+
+  const loadPurchaseOrders = () => {
+    try {
+      const raw = localStorage.getItem("clinic_purchase_orders");
+      setPurchaseOrders(raw ? (JSON.parse(raw) as ClinicPurchaseOrderRecord[]) : []);
+    } catch {
+      setPurchaseOrders([]);
+    }
+  };
+
+  useEffect(() => {
+    loadPurchaseOrders();
+  }, []);
+
+  useEffect(() => {
+    if (registerTab === "purchaseOrders") loadPurchaseOrders();
+  }, [registerTab]);
 
   // Document Collections for Registers
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
@@ -198,8 +227,9 @@ export function BillingDeskDashboard({
 
   useEffect(() => {
     void loadExtraRegisters();
+    loadPurchaseOrders();
     if (purchasesRefreshKey > 0) {
-      setRegisterTab("purchases");
+      loadPurchaseOrders();
       setSearchQuery("");
       document.getElementById("billing-documents-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -228,7 +258,7 @@ export function BillingDeskDashboard({
   const [statusFilter, setStatusFilter] = useState("all");
 
   // Deep link from Global Search: filter the invoice register to that patient and highlight
-  // it if they have records, or tell the user plainly that they don't — instead of silently
+  // it if they have records, or tell the user plainly that they don't â€” instead of silently
   // showing the whole, unfiltered register.
   const [highlightRegister, setHighlightRegister] = useState(false);
   const deepLinkHandled = useRef(false);
@@ -243,7 +273,7 @@ export function BillingDeskDashboard({
     }
     setRegisterTab("invoices");
     // The invoice register's own search only matches invoiceNo/ownerName/ownerPhone/
-    // petName/doctorName (not petId) — filter by petName to actually narrow the table.
+    // petName/doctorName (not petId) â€” filter by petName to actually narrow the table.
     setSearchQuery(deepLinkPet.petName);
     setHighlightRegister(true);
     document.getElementById("billing-invoice-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -337,8 +367,8 @@ export function BillingDeskDashboard({
 
   // Masking format helper
   const fmtMoney = (amount: number) => {
-    if (masked) return "₹ ••••";
-    return `₹ ${amount.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    if (masked) return "â‚¹ â€¢â€¢â€¢â€¢";
+    return `â‚¹ ${amount.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
 
   // Payment mode distribution from filtered invoices
@@ -472,7 +502,7 @@ export function BillingDeskDashboard({
             petName: inv.petName || "General OTC",
             mode: p.mode || inv.paymentMode || "Cash",
             amount: p.amount || 0,
-            trxRef: p.reference || p.trxRef || "—",
+            trxRef: p.reference || p.trxRef || "â€”",
             recordedBy: p.recordedBy || inv.doctorName || "Billing Counter",
             status: "Cleared",
           });
@@ -486,7 +516,7 @@ export function BillingDeskDashboard({
           petName: inv.petName || "General OTC",
           mode: inv.paymentMode || "Cash",
           amount: inv.amountPaid,
-          trxRef: inv.trxRef || "—",
+          trxRef: inv.trxRef || "â€”",
           recordedBy: inv.doctorName || "Billing Counter",
           status: "Cleared",
         });
@@ -682,13 +712,13 @@ export function BillingDeskDashboard({
       if (!key) return;
       const existing = map.get(key) || {
         ownerName: inv.ownerName || "Walk-in Client",
-        ownerPhone: inv.ownerPhone || "—",
+        ownerPhone: inv.ownerPhone || "â€”",
         pets: new Set<string>(),
         totalBilled: 0,
         totalPaid: 0,
         balanceDue: 0,
         invoiceCount: 0,
-        lastInvoiceNo: inv.invoiceNo || "—",
+        lastInvoiceNo: inv.invoiceNo || "â€”",
         lastDate: inv.date || inv.createdAt?.slice(0, 10) || "",
       };
       if (inv.petName) existing.pets.add(inv.petName);
@@ -941,7 +971,7 @@ export function BillingDeskDashboard({
 
   return (
     <div className="space-y-5 animate-in fade-in pb-12">
-      {/* ── TOP HEADER STRIP (Glassmorphism & Utilities) ── */}
+      {/* â”€â”€ TOP HEADER STRIP (Glassmorphism & Utilities) â”€â”€ */}
       <div className="flex flex-wrap items-center justify-between gap-3.5 rounded-2xl border border-border bg-card/80 p-4 shadow-sm backdrop-blur-md">
         <div className="flex items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold shadow-sm">
@@ -950,7 +980,7 @@ export function BillingDeskDashboard({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-black tracking-tight text-foreground">
-                Billing Desk — Real Care Small Animal Clinic
+                Billing Desk â€” Real Care Small Animal Clinic
               </h1>
               <button
                 type="button"
@@ -971,7 +1001,7 @@ export function BillingDeskDashboard({
         <div className="flex flex-wrap items-center gap-2">
           <DateRangeFilter value={dateRange} onChange={setDateRange} />
 
-          {/* GST Calculator Popover (Plan §7) */}
+          {/* GST Calculator Popover (Plan Â§7) */}
           <GstCalculatorPopover />
 
           <Button
@@ -1013,9 +1043,9 @@ export function BillingDeskDashboard({
         </div>
       </div>
 
-      {/* ── MAIN DASHBOARD: 2 COLUMNS (Faithful Layout to Image 1 & Image 5) ── */}
+      {/* â”€â”€ MAIN DASHBOARD: 2 COLUMNS (Faithful Layout to Image 1 & Image 5) â”€â”€ */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* ════════ LEFT COLUMN (5 cols on lg): Quick Info, 6 Buttons Grid, 30-Day Donut ════════ */}
+        {/* â•â•â•â•â•â•â•â• LEFT COLUMN (5 cols on lg): Quick Info, 6 Buttons Grid, 30-Day Donut â•â•â•â•â•â•â•â• */}
         <div className="lg:col-span-5 space-y-4">
           {/* 1. QUICK INFO CARD (Matches Image 1 & 5) */}
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#005bb5] via-[#004f9f] to-[#003875] text-white p-4 shadow-md border border-blue-600/30">
@@ -1150,7 +1180,7 @@ export function BillingDeskDashboard({
                   </p>
                   <div className="mt-3 flex items-center gap-2 text-[10px] font-medium text-primary">
                     <span>Use Right Sidebar</span>
-                    <span>•</span>
+                    <span>â€¢</span>
                     <kbd className="px-1.5 py-0.5 rounded bg-muted text-foreground font-mono font-bold">F2 New Invoice</kbd>
                   </div>
                 </div>
@@ -1204,7 +1234,7 @@ export function BillingDeskDashboard({
           </div>
         </div>
 
-        {/* ════════ RIGHT COLUMN (7 cols on lg): 4 Tabs, 15-Day Bars, SEARCH Card ════════ */}
+        {/* â•â•â•â•â•â•â•â• RIGHT COLUMN (7 cols on lg): 4 Tabs, 15-Day Bars, SEARCH Card â•â•â•â•â•â•â•â• */}
         <div className="lg:col-span-7 space-y-4">
           {/* 1. 4 ACTIVITY TABS & 15-DAY BAR CHART (Matches Image 1 & 5) */}
           <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
@@ -1301,7 +1331,7 @@ export function BillingDeskDashboard({
                         />
                         <Tooltip
                           cursor={{ fill: "rgba(37, 99, 235, 0.08)", radius: 4 }}
-                          formatter={(v: any) => [`₹${Number(v).toLocaleString("en-IN")}`, "Sales"]}
+                          formatter={(v: any) => [`â‚¹${Number(v).toLocaleString("en-IN")}`, "Sales"]}
                           contentStyle={{
                             backgroundColor: "var(--color-card)",
                             borderColor: "var(--color-border)",
@@ -1340,11 +1370,11 @@ export function BillingDeskDashboard({
                       >
                         <div>
                           <div className="text-xs font-bold text-foreground">{inv.ownerName} ({inv.petName})</div>
-                          <div className="text-[10px] text-muted-foreground font-mono">{inv.invoiceNo} • {inv.ownerPhone}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{inv.invoiceNo} â€¢ {inv.ownerPhone}</div>
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-mono font-bold text-rose-600">
-                            ₹{invBalance(inv).toLocaleString("en-IN")}
+                            â‚¹{invBalance(inv).toLocaleString("en-IN")}
                           </span>
                           <Button
                             size="sm"
@@ -1376,11 +1406,11 @@ export function BillingDeskDashboard({
                         <div>
                           <div className="text-xs font-bold text-foreground">{inv.ownerName} ({inv.petName})</div>
                           <div className="text-[10px] text-muted-foreground font-mono">
-                            {inv.invoiceNo} • {inv.paymentMode || "Cash"}
+                            {inv.invoiceNo} â€¢ {inv.paymentMode || "Cash"}
                           </div>
                         </div>
                         <span className="text-xs font-mono font-bold text-emerald-600">
-                          ₹{(inv.amountPaid || 0).toLocaleString("en-IN")}
+                          â‚¹{(inv.amountPaid || 0).toLocaleString("en-IN")}
                         </span>
                       </div>
                     ))
@@ -1403,11 +1433,11 @@ export function BillingDeskDashboard({
                         <div>
                           <div className="text-xs font-bold text-foreground">{inv.ownerName} ({inv.petName})</div>
                           <div className="text-[10px] text-muted-foreground font-mono">
-                            {inv.invoiceNo} • Cheque Ref: {inv.trxRef || "Pending Clearance"}
+                            {inv.invoiceNo} â€¢ Cheque Ref: {inv.trxRef || "Pending Clearance"}
                           </div>
                         </div>
                         <span className="text-xs font-mono font-bold text-foreground">
-                          ₹{(inv.totalAmount || 0).toLocaleString("en-IN")}
+                          â‚¹{(inv.totalAmount || 0).toLocaleString("en-IN")}
                         </span>
                       </div>
                     ))
@@ -1430,7 +1460,7 @@ export function BillingDeskDashboard({
                 <span className="text-white/80 uppercase font-semibold">
                   {searchScope === "SerialNo" ? "Serial / Batch" : searchScope}
                 </span>
-                <span className="text-white/40">•</span>
+                <span className="text-white/40">â€¢</span>
                 <span className="text-emerald-400 font-bold">
                   {dynamicSearchResults.totalCount}{" "}
                   {searchScope === "Stock"
@@ -1535,12 +1565,12 @@ export function BillingDeskDashboard({
                     onClick={() => setSearchFeedback(null)}
                     className="text-primary hover:underline text-[10px]"
                   >
-                    ✕
+                    âœ•
                   </button>
                 </div>
               )}
 
-              {/* ── DYNAMIC LIVE RESULTS CONTAINER ("able to see here very easily") ── */}
+              {/* â”€â”€ DYNAMIC LIVE RESULTS CONTAINER ("able to see here very easily") â”€â”€ */}
               <div className="space-y-2 pt-1 border-t border-border/60">
                 {/* Result header line */}
                 <div className="flex items-center justify-between text-[11px]">
@@ -1606,8 +1636,8 @@ export function BillingDeskDashboard({
                                 )}
                               </div>
                               <div className="text-[10px] text-muted-foreground truncate mt-0.5">
-                                {item.brand && `Brand: ${item.brand} • `}
-                                {item.genericName && `Generic: ${item.genericName} • `}
+                                {item.brand && `Brand: ${item.brand} â€¢ `}
+                                {item.genericName && `Generic: ${item.genericName} â€¢ `}
                                 UoM: {item.unit || "Unit"}
                               </div>
                             </div>
@@ -1630,7 +1660,7 @@ export function BillingDeskDashboard({
 
                               {/* Price */}
                               <span className="font-mono text-xs font-bold text-foreground">
-                                ₹{(item.defaultSalePrice || item.mrp || 0).toLocaleString("en-IN")}
+                                â‚¹{(item.defaultSalePrice || item.mrp || 0).toLocaleString("en-IN")}
                               </span>
 
                               {/* Action: Quick Bill */}
@@ -1663,7 +1693,7 @@ export function BillingDeskDashboard({
                                 </span>
                               </div>
                               <div className="text-[10px] text-muted-foreground mt-0.5">
-                                Exp: {item.expiryDate ? item.expiryDate.slice(0, 10) : "N/A"} • Item Code: {item.itemCode || "—"}
+                                Exp: {item.expiryDate ? item.expiryDate.slice(0, 10) : "N/A"} â€¢ Item Code: {item.itemCode || "â€”"}
                               </div>
                             </div>
 
@@ -1672,7 +1702,7 @@ export function BillingDeskDashboard({
                                 {item.quantity ?? 0} units
                               </span>
                               <span className="font-mono text-xs font-bold text-foreground">
-                                ₹{(item.salePrice || item.mrp || 0).toLocaleString("en-IN")}
+                                â‚¹{(item.salePrice || item.mrp || 0).toLocaleString("en-IN")}
                               </span>
                               <Button
                                 size="sm"
@@ -1716,18 +1746,18 @@ export function BillingDeskDashboard({
                                 </span>
                               </div>
                               <div className="text-[10px] text-muted-foreground mt-0.5">
-                                Date: {item.date || item.createdAt?.slice(0, 10)} • Phone: {item.ownerPhone || "—"}
+                                Date: {item.date || item.createdAt?.slice(0, 10)} â€¢ Phone: {item.ownerPhone || "â€”"}
                               </div>
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0">
                               <div className="text-right">
                                 <div className="font-mono text-xs font-bold text-foreground">
-                                  ₹{(item.totalAmount || 0).toLocaleString("en-IN")}
+                                  â‚¹{(item.totalAmount || 0).toLocaleString("en-IN")}
                                 </div>
                                 {due > 0 && (
                                   <div className="font-mono text-[10px] font-bold text-rose-600">
-                                    Due: ₹{due.toLocaleString("en-IN")}
+                                    Due: â‚¹{due.toLocaleString("en-IN")}
                                   </div>
                                 )}
                               </div>
@@ -1773,7 +1803,7 @@ export function BillingDeskDashboard({
                                 </span>
                                 {item.balanceDue > 0 ? (
                                   <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 border border-rose-500/20">
-                                    Due: ₹{item.balanceDue.toLocaleString("en-IN")}
+                                    Due: â‚¹{item.balanceDue.toLocaleString("en-IN")}
                                   </span>
                                 ) : (
                                   <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
@@ -1782,7 +1812,7 @@ export function BillingDeskDashboard({
                                 )}
                               </div>
                               <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                                Pets: {item.petsList || "Walk-in OTC"} • {item.invoiceCount} Bills (₹{item.totalBilled.toLocaleString("en-IN")})
+                                Pets: {item.petsList || "Walk-in OTC"} â€¢ {item.invoiceCount} Bills (â‚¹{item.totalBilled.toLocaleString("en-IN")})
                               </div>
                             </div>
 
@@ -1823,7 +1853,7 @@ export function BillingDeskDashboard({
         </div>
       </div>
 
-      {/* ── FOOTER STATUS BAR (Matches Image 1 & 5 Bottom Icons & Clock) ── */}
+      {/* â”€â”€ FOOTER STATUS BAR (Matches Image 1 & 5 Bottom Icons & Clock) â”€â”€ */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 px-4 py-2 text-xs">
         {/* Left Icons: Web, Fingerprint, Shield, DB, Sync, @, Mail, Cloud, Toggle */}
         <div className="flex items-center gap-3 text-muted-foreground">
@@ -1841,14 +1871,14 @@ export function BillingDeskDashboard({
         {/* Right Info: Live System Clock & Version */}
         <div className="flex items-center gap-4 text-muted-foreground font-mono text-[11px]">
           <span className="text-primary font-bold">FY 2026-27 (Active)</span>
-          <span>•</span>
+          <span>â€¢</span>
           <span>{currentTime || "14:45:00"}</span>
-          <span>•</span>
+          <span>â€¢</span>
           <span>{currentDateString || "Wednesday, September 16, 2026"}</span>
         </div>
       </div>
 
-      {/* ── BLOCK ④: FULL DOCUMENTS REGISTER (Plan §5.6) ── */}
+      {/* â”€â”€ BLOCK â‘£: FULL DOCUMENTS REGISTER (Plan Â§5.6) â”€â”€ */}
       <div id="billing-documents-register" className="space-y-3 pt-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Register Tabs: Invoices, Quotations, Credit Notes, Payments, Purchases, Expenses */}
@@ -1940,6 +1970,23 @@ export function BillingDeskDashboard({
 
             <button
               type="button"
+              onClick={() => { setRegisterTab("purchaseOrders"); loadPurchaseOrders(); }}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                registerTab === "purchaseOrders"
+                  ? "bg-orange-600 text-white shadow-xs"
+                  : "bg-card text-muted-foreground hover:bg-muted border border-border"
+              )}
+            >
+              <ClipboardList className="size-3.5" />
+              <span>Purchase Orders</span>
+              <span className="rounded-full px-1.5 py-0.2 text-[10px] font-mono bg-orange-500/20 text-orange-700 dark:text-orange-300">
+                {purchaseOrders.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setRegisterTab("expenses")}
               className={cn(
                 "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
@@ -2010,14 +2057,14 @@ export function BillingDeskDashboard({
           </div>
         </div>
 
-        {/* ═══ VIEW COMPONENT BASED ON SELECTED REGISTER TAB ═══ */}
+        {/* â•â•â• VIEW COMPONENT BASED ON SELECTED REGISTER TAB â•â•â• */}
         {registerTab === "quotations" ? (
           <QuotationsRegisterView
             onNewQuotation={onNewQuotation}
             onConvertToInvoice={onConvertToInvoice}
           />
         ) : registerTab === "expenses" ? (
-          /* ═══ 1. EXPENSES REGISTER TABLE ═══ */
+          /* â•â•â• 1. EXPENSES REGISTER TABLE â•â•â• */
           <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
             <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[260px] flex-1">
@@ -2048,7 +2095,7 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3">Category &amp; Nature</th>
                     <th className="px-4 py-3">Paid To</th>
                     <th className="px-4 py-3">Payment Mode</th>
-                    <th className="px-4 py-3 text-right">Total Amount (₹)</th>
+                    <th className="px-4 py-3 text-right">Total Amount (â‚¹)</th>
                     <th className="px-4 py-3 text-center">Status</th>
                   </tr>
                 </thead>
@@ -2078,13 +2125,13 @@ export function BillingDeskDashboard({
                           <span className="text-[10px] text-muted-foreground uppercase">{exp.categoryNature}</span>
                         </td>
                         <td className="px-4 py-3 text-foreground font-medium">
-                          {exp.paidTo || "—"}
+                          {exp.paidTo || "â€”"}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono uppercase">
                           {exp.paymentLines?.[0]?.mode || "CASH"}
                         </td>
                         <td className="px-4 py-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                          ₹{exp.totalAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          â‚¹{exp.totalAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-center whitespace-nowrap">
                           <StatusPill value={exp.status} />
@@ -2097,7 +2144,7 @@ export function BillingDeskDashboard({
             </div>
           </div>
         ) : registerTab === "purchases" ? (
-          /* ═══ 2. PURCHASES REGISTER TABLE ═══ */
+          /* â•â•â• 2. PURCHASES REGISTER TABLE â•â•â• */
           <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
             <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[260px] flex-1">
@@ -2127,9 +2174,9 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3">Purchase Bill #</th>
                     <th className="px-4 py-3">Supplier (Vendor)</th>
                     <th className="px-4 py-3">Vendor Bill No</th>
-                    <th className="px-4 py-3 text-right">Total (₹)</th>
-                    <th className="px-4 py-3 text-right">Paid (₹)</th>
-                    <th className="px-4 py-3 text-right">Balance Due (₹)</th>
+                    <th className="px-4 py-3 text-right">Total (â‚¹)</th>
+                    <th className="px-4 py-3 text-right">Paid (â‚¹)</th>
+                    <th className="px-4 py-3 text-right">Balance Due (â‚¹)</th>
                     <th className="px-4 py-3 text-center">Status</th>
                     <th className="px-4 py-3 text-center">Actions</th>
                   </tr>
@@ -2165,19 +2212,19 @@ export function BillingDeskDashboard({
                             {pur.supplierName}
                           </td>
                           <td className="px-4 py-3 text-muted-foreground font-mono">
-                            {pur.billNumber || "—"}
+                            {pur.billNumber || "â€”"}
                           </td>
                           <td className="px-4 py-3 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                            ₹{pur.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            â‚¹{pur.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-emerald-600 whitespace-nowrap">
-                            ₹{pur.amountPaid.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            â‚¹{pur.amountPaid.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                           </td>
                           <td className={cn(
                             "px-4 py-3 text-right font-mono font-bold whitespace-nowrap",
                             due > 0 ? "text-rose-600" : "text-muted-foreground"
                           )}>
-                            ₹{due.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            â‚¹{due.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 text-center whitespace-nowrap">
                             <StatusPill value={pur.status} />
@@ -2238,7 +2285,7 @@ export function BillingDeskDashboard({
             </div>
           </div>
         ) : registerTab === "payments" ? (
-          /* ═══ 3. PAYMENTS IN (RECEIPTS) REGISTER TABLE ═══ */
+          /* â•â•â• 3. PAYMENTS IN (RECEIPTS) REGISTER TABLE â•â•â• */
           <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
             <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[260px] flex-1">
@@ -2270,7 +2317,7 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3">Client (Party)</th>
                     <th className="px-4 py-3">Patient / Pet</th>
                     <th className="px-4 py-3">Payment Mode</th>
-                    <th className="px-4 py-3 text-right">Amount (₹)</th>
+                    <th className="px-4 py-3 text-right">Amount (â‚¹)</th>
                     <th className="px-4 py-3">Trx / Cheque Ref</th>
                     <th className="px-4 py-3 text-center">Status</th>
                   </tr>
@@ -2312,7 +2359,7 @@ export function BillingDeskDashboard({
                           {pay.mode}
                         </td>
                         <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600 whitespace-nowrap">
-                          ₹{pay.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          â‚¹{pay.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
                           {pay.trxRef}
@@ -2330,7 +2377,7 @@ export function BillingDeskDashboard({
             </div>
           </div>
         ) : registerTab === "creditNotes" ? (
-          /* ═══ 4. CREDIT NOTES REGISTER TABLE ═══ */
+          /* â•â•â• 4. CREDIT NOTES REGISTER TABLE â•â•â• */
           <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
             <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[260px] flex-1">
@@ -2354,7 +2401,7 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3">Client (Party)</th>
                     <th className="px-4 py-3">Patient / Pet</th>
                     <th className="px-4 py-3">Adjustment Reason</th>
-                    <th className="px-4 py-3 text-right">Amount (₹)</th>
+                    <th className="px-4 py-3 text-right">Amount (â‚¹)</th>
                     <th className="px-4 py-3 text-center">Status</th>
                   </tr>
                 </thead>
@@ -2395,7 +2442,7 @@ export function BillingDeskDashboard({
                           {cn.reason}
                         </td>
                         <td className="px-4 py-3 text-right font-mono font-bold text-purple-600 whitespace-nowrap">
-                          ₹{cn.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          â‚¹{cn.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-center whitespace-nowrap">
                           <span className="px-2 py-0.5 text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-300 rounded">
@@ -2410,7 +2457,7 @@ export function BillingDeskDashboard({
             </div>
           </div>
         ) : registerTab === "suppliers" ? (
-          /* ═══ 5. SUPPLIERS REGISTER TABLE ═══ */
+          /* â•â•â• 5. SUPPLIERS REGISTER TABLE â•â•â• */
           <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
             <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[260px] flex-1">
@@ -2456,7 +2503,7 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3">Tax & Registration</th>
                     <th className="px-4 py-3">Location</th>
                     <th className="px-4 py-3">Bank Details</th>
-                    <th className="px-4 py-3 text-right">Opening Balance (₹)</th>
+                    <th className="px-4 py-3 text-right">Opening Balance (â‚¹)</th>
                     <th className="px-4 py-3 text-center">Status</th>
                     <th className="px-4 py-3 text-center">Actions</th>
                   </tr>
@@ -2523,7 +2570,7 @@ export function BillingDeskDashboard({
                               </a>
                             )}
                             {!sup.phone && !sup.mobileNo && !sup.email && (
-                              <span className="text-muted-foreground text-[11px]">—</span>
+                              <span className="text-muted-foreground text-[11px]">â€”</span>
                             )}
                           </div>
                         </td>
@@ -2551,7 +2598,7 @@ export function BillingDeskDashboard({
                         <td className="px-4 py-3">
                           <div className="text-[11px] text-foreground font-medium flex items-center gap-1">
                             <MapPin className="size-3 text-muted-foreground shrink-0" />
-                            <span>{sup.city || "—"}{sup.state ? `, ${sup.state}` : ""}</span>
+                            <span>{sup.city || "â€”"}{sup.state ? `, ${sup.state}` : ""}</span>
                           </div>
                           {sup.address && (
                             <div className="text-[10px] text-muted-foreground truncate max-w-[150px]" title={sup.address}>
@@ -2577,14 +2624,14 @@ export function BillingDeskDashboard({
                               )}
                             </div>
                           ) : (
-                            <span className="text-muted-foreground text-[11px]">—</span>
+                            <span className="text-muted-foreground text-[11px]">â€”</span>
                           )}
                         </td>
 
                         {/* Opening Balance */}
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           <div className="font-mono font-bold text-foreground">
-                            ₹{(sup.openingBalance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            â‚¹{(sup.openingBalance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                           </div>
                           <span className={cn(
                             "inline-block text-[9px] font-bold px-1 rounded uppercase",
@@ -2644,7 +2691,7 @@ export function BillingDeskDashboard({
             </div>
           </div>
         ) : registerTab === "clients" ? (
-          /* ═══ 6. CLIENTS REGISTER TABLE ═══ */
+          /* â•â•â• 6. CLIENTS REGISTER TABLE â•â•â• */
           <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
             <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[260px] flex-1">
@@ -2689,7 +2736,7 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3">Contact Details</th>
                     <th className="px-4 py-3">City &amp; Address</th>
                     <th className="px-4 py-3">Registered Pets</th>
-                    <th className="px-4 py-3 text-right">Outstanding Due (₹)</th>
+                    <th className="px-4 py-3 text-right">Outstanding Due (â‚¹)</th>
                     <th className="px-4 py-3 text-center">Status</th>
                     <th className="px-4 py-3 text-center">Actions</th>
                   </tr>
@@ -2764,7 +2811,7 @@ export function BillingDeskDashboard({
                                 </a>
                               )}
                               {!client.phone && !client.email && (
-                                <span className="text-muted-foreground text-[11px]">—</span>
+                                <span className="text-muted-foreground text-[11px]">â€”</span>
                               )}
                             </div>
                           </td>
@@ -2777,7 +2824,7 @@ export function BillingDeskDashboard({
                                   {client.address}
                                 </span>
                               ) : (
-                                <span className="text-muted-foreground">—</span>
+                                <span className="text-muted-foreground">â€”</span>
                               )}
                             </div>
                           </td>
@@ -2793,7 +2840,7 @@ export function BillingDeskDashboard({
                                     key={pet.petId || idx}
                                     className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
                                   >
-                                    <span>🐾 {pet.name}</span>
+                                    <span>ðŸ¾ {pet.name}</span>
                                     {pet.breed && <span className="text-[9px] opacity-75">({pet.breed})</span>}
                                   </span>
                                 ))}
@@ -2804,7 +2851,7 @@ export function BillingDeskDashboard({
                           {/* Outstanding Balance */}
                           <td className="px-4 py-3 text-right whitespace-nowrap font-mono font-bold">
                             <span className={cn(hasDue ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400")}>
-                              ₹{(client.outstandingBalance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                              â‚¹{(client.outstandingBalance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                             </span>
                           </td>
 
@@ -2850,8 +2897,250 @@ export function BillingDeskDashboard({
               </table>
             </div>
           </div>
+        ) : registerTab === "purchaseOrders" ? (
+          /* â•â•â• PURCHASE ORDERS REGISTER TABLE â•â•â• */
+          <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
+            {/* Header */}
+            <div className="p-3.5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-3">
+              <div className="relative min-w-[260px] flex-1">
+                <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search PO #, supplier name, status..."
+                  value={poSearchQuery}
+                  onChange={(e) => setPoSearchQuery(e.target.value)}
+                  className="h-8 pl-8 text-xs bg-card"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => { loadPurchaseOrders(); toast.success("Purchase orders refreshed"); }}
+                  className="h-8 text-xs font-semibold gap-1.5"
+                >
+                  <RefreshCw className="size-3.5" />
+                  <span>Refresh</span>
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={onAddPurchaseOrder || onAddPurchase}
+                  className="h-8 text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white gap-1.5"
+                >
+                  <Plus className="size-3.5" />
+                  <span>+ New Purchase Order</span>
+                </Button>
+              </div>
+            </div>
+
+            {/* Summary chips */}
+            {purchaseOrders.length > 0 && (() => {
+              const issued = purchaseOrders.filter(p => p.status === "ISSUED").length;
+              const pending = purchaseOrders.filter(p => p.status === "PENDING_DELIVERY").length;
+              const received = purchaseOrders.filter(p => p.status === "RECEIVED").length;
+              const draft = purchaseOrders.filter(p => p.status === "DRAFT").length;
+              const totalVal = purchaseOrders.reduce((s, p) => s + (p.totalAmount || 0), 0);
+              return (
+                <div className="px-4 py-2.5 border-b border-border/50 bg-orange-50/40 dark:bg-orange-950/20 flex flex-wrap items-center gap-3 text-[11px] font-semibold">
+                  <span className="text-orange-700 dark:text-orange-300">
+                    Total PO Value: <span className="font-mono font-black">â‚¹{totalVal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                  </span>
+                  <span className="text-slate-400">|</span>
+                  {issued > 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">{issued} Issued</span>}
+                  {pending > 0 && <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300">{pending} Pending Delivery</span>}
+                  {received > 0 && <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">{received} Received</span>}
+                  {draft > 0 && <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">{draft} Draft</span>}
+                </div>
+              );
+            })()}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-border bg-muted/40 font-semibold text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">PO Date</th>
+                    <th className="px-4 py-3">PO Number</th>
+                    <th className="px-4 py-3">Supplier / Vendor</th>
+                    <th className="px-4 py-3">Items</th>
+                    <th className="px-4 py-3">Delivery By</th>
+                    <th className="px-4 py-3">Ship Via</th>
+                    <th className="px-4 py-3 text-right">Total Value (â‚¹)</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {(() => {
+                    const filtered = purchaseOrders.filter(po => {
+                      const q = poSearchQuery.toLowerCase();
+                      if (!q) return true;
+                      return (
+                        (po.poNumber || "").toLowerCase().includes(q) ||
+                        (po.supplierName || "").toLowerCase().includes(q) ||
+                        (po.status || "").toLowerCase().includes(q) ||
+                        (po.orderType || "").toLowerCase().includes(q)
+                      );
+                    });
+                    if (filtered.length === 0) return (
+                      <tr>
+                        <td colSpan={9} className="py-14 text-center text-muted-foreground">
+                          <ClipboardList className="size-10 mx-auto text-orange-300/60 mb-3" />
+                          <p className="font-bold text-foreground text-sm">
+                            {poSearchQuery ? "No purchase orders matched your search" : "No purchase orders created yet"}
+                          </p>
+                          <p className="text-xs mt-1">
+                            {poSearchQuery ? "Try clearing the search or adjust filters." : "Click \"+ New Purchase Order\" above to create your first clinic bulk order."}
+                          </p>
+                        </td>
+                      </tr>
+                    );
+                    return filtered.map((po) => {
+                      const statusColor: Record<string, string> = {
+                        DRAFT: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400",
+                        ISSUED: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300",
+                        PENDING_DELIVERY: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/50 dark:text-amber-300",
+                        RECEIVED: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300",
+                        CANCELLED: "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/50 dark:text-rose-300",
+                      };
+                      const cold = po.items?.some((it) => it.storageCondition?.includes("Cold"));
+                      return (
+                        <tr
+                          key={po.id}
+                          onClick={() => {
+                            setSelectedPurchaseOrder(po);
+                            setShowPurchaseOrderPrintView(true);
+                          }}
+                          className="transition-colors hover:bg-muted/40 cursor-pointer"
+                        >
+                          <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                            {po.poDate ? new Date(po.poDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "â€”"}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/60 dark:text-orange-300 dark:border-orange-800">
+                              <span className="px-1 py-0.2 rounded text-[9px] font-black bg-orange-600 text-white">PO</span>
+                              <span>{po.poNumber || "â€”"}</span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-foreground">{po.supplierName || "â€”"}</div>
+                            {po.supplierGstin && <div className="text-[10px] font-mono text-muted-foreground">GSTIN: {po.supplierGstin}</div>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-foreground">{(po.items?.length || 0)} item{po.items?.length !== 1 ? "s" : ""}</div>
+                            {cold && (
+                              <div className="flex items-center gap-1 text-[10px] text-sky-600 font-semibold mt-0.5">
+                                <ThermometerSnowflake className="size-3" />
+                                Cold Chain Required
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                            {po.deliveryDate ? new Date(po.deliveryDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "â€”"}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground text-[11px]">
+                            {po.transportMode || "â€”"}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono font-bold text-foreground whitespace-nowrap">
+                            â‚¹{(po.totalAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusColor[po.status] || statusColor.DRAFT}`}>
+                              {po.status?.replace("_", " ") || "DRAFT"}
+                            </span>
+                          </td>
+                          <td
+                            className="px-4 py-3 text-center whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedPurchaseOrder(po);
+                                  setShowPurchaseOrderPrintView(true);
+                                }}
+                                className="h-7 px-2 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-950/50 gap-1 font-semibold"
+                                title="View & Print PO"
+                              >
+                                <Eye className="size-3.5" />
+                                <span>View</span>
+                              </Button>
+                              {po.status !== "RECEIVED" && po.status !== "CANCELLED" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    try {
+                                      const raw = localStorage.getItem("clinic_purchase_orders");
+                                      const list: ClinicPurchaseOrderRecord[] = raw ? JSON.parse(raw) : [];
+                                      const updated = list.map((p) =>
+                                        p.id === po.id ? { ...p, status: "RECEIVED" as const } : p
+                                      );
+                                      localStorage.setItem("clinic_purchase_orders", JSON.stringify(updated));
+                                      loadPurchaseOrders();
+                                      toast.success(`PO ${po.poNumber} marked as Received!`);
+                                    } catch {}
+                                  }}
+                                  className="h-6 px-2 text-[10px] font-bold text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 gap-1"
+                                  title="Mark as Received"
+                                >
+                                  <CheckCircle2 className="size-3" />
+                                  <span>Received</span>
+                                </Button>
+                              )}
+                              {po.status !== "RECEIVED" && po.status !== "CANCELLED" && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    if (!confirm(`Cancel PO ${po.poNumber}?`)) return;
+                                    try {
+                                      const raw = localStorage.getItem("clinic_purchase_orders");
+                                      const list: ClinicPurchaseOrderRecord[] = raw ? JSON.parse(raw) : [];
+                                      const updated = list.map((p) =>
+                                        p.id === po.id ? { ...p, status: "CANCELLED" as const } : p
+                                      );
+                                      localStorage.setItem("clinic_purchase_orders", JSON.stringify(updated));
+                                      loadPurchaseOrders();
+                                      toast.success(`PO ${po.poNumber} cancelled.`);
+                                    } catch {}
+                                  }}
+                                  className="h-7 w-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                                  title="Cancel PO"
+                                >
+                                  <X className="size-3.5" />
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  if (!confirm(`Delete PO ${po.poNumber} permanently?`)) return;
+                                  try {
+                                    const raw = localStorage.getItem("clinic_purchase_orders");
+                                    const list: ClinicPurchaseOrderRecord[] = raw ? JSON.parse(raw) : [];
+                                    localStorage.setItem("clinic_purchase_orders", JSON.stringify(list.filter((p) => p.id !== po.id)));
+                                    loadPurchaseOrders();
+                                    toast.success(`PO ${po.poNumber} deleted.`);
+                                  } catch {}
+                                }}
+                                className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                                title="Delete PO"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : (
-          /* ═══ 7. INVOICES REGISTER TABLE (DEFAULT) ═══ */
+          /* â•â•â• 7. INVOICES REGISTER TABLE (DEFAULT) â•â•â• */
           <div
             id="billing-invoice-register"
             className={cn(
@@ -2894,9 +3183,9 @@ export function BillingDeskDashboard({
                     <th className="px-4 py-3">Customer (Party)</th>
                     <th className="px-4 py-3">Patient / Pet</th>
                     <th className="px-4 py-3">Attending Staff</th>
-                    <th className="px-4 py-3 text-right">Total (₹)</th>
-                    <th className="px-4 py-3 text-right">Paid (₹)</th>
-                    <th className="px-4 py-3 text-right">Due (₹)</th>
+                    <th className="px-4 py-3 text-right">Total (â‚¹)</th>
+                    <th className="px-4 py-3 text-right">Paid (â‚¹)</th>
+                    <th className="px-4 py-3 text-right">Due (â‚¹)</th>
                     <th className="px-4 py-3 text-center">Status</th>
                     <th className="px-4 py-3 text-center">Actions</th>
                   </tr>
@@ -3003,23 +3292,56 @@ export function BillingDeskDashboard({
               </table>
             </div>
           </div>
-        )}
       </div>
 
-      {/* ── DAY-END & STOCK VALUATION MODALS ── */}
+      {/* â”€â”€ DAY-END & STOCK VALUATION MODALS â”€â”€ */}
       <DailySummaryModal
         open={dailySummaryOpen}
         onClose={() => setDailySummaryOpen(false)}
         invoices={invoices}
       />
 
-      {/* ── PURCHASE BILL VIEW & PRINT MODAL ── */}
+      {/* â”€â”€ PURCHASE BILL VIEW & PRINT MODAL â”€â”€ */}
       <PurchaseBillPrintView
         bill={selectedPurchaseBill}
         open={showPurchaseBillPrintView}
         onClose={() => setShowPurchaseBillPrintView(false)}
         onMarkPaid={handleMarkPurchaseBillPaid}
         onDelete={handleDeletePurchaseBill}
+      />
+
+      {/* â”€â”€ PURCHASE ORDER VIEW & PRINT MODAL â”€â”€ */}
+      <PurchaseOrderPrintView
+        order={selectedPurchaseOrder}
+        open={showPurchaseOrderPrintView}
+        onClose={() => setShowPurchaseOrderPrintView(false)}
+        onMarkReceived={(orderId) => {
+          try {
+            const raw = localStorage.getItem("clinic_purchase_orders");
+            const list: any[] = raw ? JSON.parse(raw) : [];
+            const updated = list.map((p: any) =>
+              p.id === orderId ? { ...p, status: "RECEIVED" } : p
+            );
+            localStorage.setItem("clinic_purchase_orders", JSON.stringify(updated));
+            loadPurchaseOrders();
+            if (selectedPurchaseOrder?.id === orderId) {
+              setSelectedPurchaseOrder({ ...selectedPurchaseOrder, status: "RECEIVED" });
+            }
+            toast.success("Purchase order marked as Received!");
+          } catch {}
+        }}
+        onDelete={(orderId, poNo) => {
+          if (!confirm(`Delete PO ${poNo || ""} permanently?`)) return;
+          try {
+            const raw = localStorage.getItem("clinic_purchase_orders");
+            const list: any[] = raw ? JSON.parse(raw) : [];
+            localStorage.setItem("clinic_purchase_orders", JSON.stringify(list.filter((p: any) => p.id !== orderId)));
+            loadPurchaseOrders();
+            setShowPurchaseOrderPrintView(false);
+            setSelectedPurchaseOrder(null);
+            toast.success("Purchase order deleted.");
+          } catch {}
+        }}
       />
     </div>
   );
