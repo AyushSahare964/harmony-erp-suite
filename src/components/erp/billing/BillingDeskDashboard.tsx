@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -3292,6 +3292,7 @@ export function BillingDeskDashboard({
               </table>
             </div>
           </div>
+        )}
       </div>
 
       {/* â”€â”€ DAY-END & STOCK VALUATION MODALS â”€â”€ */}
