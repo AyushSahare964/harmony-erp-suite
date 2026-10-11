@@ -22,6 +22,7 @@ import type { InventoryItemLine } from "./InventoryItemSection";
 
 export interface LiveSummaryPanelProps {
   consultationFee: number | null;
+  consultationPreset?: string | null | undefined;
   immediateMedicines: InventoryItemLine[];
   prescribedMedicines: InventoryItemLine[];
   injectables: InventoryItemLine[];
@@ -42,6 +43,7 @@ export interface LiveSummaryPanelProps {
 
 export function LivePrescriptionSummaryPanel({
   consultationFee,
+  consultationPreset,
   immediateMedicines,
   prescribedMedicines,
   injectables,
@@ -170,7 +172,7 @@ export function LivePrescriptionSummaryPanel({
           <div className="rounded-lg border border-border/60 bg-muted/20 p-2 space-y-1">
             <div className="flex items-center justify-between font-semibold">
               <span className="flex items-center gap-1 text-foreground">
-                <IndianRupee className="size-3 text-primary" /> Doctor Consultation
+                <IndianRupee className="size-3 text-primary" /> {consultationPreset === "HOME_VISIT" ? "Home Visit" : "Doctor Consultation"}
               </span>
               <span className="font-mono font-bold">₹{consultTotal.toFixed(2)}</span>
             </div>

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { IndianRupee } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,8 @@ const PRESETS = [
   { label: "Specialist", amount: 800, code: "SPECIALIST" },
   { label: "Emergency / Surgery", amount: 1200, code: "EMERGENCY" },
 ];
+// Home visit has no fixed price: the doctor types the amount.
+const HOME_VISIT = "HOME_VISIT";
 
 export function ConsultationFeeSection({
   id = "sec-fee",
@@ -36,7 +38,14 @@ export function ConsultationFeeSection({
   isDirty = false,
   isLocked = false,
 }: ConsultationFeeSectionProps) {
-  const currentAmount = amount ?? 0;
+  const amountRef = useRef<HTMLInputElement>(null);
+  const isHomeVisit = preset === HOME_VISIT;
+
+  const handleSelectHomeVisit = () => {
+    if (isLocked) return;
+    onChangeAmount(null, HOME_VISIT);
+    amountRef.current?.focus();
+  };
 
   const handleSelectPreset = (pAmount: number, pCode: string) => {
     if (isLocked) return;
@@ -46,10 +55,14 @@ export function ConsultationFeeSection({
   const handleCustomInputChange = (valStr: string) => {
     if (isLocked) return;
     if (!valStr.trim()) {
-      onChangeAmount(null, null);
+      onChangeAmount(null, isHomeVisit ? HOME_VISIT : null);
       return;
     }
     const num = Math.max(0, Number(valStr) || 0);
+    if (isHomeVisit) {
+      onChangeAmount(num, HOME_VISIT);
+      return;
+    }
     const matchedPreset = PRESETS.find((p) => p.amount === num);
     onChangeAmount(num, matchedPreset ? matchedPreset.code : null);
   };
@@ -96,13 +109,27 @@ export function ConsultationFeeSection({
                 </button>
               );
             })}
+            <button
+              type="button"
+              disabled={isLocked}
+              onClick={handleSelectHomeVisit}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-1.5",
+                isHomeVisit
+                  ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                  : "bg-muted/40 text-foreground border-border hover:bg-muted"
+              )}
+            >
+              <span>Home Visit</span>
+              <span className="font-mono opacity-90">(₹ ____)</span>
+            </button>
           </div>
         </div>
 
         {/* Custom Input */}
         <div className="max-w-xs space-y-1 pt-1">
           <Label htmlFor="custom-consultation-fee" className="text-[11px] font-semibold text-muted-foreground">
-            Custom Consultation Amount (₹)
+            {isHomeVisit ? "Home Visit Charge (₹) — enter amount" : "Custom Consultation Amount (₹)"}
           </Label>
           <div className="relative flex items-center">
             <span className="absolute left-3 text-xs font-bold text-muted-foreground pointer-events-none">
@@ -110,6 +137,7 @@ export function ConsultationFeeSection({
             </span>
             <Input
               id="custom-consultation-fee"
+              ref={amountRef}
               type="number"
               min={0}
               max={100000}
@@ -121,7 +149,7 @@ export function ConsultationFeeSection({
             />
           </div>
           <p className="text-[10px] text-muted-foreground">
-            {amount === 0 ? "₹0 fee recorded (Fee waived / Follow-up check)" : "Amount will be synced to Billing as Doctor Consultation line"}
+            {amount === 0 ? "₹0 fee recorded (Fee waived / Follow-up check)" : `Amount will be synced to Billing as ${isHomeVisit ? "Home Visit" : "Doctor Consultation"} line`}
           </p>
         </div>
       </div>

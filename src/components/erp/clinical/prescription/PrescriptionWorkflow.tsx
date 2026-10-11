@@ -47,6 +47,10 @@ import { createAppointmentFn, updateAppointmentFn, deleteAppointmentFn } from "@
 import { formatDisplayDate, calculateQuickDate } from "@/lib/utils/dateUtils";
 import { resolveUnitPrice, convertToBase } from "@/lib/inventory/packagingUtils";
 import type { IPrescriptionData } from "@/lib/mongodb/models/ClinicalVisit";
+import { ghostText, searchSymptoms, toCatalogueSpecies } from "@/lib/clinical/symptomSearch";
+import { computeTriage, symptomTriage, TRIAGE_ACTION, TRIAGE_LABEL, type ManualSymptom } from "@/lib/clinical/triageRules";
+import type { Triage } from "@/lib/clinical/symptomTypes";
+import { TriageBadge } from "./TriageBadge";
 
 export interface PrescriptionWorkflowProps {
   visit: any;
@@ -87,32 +91,6 @@ const CLINICAL_FINDINGS_OPTIONS = [
   "Anorexia / Loss of Appetite",
   "Otitis / Ear Discharge",
   "Coughing / Sneezing",
-  "Other",
-];
-
-const DEFAULT_SYMPTOMS_OPTIONS = [
-  "Hairfall",
-  "Rashes on Skin",
-  "Blood in Urine",
-  "Lump on Body / Growth",
-  "Itching",
-  "Limping",
-  "Constipation",
-  "Urine Incontinence",
-  "Vomiting",
-  "Listlessness",
-  "Dehydration",
-  "Fever / Pyrexia",
-  "Anorexia / Loss of Appetite",
-  "Otitis / Ear Discharge",
-  "Coughing / Sneezing",
-  "Diarrhea",
-  "Eye Discharge / Redness",
-  "Shivering / Tremors",
-  "Blood in Stool",
-  "Difficulty Breathing",
-  "Excessive Thirst",
-  "Weight Loss",
   "Other",
 ];
 
@@ -174,7 +152,10 @@ function serializeSectionState(sectionKey: string, data: any): string {
     const tags = Array.isArray(data?.tags ?? data?.symptomTags)
       ? [...(data?.tags ?? data?.symptomTags)].sort()
       : [];
-    return JSON.stringify({ text, tags });
+    const manual = (Array.isArray(data?.manual ?? data?.manualSymptoms) ? (data?.manual ?? data?.manualSymptoms) : [])
+      .map((m: any) => `${m.label}|${m.triage}`)
+      .sort();
+    return JSON.stringify({ text, tags, manual });
   }
   if (sectionKey === "FINDINGS") {
     return JSON.stringify({
@@ -296,7 +277,7 @@ export function PrescriptionWorkflow({
   const [symptomSearchQuery, setSymptomSearchQuery] = useState("");
   const [symptomsDropdownOpen, setSymptomsDropdownOpen] = useState(false);
   const [symptomsActiveIndex, setSymptomsActiveIndex] = useState<number>(-1);
-  const [customSymptomsList, setCustomSymptomsList] = useState<string[]>([]);
+  const [manualSymptoms, setManualSymptoms] = useState<ManualSymptom[]>(initialRx.manualSymptoms || []);
   const symptomsDropdownRef = useRef<HTMLDivElement>(null);
   const symptomsSearchInputRef = useRef<HTMLInputElement>(null);
   const symptomsTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -332,6 +313,9 @@ export function PrescriptionWorkflow({
     }
     if (rx.symptomTags && Array.isArray(rx.symptomTags) && rx.symptomTags.length > 0) {
       setSymptomTags(rx.symptomTags);
+    }
+    if (Array.isArray(rx.manualSymptoms) && rx.manualSymptoms.length > 0) {
+      setManualSymptoms(rx.manualSymptoms);
     }
     if (rx.clinicalFindings && rx.clinicalFindings.length > 0) {
       setClinicalFindings(rx.clinicalFindings);
@@ -617,6 +601,7 @@ export function PrescriptionWorkflow({
     SYMPTOMS: serializeSectionState("SYMPTOMS", {
       text: initialRx.symptomsText ?? "",
       tags: initialRx.symptomTags ?? [],
+      manual: initialRx.manualSymptoms ?? [],
     }),
     FINDINGS: serializeSectionState("FINDINGS", {
       findings: initialRx.clinicalFindings || [],
@@ -663,8 +648,9 @@ export function PrescriptionWorkflow({
       serializeSectionState("SYMPTOMS", {
         text: symptomsText,
         tags: symptomTags,
+        manual: manualSymptoms,
       }) !== lastSaved["SYMPTOMS"],
-    [symptomsText, symptomTags, lastSaved]
+    [symptomsText, symptomTags, manualSymptoms, lastSaved]
   );
   const isFindingsDirty = useMemo(
     () =>
@@ -841,6 +827,8 @@ export function PrescriptionWorkflow({
     executeSaveSection("SYMPTOMS", {
       text: symptomsText.trim(),
       tags: symptomTags,
+      manual: manualSymptoms.filter((m) => symptomTags.includes(m.label)),
+      triage: symptomTriageResult.level,
     });
   const handleSaveFindings = () =>
     executeSaveSection("FINDINGS", {
@@ -976,7 +964,7 @@ export function PrescriptionWorkflow({
       linesList.push({
         id: `rx-fee-${visit?.visitId || Date.now()}`,
         lineType: "Consultation",
-        name: "Veterinary Consultation & Physical Examination",
+        name: consultationFeePreset === "HOME_VISIT" ? "Home Visit" : "Veterinary Consultation & Physical Examination",
         quantity: 1,
         unitPrice: Number(consultationFee),
         discountPercent: 0,
@@ -1096,6 +1084,8 @@ export function PrescriptionWorkflow({
       previousHistory,
       symptomsText,
       symptomTags,
+      manualSymptoms,
+      symptomTriage: symptomTriageResult.level,
       clinicalFindings,
       clinicalFindingsOther,
       immediateMedicines: immediateMedicines.map((m: any) => ({
@@ -1254,31 +1244,30 @@ export function PrescriptionWorkflow({
   };
 
   // ── Symptoms handlers & options ──────────────────────────────────────────
-  const allSymptomOptions = useMemo(() => {
-    const combined = [...DEFAULT_SYMPTOMS_OPTIONS];
-    for (const c of customSymptomsList) {
-      if (!combined.includes(c)) combined.unshift(c);
-    }
-    for (const t of symptomTags) {
-      if (!combined.includes(t)) combined.unshift(t);
-    }
-    return combined;
-  }, [customSymptomsList, symptomTags]);
+  const patientSpecies = toCatalogueSpecies(petDetails?.species || visit?.species);
+  // ponytail: a 0/0 age is indistinguishable from "not filled in", so it never counts as neonate
+  const patientAgeMonths = (() => {
+    const total = (petDetails?.ageYears || 0) * 12 + (petDetails?.ageMonths || 0);
+    return total > 0 ? total : undefined;
+  })();
 
-  const filteredSymptomOptions = useMemo(() => {
-    if (!symptomSearchQuery.trim()) return allSymptomOptions;
-    const q = symptomSearchQuery.toLowerCase();
-    return allSymptomOptions.filter((opt) => opt.toLowerCase().includes(q));
-  }, [allSymptomOptions, symptomSearchQuery]);
+  const symptomResults = useMemo(
+    () => searchSymptoms(symptomSearchQuery, patientSpecies),
+    [symptomSearchQuery, patientSpecies]
+  );
+  const filteredSymptomOptions = useMemo(() => symptomResults.map((e) => e.label), [symptomResults]);
+  const symptomGhost = ghostText(symptomSearchQuery, symptomResults);
+  const symptomTriageResult = useMemo(
+    () => computeTriage(symptomTags, { species: patientSpecies, ageMonths: patientAgeMonths, manual: manualSymptoms }),
+    [symptomTags, patientSpecies, patientAgeMonths, manualSymptoms]
+  );
 
   const handleToggleSymptom = (symptom: string) => {
-    let nextTags: string[];
-    if (symptomTags.includes(symptom)) {
-      nextTags = symptomTags.filter((s) => s !== symptom);
-    } else {
-      nextTags = [...symptomTags, symptom];
-    }
+    const removing = symptomTags.includes(symptom);
+    const nextTags = removing ? symptomTags.filter((s) => s !== symptom) : [...symptomTags, symptom];
+    const nextManual = removing ? manualSymptoms.filter((m) => m.label !== symptom) : manualSymptoms;
     setSymptomTags(nextTags);
+    if (removing) setManualSymptoms(nextManual);
 
     let nextText = symptomsText;
     if (!nextText.trim()) {
@@ -1290,16 +1279,19 @@ export function PrescriptionWorkflow({
       ...initialRx,
       symptomsText: nextText,
       symptomTags: nextTags,
+      manualSymptoms: nextManual,
     });
   };
 
-  const handleAddCustomSymptom = (customVal: string) => {
+  /** Manual entry: any text the doctor types, plus the triage level they judge it to be. */
+  const handleAddCustomSymptom = (customVal: string, triage: Triage = "N") => {
     const trimmed = customVal.trim();
     if (!trimmed) return;
-    let nextTags = symptomTags;
     if (!symptomTags.includes(trimmed)) {
-      nextTags = [...symptomTags, trimmed];
+      const nextTags = [...symptomTags, trimmed];
+      const nextManual = [...manualSymptoms.filter((m) => m.label !== trimmed), { label: trimmed, triage }];
       setSymptomTags(nextTags);
+      setManualSymptoms(nextManual);
 
       let nextText = symptomsText;
       if (!nextText.trim()) {
@@ -1314,10 +1306,8 @@ export function PrescriptionWorkflow({
         ...initialRx,
         symptomsText: nextText,
         symptomTags: nextTags,
+        manualSymptoms: nextManual,
       });
-    }
-    if (!customSymptomsList.includes(trimmed)) {
-      setCustomSymptomsList((prev) => [...prev, trimmed]);
     }
     setSymptomSearchQuery("");
   };
@@ -1334,6 +1324,15 @@ export function PrescriptionWorkflow({
       e.preventDefault();
       setSymptomsDropdownOpen(true);
       setSymptomsActiveIndex((prev) => (total === 0 ? -1 : prev <= 0 ? total - 1 : prev - 1));
+      return;
+    }
+    if (e.key === "Tab" && symptomGhost) {
+      e.preventDefault();
+      const hit = symptomResults.find((r) => r.label.toLowerCase().startsWith(symptomSearchQuery.toLowerCase()));
+      if (hit) {
+        if (!symptomTags.includes(hit.label)) handleToggleSymptom(hit.label);
+        setSymptomSearchQuery("");
+      }
       return;
     }
     if (e.key === "Escape") {
@@ -1745,6 +1744,35 @@ export function PrescriptionWorkflow({
             saveLabel="Save Symptoms ✓"
           >
             <div className="space-y-3">
+              {/* Triage alert (decision aid, not a diagnosis) */}
+              {symptomTriageResult.level !== "N" && (
+                <div
+                  role="alert"
+                  className={cn(
+                    "flex items-start gap-2 rounded-lg border p-2.5 text-xs",
+                    symptomTriageResult.level === "E"
+                      ? "border-red-300 bg-red-50 text-red-900"
+                      : "border-amber-300 bg-amber-50 text-amber-900"
+                  )}
+                >
+                  <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold">
+                      {symptomTriageResult.level === "E" ? "EMERGENCY" : "URGENT"} — {TRIAGE_LABEL[symptomTriageResult.level]}
+                      {symptomTriageResult.emergencyLabels.length > 0 &&
+                        `: ${symptomTriageResult.emergencyLabels.join(", ")}`}
+                    </p>
+                    <p>{TRIAGE_ACTION[symptomTriageResult.level]}</p>
+                    {symptomTriageResult.reasons.map((r) => (
+                      <p key={r} className="font-medium">• {r}</p>
+                    ))}
+                    <p className="text-[10px] opacity-70">
+                      Default triage suggestion — not a diagnosis. Clinical judgement overrides.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Selected Symptoms Chips */}
               {symptomTags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-muted/30 border border-border/60">
@@ -1753,6 +1781,7 @@ export function PrescriptionWorkflow({
                       key={symptom}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-primary/10 text-primary border border-primary/20"
                     >
+                      <TriageBadge level={symptomTriage(symptom, manualSymptoms)} />
                       <span>{symptom}</span>
                       <button
                         type="button"
@@ -1782,9 +1811,18 @@ export function PrescriptionWorkflow({
                     }}
                     onFocus={() => setSymptomsDropdownOpen(true)}
                     onKeyDown={handleSymptomsSearchKeyDown}
-                    placeholder="Search or pick symptoms (Press Enter to select / advance)..."
+                    placeholder="Type a symptom (Tab to autocomplete, Enter to select / advance)..."
                     className="pl-8 text-xs h-9 bg-background"
                   />
+                  {symptomGhost && (
+                    <div
+                      aria-hidden
+                      className="absolute inset-y-0 left-8 right-3 flex items-center text-xs pointer-events-none overflow-hidden"
+                    >
+                      <span className="invisible whitespace-pre">{symptomSearchQuery}</span>
+                      <span className="whitespace-pre text-muted-foreground/60">{symptomGhost}</span>
+                    </div>
+                  )}
                 </div>
 
                 {symptomsDropdownOpen && (
@@ -1794,19 +1832,40 @@ export function PrescriptionWorkflow({
                         (o) => o.toLowerCase() === symptomSearchQuery.trim().toLowerCase()
                       ) && (
                         <div className="p-1 border-b border-border/50 mb-1">
-                          <button
-                            type="button"
-                            onClick={() => handleAddCustomSymptom(symptomSearchQuery.trim())}
-                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-colors text-left"
-                          >
-                            <Plus className="size-3.5 shrink-0" />
-                            <span>Add &ldquo;{symptomSearchQuery.trim()}&rdquo; as custom symptom</span>
-                          </button>
+                          <div className="flex flex-wrap items-center gap-1.5 px-1 py-1">
+                            <span className="flex items-center gap-1 text-xs font-bold text-primary">
+                              <Plus className="size-3.5 shrink-0" />
+                              Add &ldquo;{symptomSearchQuery.trim()}&rdquo; manually as:
+                            </span>
+                            {(["N", "C", "E"] as Triage[]).map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => handleAddCustomSymptom(symptomSearchQuery.trim(), t)}
+                                className={cn(
+                                  "px-2 py-0.5 rounded-md text-[11px] font-bold border transition-colors",
+                                  t === "E"
+                                    ? "border-red-300 text-red-700 hover:bg-red-50"
+                                    : t === "C"
+                                    ? "border-amber-300 text-amber-800 hover:bg-amber-50"
+                                    : "border-border text-foreground hover:bg-muted"
+                                )}
+                              >
+                                {TRIAGE_LABEL[t]}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 p-1">
-                      {filteredSymptomOptions.map((option, idx) => {
+                      {!symptomSearchQuery.trim() && symptomResults.length > 0 && (
+                        <p className="col-span-full px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Common{patientSpecies ? ` for ${patientSpecies}` : ""} — start typing to search all
+                        </p>
+                      )}
+                      {symptomResults.map((entry, idx) => {
+                        const option = entry.label;
                         const isSelected = symptomTags.includes(option);
                         const isHighlighted = idx === symptomsActiveIndex;
                         return (
@@ -1824,7 +1883,13 @@ export function PrescriptionWorkflow({
                                 : "hover:bg-muted text-foreground"
                             )}
                           >
-                            <span>{option}</span>
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <TriageBadge level={entry.triage} />
+                              <span className="truncate">{option}</span>
+                              <span className={cn("text-[9px] shrink-0", isSelected ? "opacity-70" : "text-muted-foreground")}>
+                                {entry.group}
+                              </span>
+                            </span>
                             {isSelected && <CheckCircle2 className="size-3.5 shrink-0" />}
                           </button>
                         );
@@ -1832,7 +1897,7 @@ export function PrescriptionWorkflow({
                     </div>
 
                     <div className="p-1.5 border-t border-border/40 flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span className="text-[10px]">Use ↑↓ to navigate · Enter to select · Enter again to advance</span>
+                      <span className="text-[10px]">Tab to autocomplete · Use ↑↓ to navigate · Enter to select · Enter again to advance</span>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1866,6 +1931,7 @@ export function PrescriptionWorkflow({
                       ...initialRx,
                       symptomsText: val,
                       symptomTags,
+                      manualSymptoms,
                     });
                   }}
                   onKeyDown={(e) => {
@@ -2214,6 +2280,7 @@ export function PrescriptionWorkflow({
         <div className="self-start sticky top-0">
           <LivePrescriptionSummaryPanel
             consultationFee={consultationFee}
+            consultationPreset={consultationFeePreset}
             immediateMedicines={immediateMedicines}
             prescribedMedicines={prescribedMedicines}
             injectables={injectables}

@@ -147,6 +147,10 @@ export interface IPrescriptionData {
   previousHistory?: string | undefined;
   symptomsText?: string | undefined;
   symptomTags?: string[] | undefined;
+  /** Doctor-typed symptoms outside the catalogue, with the triage level the doctor chose. */
+  manualSymptoms?: { label: string; triage: "E" | "C" | "N" }[] | undefined;
+  /** Overall triage computed from the symptoms at save time. */
+  symptomTriage?: "E" | "C" | "N" | undefined;
   clinicalFindings?: string[] | undefined;
   clinicalFindingsOther?: string | undefined;
   immediateMedicines?: IImmediateMedicine[] | undefined;

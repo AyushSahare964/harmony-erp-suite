@@ -598,7 +598,7 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
           visit.items.unshift({
             id: `rx-consult-${visit.visitId}`,
             lineType: "Consultation",
-            name: "Doctor Consultation",
+            name: visit.prescriptionData.consultationFeePreset === "HOME_VISIT" ? "Home Visit" : "Doctor Consultation",
             quantity: 1,
             unitPrice: feeAmount,
             discountPercent: 0,
@@ -625,6 +625,15 @@ export const savePrescriptionSectionFn = createServerFn({ method: "POST" })
         visit.prescriptionData.symptomsText = text;
         if (data.payload?.tags && Array.isArray(data.payload.tags)) {
           visit.prescriptionData.symptomTags = data.payload.tags;
+        }
+        const isTriage = (t: unknown): t is "E" | "C" | "N" => t === "E" || t === "C" || t === "N";
+        if (Array.isArray(data.payload?.manual)) {
+          visit.prescriptionData.manualSymptoms = data.payload.manual
+            .filter((m: any) => m && typeof m.label === "string" && isTriage(m.triage))
+            .map((m: any) => ({ label: m.label.trim(), triage: m.triage }));
+        }
+        if (isTriage(data.payload?.triage)) {
+          visit.prescriptionData.symptomTriage = data.payload.triage;
         }
         if (!visit.vitals) {
           visit.vitals = {};

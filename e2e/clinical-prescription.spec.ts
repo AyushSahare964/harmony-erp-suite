@@ -57,6 +57,16 @@ test.describe.serial('Clinical Consultation & Prescription: All 10 Rx Sections',
     await expect(reopened.getByPlaceholder(/previous medical history/i)).toHaveValue(historyText, { timeout: 15000 });
 
     // ── 2. Symptoms ──
+    // Autocomplete: typing a prefix and pressing Tab accepts the ghost-text suggestion as a chip
+    const symptomInput = reopened.getByPlaceholder(/type a symptom/i);
+    await symptomInput.scrollIntoViewIfNeeded();
+    await fillStable(symptomInput, 'Vomit');
+    await symptomInput.press('Tab');
+    await expect(reopened.getByTitle('Remove symptom')).toHaveCount(1, { timeout: 10000 });
+    // Manual entry: free text outside the catalogue, with a doctor-chosen triage level
+    await fillStable(symptomInput, `Odd sign ${suffix}`);
+    await reopened.getByRole('button', { name: 'Emergency', exact: true }).click({ timeout: 10000 });
+    await expect(reopened.getByRole('alert').filter({ hasText: /EMERGENCY/ })).toBeVisible();
     await fillStable(reopened.getByPlaceholder(/enter presenting symptoms/i), symptomsText);
 
     // ── 3. Clinical Findings (multi-select chip picker) — narrow the dropdown by typing
