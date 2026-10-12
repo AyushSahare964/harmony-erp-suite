@@ -956,10 +956,10 @@ export function ProductMasterWizardDialog({
             const subTotal = purchaseBillState.lines.reduce((s, l) => s + (l.amount || 0), 0);
             const shipping = purchaseBillState.addShipping ? Math.max(0, purchaseBillState.shippingCost || 0) : 0;
             const grandTotal = Math.round((subTotal + shipping) * 100) / 100;
-            const invItemId = created ? (created as any)._id || created.itemCode : undefined;
+            const invItemId = created ? created.itemCode : undefined;
 
             const paymentStatus = purchaseBillState.paymentStatus || "PAID";
-            const finalTotal = grandTotal > 0 ? grandTotal : 1;
+            const finalTotal = grandTotal;
             const actualPaidAmount =
               paymentStatus === "PAID"
                 ? finalTotal
@@ -1005,7 +1005,7 @@ export function ProductMasterWizardDialog({
                   itemType: "INVENTORY",
                   inventoryItemId: invItemId,
                   description: l.productName,
-                  hsnCode: form.hsnCode || "3004",
+                  hsnCode: form.hsnCode || undefined,
                   qty: l.quantity,
                   freeQty: 0,
                   unit: l.unit,

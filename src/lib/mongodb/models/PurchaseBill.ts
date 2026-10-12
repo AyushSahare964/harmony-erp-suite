@@ -41,6 +41,8 @@ export interface IPurchaseBill extends Document {
   /** Two-digit GST state code the goods are deemed supplied to. */
   placeOfSupply?: string;
   taxType: "INTRA" | "INTER";
+  /** As chosen on the bill form; drives itcEligible. */
+  purchaseType?: "GST" | "Non-GST" | "Bill of Supply";
   /** Whether input tax credit can be claimed on this bill. */
   itcEligible?: boolean;
   subtotal: number;
@@ -105,6 +107,7 @@ const PurchaseBillSchema = new Schema<IPurchaseBill>(
     supplierBillDate: { type: String, default: "" },
     placeOfSupply: { type: String, default: "27" },
     taxType: { type: String, enum: ["INTRA", "INTER"], default: "INTRA" },
+    purchaseType: { type: String, enum: ["GST", "Non-GST", "Bill of Supply"], default: "GST" },
     itcEligible: { type: Boolean, default: true },
     subtotal: { type: Number, default: 0 },
     discountTotal: { type: Number, default: 0 },

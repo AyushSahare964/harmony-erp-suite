@@ -47,6 +47,7 @@ import { computeDocument, type TaxDocInput } from "@/lib/finance/taxEngine";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import { finalizeVisitAndBillFn } from "@/lib/mongodb/serverFns/clinical";
 import { getItemsFn, type InventoryItemRow } from "@/lib/mongodb/serverFns/inventory";
+import { getAvailableUnits, convertToBase, type PackagingHierarchy } from "@/lib/inventory/packagingUtils";
 import { useErp } from "@/lib/erp/store";
 import { useInventory, type Medicine, type ProductType } from "@/components/erp/inventory/useInventoryStore";
 import { ProductMasterWizardDialog } from "@/components/erp/inventory/ProductMasterWizardDialog";
@@ -68,6 +69,10 @@ interface InvoiceGridLine {
   gstRate: number;
   amount: number;
   serialNo?: string | undefined;
+  /** Inventory link: item code, plus the quantity expressed in the item's base unit. */
+  itemCode?: string | undefined;
+  quantityBase?: number | undefined;
+  baseLabel?: string | undefined;
 }
 
 const COMMON_UOMS = ["PCS", "STRIP", "TAB", "BOTTLE", "VIAL", "ML", "GM", "KG", "BOX", "DOSE", "SESSION"];
@@ -132,6 +137,8 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
   // ── 2. Inventory Items & Category Selection ──
   const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([]);
   const [itemCategory, setItemCategory] = useState<string>("ALL");
+  // The inventory item the current entry row is linked to (null = free-typed)
+  const [selectedItem, setSelectedItem] = useState<InventoryItemRow | null>(null);
 
   // ── 3. Particulars Line Entry State ──
   const [particularsMode, setParticularsMode] = useState<"Tagging" | "ItemCode">("Tagging");
@@ -363,10 +370,59 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
   };
 
   // Quick select an item from the category / inventory browse
+  // A linked item only sells in the units its inventory record actually has:
+  // 1) its saved packaging chain (Box/Strip/Tablet), else
+  // 2) the pack size written in its name/generic name, e.g. "relaxzyme (1*10)" = 1 strip of 10 tablets, else
+  // 3) just its own unit. Nothing is invented.
+  const hierarchyOf = (it: InventoryItemRow): PackagingHierarchy => {
+    if (it.packagingHierarchy) return it.packagingHierarchy as PackagingHierarchy;
+    const unit = it.unit || it.salesUom || "PCS";
+    const pack = /\((\d+)\s*[*xX×]\s*(\d+)\)/.exec(`${it.genericName ?? ""} ${it.name} ${it.description ?? ""}`);
+    if (pack && /^(tablet|capsule)$/i.test(unit)) {
+      const strips = Number(pack[1]);
+      const perStrip = Number(pack[2]);
+      if (perStrip > 1) {
+        return strips > 1
+          ? {
+              baseUnit: unit, purchaseUnit: "Box", baseUnitsPerPurchase: strips * perStrip, hasIntermediateUnit: true,
+              intermediateUnit: "Strip", intermediateUnitsPerPurchase: strips, baseUnitsPerIntermediate: perStrip,
+            }
+          : { baseUnit: unit, purchaseUnit: "Strip", baseUnitsPerPurchase: perStrip, hasIntermediateUnit: false };
+      }
+    }
+    return { baseUnit: unit, purchaseUnit: unit, baseUnitsPerPurchase: 1, hasIntermediateUnit: false };
+  };
+  const hierarchy = selectedItem ? hierarchyOf(selectedItem) : undefined;
+  const unitsOf = (h: PackagingHierarchy) => [...new Set(getAvailableUnits(h))].reverse(); // Box / Strip / Tablet
+  const uomOptions = hierarchy ? unitsOf(hierarchy) : COMMON_UOMS;
+
+  // The saved sale price is per the item's selling unit (e.g. ₹37 per Tablet). Price for any other
+  // unit = that price x (base units in that unit / base units in the selling unit). Matches the real data.
+  const sellingUnitOf = (it: InventoryItemRow, h: PackagingHierarchy) =>
+    it.salesUom && unitsOf(h).includes(it.salesUom) ? it.salesUom : h.baseUnit;
+  const priceForUnit = (it: InventoryItemRow, u: string, h: PackagingHierarchy) => {
+    const price = it.defaultSalePrice || it.mrp || 0;
+    const ratio = convertToBase(1, u, h) / convertToBase(1, sellingUnitOf(it, h), h);
+    return Math.round(price * ratio * 100) / 100;
+  };
+  const baseQtyOf = (qty: number, unit: string, h: PackagingHierarchy | undefined) =>
+    h ? convertToBase(qty, unit, h) : qty;
+
+  const handleUomChange = (u: string) => {
+    setUom(u);
+    if (selectedItem && hierarchy) {
+      setSalePrice(priceForUnit(selectedItem, u, hierarchy));
+    }
+  };
+
   const handleSelectInventoryItem = (item: InventoryItemRow) => {
     setItemName(item.name);
-    setUom(item.salesUom || item.unit || "PCS");
-    setSalePrice(item.defaultSalePrice || item.mrp || 0);
+    setSelectedItem(item);
+    const h = hierarchyOf(item);
+    // Start on the item's own selling unit; the receptionist can switch to Strip/Box
+    const defaultUnit = sellingUnitOf(item, h);
+    setUom(defaultUnit);
+    setSalePrice(priceForUnit(item, defaultUnit, h));
     const gst =
       (item as any).gstRate !== undefined
         ? (item as any).gstRate
@@ -476,6 +532,26 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
       return;
     }
 
+    // Link to inventory: the picked item, or a typed name that exactly matches one
+    const linked =
+      selectedItem ??
+      inventoryItems.find((it) => it.name.trim().toLowerCase() === itemName.trim().toLowerCase()) ??
+      null;
+    const linkedH = linked ? hierarchyOf(linked) : undefined;
+    const qtyBase = baseQtyOf(quantity, uom, linkedH);
+    if (linked) {
+      if (lines.some((l) => l.itemCode === linked.itemCode)) {
+        toast.error(`${linked.name} is already on this invoice. Remove it or change its quantity.`);
+        return;
+      }
+      if (linked.maintainStock !== false && qtyBase > (linked.currentStock ?? 0)) {
+        toast.error(
+          `Only ${linked.currentStock ?? 0} ${linkedH?.baseUnit ?? linked.unit} of ${linked.name} in stock (you entered ${qtyBase}).`
+        );
+        return;
+      }
+    }
+
     const assignedTag = serialCode.trim() || autoGeneratedSerialNo;
 
     const newLine: InvoiceGridLine = {
@@ -491,12 +567,16 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
       gstRate: invoiceType === "NON_GST" ? 0 : gstRate,
       amount: calculatedParticularsAmount,
       serialNo: lineSerialNo || undefined,
+      itemCode: linked?.itemCode,
+      quantityBase: linked ? qtyBase : undefined,
+      baseLabel: linked && linkedH && uom !== linkedH.baseUnit ? `= ${qtyBase} ${linkedH.baseUnit}` : undefined,
     };
 
     setLines((prev) => [...prev, newLine]);
 
     // Reset particulars entry fields
     setItemName("");
+    setSelectedItem(null);
     setItemDescription("");
     setQuantity(1);
     setSalePrice(0);
@@ -602,8 +682,9 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
           const taxable = Math.max(0, gross - discAmt);
           return {
             lineType: "Pharmacy" as const,
-            name: l.itemName + (l.itemDescription ? ` (${l.itemDescription})` : ""),
-            quantity: Math.max(1, l.quantity || 1),
+            name: l.itemName + (l.itemDescription ? ` (${l.itemDescription})` : "") + (l.baseLabel ? ` [${l.uom}]` : ""),
+            ...(l.itemCode ? { itemCode: l.itemCode, unit: l.uom, quantityBase: l.quantityBase } : {}),
+            quantity: l.quantity > 0 ? l.quantity : 1,
             unitPrice: Math.max(0, l.salePrice || 0),
             discountPercent: discPct,
             discountType: "percentage" as const,
@@ -1104,10 +1185,16 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
                   <Label className="text-[11px] font-medium text-foreground">
                     Item Name <span className="text-rose-500">*</span>
                   </Label>
-                  {filteredInventoryItems.length > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      ({filteredInventoryItems.length} available)
+                  {selectedItem ? (
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold">
+                      Linked · stock {selectedItem.currentStock ?? 0} {hierarchy?.baseUnit ?? selectedItem.unit}
                     </span>
+                  ) : (
+                    filteredInventoryItems.length > 0 && (
+                      <span className="text-[10px] text-muted-foreground">
+                        ({filteredInventoryItems.length} available)
+                      </span>
+                    )
                   )}
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -1120,6 +1207,7 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
                         onChange={(e) => {
                           const val = e.target.value;
                           setItemName(val);
+                          if (selectedItem && val !== selectedItem.name) setSelectedItem(null);
                           setIsInvoiceItemDropdownOpen(true);
                         }}
                         placeholder="Type or select item name..."
@@ -1260,12 +1348,12 @@ export function NewSalesInvoiceModal({ open, onClose, onInvoiceCreated, initialP
               {/* UoM */}
               <div className="col-span-1 space-y-1">
                 <Label className="text-[11px] font-medium text-foreground">UoM</Label>
-                <Select value={uom} onValueChange={setUom}>
+                <Select value={uom} onValueChange={handleUomChange}>
                   <SelectTrigger className="h-8 text-xs bg-background px-2">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {COMMON_UOMS.map((u) => (
+                    {uomOptions.map((u) => (
                       <SelectItem key={u} value={u}>
                         {u}
                       </SelectItem>

@@ -69,6 +69,8 @@ const PrescriptionLineZ = z.object({
   batchNo: z.string().optional().nullable(),
   name: z.string().min(1),
   dosageInstructions: z.string().optional().nullable(),
+  unit: z.string().optional().nullable(),
+  quantityBase: z.number().positive().optional().nullable(),
   quantity: z.number().positive(),
   unitPrice: z.number().min(0),
   discountPercent: z.number().min(0).max(100).default(0),
@@ -1137,6 +1139,20 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     await connectDB();
 
     let visit = await ClinicalVisit.findOne({ visitId: data.visitId });
+    // A visit created right here is a counter/OTC sale: no prescription save has touched stock yet.
+    const isNewVisit = !visit;
+    // Refuse to oversell a counter sale — checked before an invoice number is allocated
+    if (isNewVisit) {
+      for (const item of data.items) {
+        if (!item.itemCode) continue;
+        const inv = await InventoryItem.findOne({ itemCode: item.itemCode }).lean();
+        const need = item.quantityBase ?? item.quantity;
+        if (inv && inv.maintainStock !== false && need > (inv.currentStock ?? 0)) {
+          throw new Error(`Insufficient stock for ${item.name}: need ${need}, available ${inv.currentStock ?? 0}.`);
+        }
+      }
+    }
+
     if (!visit) {
       const invSeq = await nextSeq("invoice_no", "INV/2026-27", 4, maxInvoiceSeq);
       const rxSeq = await nextSeq("prescription_no", "RX", 4, maxRxSeq);
@@ -1224,10 +1240,26 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
             batch = await StockBatch.findOne({ itemCode: item.itemCode });
           }
 
-          const remainingQty = batch ? Math.max(0, batch.qty - item.quantity) : 0;
+          // Stock is kept in the item's base unit, so deduct the base quantity when we have it
+          const qtyBase = item.quantityBase ?? item.quantity;
+          let remainingQty = 0;
           if (batch) {
-            batch.qty = remainingQty;
-            await batch.save();
+            // FEFO: drain the earliest-expiring batch first, then spill into the next ones
+            const more = await StockBatch.find({ ...filter, _id: { $ne: batch._id } }).sort({ expiryDate: 1 });
+            let need = qtyBase;
+            for (const b of [batch, ...more]) {
+              if (need <= 0) break;
+              const take = Math.min(b.qty, need);
+              if (take > 0) {
+                b.qty -= take;
+                need -= take;
+                await b.save();
+              }
+            }
+            remainingQty = batch.qty;
+          }
+          if (isNewVisit && item.itemCode) {
+            await InventoryItem.updateOne({ itemCode: item.itemCode }, { $inc: { currentStock: -qtyBase } });
           }
 
           // Create inventory ledger entry so the inventory usage history accurately reflects this OPD consumption
@@ -1240,13 +1272,15 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
               batchId: batch?.batchCode || "B-GENERAL",
               batchNo: batch?.batchNo || item.batchNo || "OPD-RX",
               movementType: "sale_out",
-              quantity: item.quantity,
+              quantity: qtyBase,
               sourceType: "invoice",
               sourceRef: visit.invoiceNo || visit.visitId,
               balanceAfter: remainingQty,
               actorName: data.doctorName || "Dr. Rohit Sharma",
               createdAt: new Date().toISOString().replace("T", " ").slice(0, 16),
-              reason: `Clinical OPD Prescribed Usage for ${visit.petName} (${visit.petId || "Patient"})`,
+              reason: isNewVisit
+                ? `Counter sale to ${visit.ownerName} (${visit.petName})`
+                : `Clinical OPD Prescribed Usage for ${visit.petName} (${visit.petId || "Patient"})`,
             },
           });
 

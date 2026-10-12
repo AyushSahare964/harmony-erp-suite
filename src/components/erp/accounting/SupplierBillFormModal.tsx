@@ -53,6 +53,8 @@ interface PurchaseLine {
   /** e.g. "= 20 Tablet" when billed in Strip/Box */
   baseLabel?: string | undefined;
   batchNo?: string | undefined;
+  /** YYYY-MM */
+  expiry?: string | undefined;
   mrp: number;
   freeQty: number;
   discountPct: number;
@@ -115,6 +117,15 @@ const INDIAN_STATES = [
   "Other State / UT",
 ];
 
+const GST_STATE_CODE: Record<string, string> = {
+  "Jammu and Kashmir": "01", "Himachal Pradesh": "02", Punjab: "03", Uttarakhand: "05", Haryana: "06",
+  Delhi: "07", Rajasthan: "08", "Uttar Pradesh": "09", Bihar: "10", Sikkim: "11", "Arunachal Pradesh": "12",
+  Nagaland: "13", Manipur: "14", Mizoram: "15", Tripura: "16", Meghalaya: "17", Assam: "18",
+  "West Bengal": "19", Jharkhand: "20", Odisha: "21", Chhattisgarh: "22", "Madhya Pradesh": "23",
+  Gujarat: "24", Goa: "30", Maharashtra: "27", Karnataka: "29", Kerala: "32", "Tamil Nadu": "33",
+  Puducherry: "34", Telangana: "36", "Andhra Pradesh": "37", Ladakh: "38", "Other State / UT": "97",
+};
+
 export function SupplierBillFormModal({
   open,
   onClose,
@@ -143,6 +154,7 @@ export function SupplierBillFormModal({
   const [gstPct, setGstPct] = useState<number | null>(null);
   const [hsnCode, setHsnCode] = useState("");
   const [batchNo, setBatchNo] = useState("");
+  const [expiry, setExpiry] = useState("");
   const [mrp, setMrp] = useState<number>(0);
   const [freeQty, setFreeQty] = useState<number>(0);
   const [discountPct, setDiscountPct] = useState<number>(0);
@@ -158,6 +170,8 @@ export function SupplierBillFormModal({
 
   // Bottom row: shipping, remarks, reminder
   const [addShipping, setAddShipping] = useState(false);
+  // Off by default: stock is otherwise added through Add Stock, so ticking this on every bill would double-count.
+  const [receiveStock, setReceiveStock] = useState(false);
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [remarks, setRemarks] = useState("");
   const [showReminderModal, setShowReminderModal] = useState(false);
@@ -191,17 +205,35 @@ export function SupplierBillFormModal({
   useEffect(() => {
     if (!open) return;
 
+    setPurchaseType("GST");
+    setPlaceOfSupply(CLINIC_STATE);
+    setPoNumber("");
     setPurchaseBillNo("");
     setBillDate(todayIST());
+    setSupplierId(initialSupplierId || "");
+    setLines([]);
+    setAddShipping(false);
+    setShippingCost(0);
+    setRemarks("");
+    setProductName("");
+    setSelectedItem(null);
+    setQuantity(0);
+    setUom("");
+    setGstPct(null);
+    setPurchasePrice(0);
+    setMrp(0);
+    setHsnCode("");
+    setBatchNo("");
+    setExpiry("");
+    setReceiveStock(false);
+    setFreeQty(0);
+    setDiscountPct(0);
 
     Promise.all([listSuppliersFn(), getItemsFn({ data: { status: "Active" } })])
       .then(([sups, invItems]) => {
         setSuppliers(sups || []);
         setInventoryItems(invItems || []);
         if (initialItem) handleSelectProduct(initialItem);
-        if (sups && sups.length > 0 && !supplierId && sups[0]) {
-          setSupplierId(sups[0]._id);
-        }
       })
       .catch((err) => {
         console.error("Failed to load bill masters:", err);
@@ -252,7 +284,9 @@ export function SupplierBillFormModal({
   const lineTax = (l: PurchaseLine) => r2((l.amount * lineGst(l)) / 100);
 
   // Totals
-  const subTotal = r2(lines.reduce((sum, l) => sum + (l.amount || 0), 0));
+  const subTotal = r2(lines.reduce((sum, l) => sum + (l.amount || 0), 0)); // taxable (after discount)
+  const grossTotal = r2(lines.reduce((sum, l) => sum + l.quantity * l.purchasePrice, 0));
+  const discountTotal = r2(Math.max(0, grossTotal - subTotal));
   const gstTotal = r2(lines.reduce((sum, l) => sum + lineTax(l), 0));
   const cgstTotal = isInterState ? 0 : r2(gstTotal / 2);
   const sgstTotal = isInterState ? 0 : r2(gstTotal - cgstTotal);
@@ -290,6 +324,24 @@ export function SupplierBillFormModal({
       return;
     }
 
+    if (isGst && gstPct === null) {
+      toast.error("Select a GST % for this item (choose 0 if exempt).");
+      return;
+    }
+
+    // Link to inventory: the picked item, or a typed name that exactly matches one
+    const linked =
+      selectedItem ??
+      inventoryItems.find((it) => it.name.trim().toLowerCase() === productName.trim().toLowerCase());
+    const finalHsn = hsnCode.trim() || linked?.hsnCode || undefined;
+    if (isGst && !finalHsn) {
+      toast.warning("No HSN code for this item — add it for GST filing.");
+    }
+    if (receiveStock && linked && (!batchNo.trim() || !expiry)) {
+      toast.error("Batch No. and Expiry are required to receive stock.");
+      return;
+    }
+
     const newLine: PurchaseLine = {
       id: "line_" + Date.now(),
       sNo: lines.length + 1,
@@ -300,9 +352,10 @@ export function SupplierBillFormModal({
       purchasePrice: purchasePrice || 0,
       amount: calculatedParticularsAmount,
       gstPct: effectiveGstPct,
-      itemCode: selectedItem?.itemCode,
-      hsnCode: hsnCode.trim() || selectedItem?.hsnCode,
+      itemCode: linked?.itemCode,
+      hsnCode: finalHsn,
       batchNo: batchNo.trim() || undefined,
+      expiry: expiry || undefined,
       mrp: mrp || 0,
       freeQty: freeQty || 0,
       discountPct: discountPct || 0,
@@ -322,6 +375,7 @@ export function SupplierBillFormModal({
     setMrp(0);
     setHsnCode("");
     setBatchNo("");
+    setExpiry("");
     setFreeQty(0);
     setDiscountPct(0);
   };
@@ -350,38 +404,52 @@ export function SupplierBillFormModal({
     }
 
     const sup = suppliers.find((s) => s._id === supplierId);
+    const postStock = receiveStock && lines.some((l) => l.itemCode);
+    if (postStock) {
+      const missing = lines.filter((l) => l.itemCode && (!l.batchNo || !l.expiry)).map((l) => l.productName);
+      if (missing.length > 0) {
+        toast.error(`Batch No. and Expiry are required to receive stock: ${missing.join(", ")}`);
+        return;
+      }
+    }
 
     setSubmitting(true);
     try {
-      await createPurchaseBillFn({
+      const res = await createPurchaseBillFn({
         data: {
           supplierId,
           supplierName: sup?.name || "Supplier",
           billNumber: purchaseBillNo.trim(),
           billDate,
           taxType: isInterState ? "INTER" : "INTRA",
-          subtotal: subTotal,
-          discountTotal: 0,
+          purchaseType,
+          placeOfSupply: GST_STATE_CODE[placeOfSupply] ?? placeOfSupply,
+          poNumber: poNumber.trim() || undefined,
+          subtotal: grossTotal,
+          discountTotal,
           taxableTotal: subTotal,
           cgstTotal,
           sgstTotal,
           igstTotal,
           otherCharges: shipping,
+          shippingAmount: shipping,
+          receiveStock: postStock,
           roundOff: 0,
-          grandTotal: totalAmount > 0 ? totalAmount : 1,
+          grandTotal: totalAmount,
           remarks: remarks.trim() || undefined,
           items: lines.map((l, idx) => ({
             lineNo: idx + 1,
-            itemType: "INVENTORY",
+            itemType: l.itemCode ? ("INVENTORY" as const) : ("NON_INVENTORY" as const),
             inventoryItemId: l.itemCode,
             description: l.productName,
-            hsnCode: l.hsnCode || "3004",
+            hsnCode: l.hsnCode,
+            expiryDate: l.expiry,
             qty: l.quantity,
             freeQty: l.freeQty,
             batchNo: l.batchNo,
             unit: l.unit,
             purchaseRate: l.purchasePrice,
-            mrp: l.mrp || l.purchasePrice,
+            mrp: l.mrp || undefined,
             discountPct: l.discountPct,
             gstPct: lineGst(l),
             taxableAmount: l.amount,
@@ -392,6 +460,11 @@ export function SupplierBillFormModal({
       });
 
       toast.success("Purchase bill saved successfully!");
+      if (res.stockErrors?.length) {
+        toast.warning(`Bill saved, but stock was not received for: ${res.stockErrors.join("; ")}`, { duration: 12000 });
+      } else if (res.stockPosted > 0) {
+        toast.success(`Stock received for ${res.stockPosted} item(s).`);
+      }
       onSuccess?.();
       onClose();
     } catch (err: any) {
@@ -809,6 +882,7 @@ export function SupplierBillFormModal({
                   {([
                     ["HSN", "text", hsnCode, (v: string) => setHsnCode(v)],
                     ["Batch", "text", batchNo, (v: string) => setBatchNo(v)],
+                    ["Expiry", "month", expiry, (v: string) => setExpiry(v)],
                     ["MRP", "number", mrp || "", (v: string) => setMrp(parseFloat(v) || 0)],
                     ["Free Qty", "number", freeQty || "", (v: string) => setFreeQty(parseFloat(v) || 0)],
                     ["Disc %", "number", discountPct || "", (v: string) => setDiscountPct(Math.min(100, parseFloat(v) || 0))],
@@ -878,6 +952,7 @@ export function SupplierBillFormModal({
                           </td>
                           <td className="py-2 px-4 text-center font-mono text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
                             {line.batchNo || "-"}
+                            {line.expiry && <div className="text-[10px] text-slate-400">exp {line.expiry}</div>}
                           </td>
                           <td className="py-2 px-4 text-center font-mono font-semibold text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
                             {line.quantity}
@@ -947,6 +1022,19 @@ export function SupplierBillFormModal({
                       className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span>Add Shipping and Packaging Costs</span>
+                  </label>
+
+                  <label
+                    className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700 dark:text-slate-300"
+                    title="Creates a stock batch for each inventory line (needs Batch No. and Expiry). Leave off if you add this stock separately via Add Stock."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={receiveStock}
+                      onChange={(e) => setReceiveStock(e.target.checked)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Receive items into stock</span>
                   </label>
 
                   {addShipping && (
