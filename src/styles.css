@@ -61,6 +61,25 @@
 :root {
   --radius: 0.7rem;
 
+  /* Page canvas: pale blue with the faint paw / bone / fish / cat / heart tile (shared with the doctor UI) */
+  --page-canvas: #eaf3fa;
+  --page-pattern: url("/pattern/pets-pattern.svg");
+  --page-pattern-size: 280px 280px;
+
+  /* Card style "Option 2 with big numbers" (KPI cards, panels, tables, pills) */
+  --erp-navy: #001d39;
+  --erp-blue: #0a4174;
+  --erp-sky: #7bbde8;
+  --erp-line: #d3e2ef;
+  --erp-label: #4f6277;
+  --erp-radius: 16px;
+  --erp-shadow: 0 8px 20px rgba(10, 65, 116, 0.07);
+  --erp-ring: rgba(123, 189, 232, 0.35);
+  --erp-head-sub: #a9c6df;
+  --erp-th-bg: #eaf3fa;
+  --erp-row-hover: #f3f8fd;
+  --erp-row-line: #e3edf6;
+
   /* #F5F6F8 */
   --background: oklch(0.9715 0.0021 264.54);
   /* #16233F */
@@ -72,12 +91,12 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.2652 0.0509 267.5);
 
-  /* #1F4ED8 */
-  --primary: oklch(0.4855 0.2153 265.6);
+  /* #0A4174 (was #1F4ED8) */
+  --primary: #0a4174;
   --primary-foreground: oklch(1 0 0);
-  /* #163AA8 */
-  --primary-hover: oklch(0.3963 0.1817 265.9);
-  --primary-soft: oklch(0.9494 0.0224 264.5);
+  /* #001D39 (was #163AA8) */
+  --primary-hover: #001d39;
+  --primary-soft: #e8f1f8; /* very pale blue, from #BDD8E9 */
 
   --secondary: oklch(0.9668 0.0045 264.5);
   --secondary-foreground: oklch(0.2652 0.0509 267.5);
@@ -86,8 +105,8 @@
   /* #5B6472 */
   --muted-foreground: oklch(0.5117 0.0201 262.4);
 
-  --accent: oklch(0.9494 0.0224 264.5);
-  --accent-foreground: oklch(0.4855 0.2153 265.6);
+  --accent: #e8f1f8;
+  --accent-foreground: #0a4174;
 
   /* #C0362C */
   --destructive: oklch(0.5162 0.1836 27.6);
@@ -107,16 +126,16 @@
   /* #E2E6ED */
   --border: oklch(0.9166 0.0086 258.3);
   --input: oklch(0.9166 0.0086 258.3);
-  --ring: oklch(0.4855 0.2153 265.6);
+  --ring: #0a4174;
 
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.2652 0.0509 267.5);
-  --sidebar-primary: oklch(0.4855 0.2153 265.6);
+  --sidebar-primary: #0a4174;
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.9494 0.0224 264.5);
-  --sidebar-accent-foreground: oklch(0.4855 0.2153 265.6);
+  --sidebar-accent: #e8f1f8;
+  --sidebar-accent-foreground: #0a4174;
   --sidebar-border: oklch(0.9166 0.0086 258.3);
-  --sidebar-ring: oklch(0.4855 0.2153 265.6);
+  --sidebar-ring: #0a4174;
 }
 
 @layer base {
@@ -154,11 +173,19 @@
   }
 
   body {
-    background-color: var(--color-background);
+    /* scrolls with the page (no background-attachment: fixed) */
+    background: var(--page-canvas) var(--page-pattern) center top / var(--page-pattern-size) repeat;
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
+  }
+
+  /* Printed invoices, receipts and lab reports: plain white page, no pattern */
+  @media print {
+    body {
+      background: #fff !important;
+    }
   }
 
   h1,
@@ -190,10 +217,11 @@
 }
 
 @utility erp-card {
-  background-color: var(--color-card);
-  border: 1px solid var(--color-border);
-  border-radius: 0.7rem;
-  box-shadow: var(--shadow-card);
+  /* Card style "Option 2": solid white, 16px radius, pale blue border, soft shadow */
+  background-color: #fff;
+  border: 1px solid var(--erp-line);
+  border-radius: var(--erp-radius);
+  box-shadow: var(--erp-shadow);
 }
 
 @utility section-label {
@@ -326,4 +354,214 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* =====================================================================================
+   Card style "Option 2 with big numbers". Defined once here; unlayered, so it wins over the
+   Tailwind utilities a page may still carry. Defaults are scoped to app pages (.vd-shell main):
+   login / pending / reset, the doctor UI, dialogs and print previews are not affected.
+   ===================================================================================== */
+
+/* ---- KPI / stat card ---- */
+.erp-kpi {
+  container-type: inline-size;
+  position: relative;
+  min-width: 0;
+  background: #fff;
+  border: 1px solid var(--erp-line);
+  border-left: 6px solid var(--erp-navy);
+  border-radius: var(--erp-radius);
+  padding: 16px 18px;
+  box-shadow: var(--erp-shadow);
+  transition:
+    transform 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.erp-kpi:hover {
+  transform: translateY(-3px);
+  border-left-color: var(--erp-sky);
+  box-shadow:
+    var(--erp-shadow),
+    0 0 0 3px var(--erp-ring);
+}
+/* KpiCard layout: round icon on the left, text on the right */
+.erp-kpi-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.erp-kpi-icon {
+  flex: none;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: var(--erp-navy);
+  color: var(--erp-sky);
+  display: grid;
+  place-items: center;
+}
+.erp-kpi-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.erp-kpi-body {
+  min-width: 0;
+  flex: 1;
+}
+.erp-kpi-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--erp-label);
+  line-height: 1.3;
+}
+.erp-kpi-value {
+  font-size: 42px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--erp-blue);
+  line-height: 1.05;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+.erp-kpi-note {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+/* Narrow cards (e.g. six in a row): icon moves to the top-right so the number keeps its size */
+@container (max-width: 250px) {
+  .erp-kpi-icon {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 34px;
+    height: 34px;
+  }
+  .erp-kpi-icon svg {
+    width: 17px;
+    height: 17px;
+  }
+  .erp-kpi-label {
+    padding-right: 38px;
+  }
+  .erp-kpi-value {
+    font-size: 38px;
+  }
+}
+
+/* ---- Flashcard (module cards): same navy edge and round icon as the KPI card ---- */
+.erp-flashcard {
+  border-left: 6px solid var(--erp-navy);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.erp-flashcard:hover {
+  border-left-color: var(--erp-sky);
+  box-shadow:
+    var(--erp-shadow),
+    0 0 0 3px var(--erp-ring);
+}
+
+/* ---- Panel / section card ---- */
+.erp-panel {
+  background: #fff;
+  border: 1px solid var(--erp-line);
+  border-radius: var(--erp-radius);
+  box-shadow: var(--erp-shadow);
+}
+.erp-panel-head {
+  background: var(--erp-navy);
+  color: #fff;
+  border-bottom: 0;
+}
+.erp-panel-head :is(h1, h2, h3, h4, .text-foreground, .text-navy, .font-bold, .font-semibold) {
+  color: #fff;
+}
+.erp-panel-head .text-muted-foreground {
+  color: var(--erp-head-sub);
+}
+.erp-panel-head .erp-panel-icon,
+.erp-panel-icon {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(123, 189, 232, 0.18);
+  color: var(--erp-sky);
+  display: grid;
+  place-items: center;
+}
+/* the soft icon chips pages put in their header become the translucent sky circle */
+.erp-panel-head :is(.bg-primary-soft, .bg-primary\/10, .bg-primary\/15, .bg-primary\/20).rounded-xl,
+.erp-panel-head :is(.bg-primary-soft, .bg-primary\/10, .bg-primary\/15, .bg-primary\/20).rounded-lg {
+  border-radius: 50%;
+  background: rgba(123, 189, 232, 0.18);
+  color: var(--erp-sky);
+}
+.erp-panel-head :is(button, a).bg-primary {
+  background: var(--erp-sky);
+  color: var(--erp-navy);
+}
+/* a header that starts the card follows the card corners (no overflow clipping needed) */
+.erp-panel-head:first-child {
+  border-top-left-radius: calc(var(--erp-radius) - 1px);
+  border-top-right-radius: calc(var(--erp-radius) - 1px);
+}
+.erp-panel-head-plain {
+  background: #fff;
+  border-bottom: 2px solid var(--erp-navy);
+}
+
+/* ---- App-page defaults: tables, pills, buttons, inputs ---- */
+.vd-shell main thead tr,
+.vd-shell main thead th {
+  background: var(--erp-th-bg);
+}
+.vd-shell main thead th {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--erp-label);
+}
+.vd-shell main tbody tr,
+.vd-shell main tbody td {
+  border-color: var(--erp-row-line);
+}
+.vd-shell main tbody tr:hover {
+  background: var(--erp-row-hover);
+}
+.vd-shell main div.inline-flex.rounded-md.border.text-xs.font-semibold {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.vd-shell main :is(button, input:not([type="checkbox"]):not([type="radio"]), textarea, [role="combobox"]).rounded-md {
+  border-radius: 12px;
+}
+.vd-shell main :is(button, a, input, textarea, [role="combobox"], [tabindex]):focus-visible {
+  outline: 2px solid var(--erp-sky);
+  outline-offset: 2px;
+}
+
+/* ---- Phones: KPI cards stack in one column, number 36px ---- */
+@media (max-width: 760px) {
+  .vd-shell main .grid:has(> .erp-kpi) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .erp-kpi-value {
+    font-size: 36px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .erp-kpi,
+  .erp-kpi:hover {
+    transition: none;
+    transform: none;
+  }
 }

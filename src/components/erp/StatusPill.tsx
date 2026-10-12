@@ -21,7 +21,7 @@ export function StatusPill({ value }: { value?: string | number | null }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold",
         tone === "green" && "bg-success-soft text-success",
         tone === "amber" && "bg-warning-soft text-warning",
         tone === "red" && "bg-danger-soft text-destructive",

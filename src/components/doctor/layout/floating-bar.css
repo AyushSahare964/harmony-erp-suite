@@ -1,0 +1,251 @@
+/* Slim floating side bars, shared by the doctor UI (.vd grid) and the ERP Shell (.vd-shell).
+   Loaded by FloatingBar itself (React <link precedence>), so every page that shows the bars has it.
+   The outline is an SVG drawn in FloatingBar.tsx: flat on the screen edge, S-curved neck top and
+   bottom, rounded inner side. */
+
+.vd-dock {
+  position: relative;
+  z-index: 12;
+  display: flex;
+  align-items: center; /* vertically centred; height comes from the content */
+  justify-content: flex-start;
+  font-family: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.vd-dock-right {
+  justify-content: flex-end;
+}
+.vd-pill {
+  position: relative;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(38px, 6.4vh, 54px) 0;
+}
+.vd-pill-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.vd-dock-right .vd-pill-shape {
+  transform: scaleX(-1); /* the right bar mirrors the left */
+}
+.vd-pill-body {
+  filter: drop-shadow(0 16px 26px rgb(0 29 57 / 0.34)) drop-shadow(0 3px 7px rgb(0 29 57 / 0.24));
+}
+.vd-spine {
+  stroke: #49769f;
+  stroke-opacity: 0.55;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.vd-pk {
+  opacity: 0;
+  transition:
+    transform 0.42s cubic-bezier(0.3, 1.25, 0.4, 1),
+    opacity 0.25s;
+}
+.vd-pk.is-on {
+  opacity: 1;
+}
+.vd-glow {
+  fill: none;
+  stroke: #7bbde8;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgb(123 189 232 / 0.95));
+}
+
+.vd-badge {
+  position: relative;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 8px;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: radial-gradient(circle at 35% 30%, #f4f9fd, #bdd8e9);
+  box-shadow:
+    0 0 0 2.5px rgb(123 189 232 / 0.35),
+    0 6px 12px rgb(0 0 0 / 0.4);
+}
+.vd-badge-link {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+.vd-badge-link:focus-visible {
+  outline: 2px solid #7bbde8;
+  outline-offset: 2px;
+}
+.vd-badge img {
+  width: 36px;
+  height: 34px;
+  object-fit: contain;
+}
+.vd-badge.is-vet {
+  background: radial-gradient(circle at 35% 30%, #49769f, #0a4174);
+  color: #fff;
+  font: 800 10.5px "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.vd-badge.is-vet b {
+  color: #7bbde8;
+  font-weight: 800;
+}
+
+.vd-items {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.vd-it {
+  position: relative;
+  width: 56px;
+  height: clamp(36px, 6.2vh, 52px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  color: #bdd8e9;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.vd-it svg {
+  width: 22px;
+  height: 22px;
+  transition: transform 0.3s;
+}
+.vd-lb {
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.1;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin-top: 0;
+  white-space: nowrap;
+  transition:
+    max-height 0.25s,
+    opacity 0.25s,
+    margin 0.25s;
+}
+.vd-it.is-lit {
+  color: #fff;
+}
+.vd-it.is-lit svg {
+  transform: translateY(-1px);
+}
+.vd-it.is-lit .vd-lb {
+  max-height: 12px;
+  opacity: 1;
+  margin-top: 2px;
+}
+/* Current page: small sky-blue dot under the icon at rest */
+.vd-it.is-current::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: #7bbde8;
+  transition: opacity 0.2s;
+}
+.vd-it.is-current.is-lit::after {
+  opacity: 0;
+}
+.vd-it:focus-visible {
+  outline: 2px solid #7bbde8;
+  outline-offset: 2px;
+}
+
+/* ---- ERP Shell frame: fixed bars on both screen edges, content in the middle ---- */
+.vd-shell {
+  min-height: 100vh;
+  padding: 0 64px;
+  /* App pages: the shared page pattern about 30% weaker (a 30% canvas-colour veil over the same
+     tile). The doctor home (.vd) keeps full strength. */
+  background:
+    linear-gradient(rgb(234 243 250 / 0.3), rgb(234 243 250 / 0.3)),
+    var(--page-pattern) center top / var(--page-pattern-size) repeat,
+    var(--page-canvas);
+}
+.vd-shell > .vd-dock {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  z-index: 40;
+}
+.vd-shell > .vd-dock-left {
+  left: 0;
+}
+.vd-shell > .vd-dock-right {
+  right: 0;
+}
+
+/* ---- Phones: rows (left bar on top, right bar at the bottom), plain rounded background ---- */
+@media (max-width: 760px) {
+  .vd-dock {
+    display: block;
+  }
+  .vd-pill {
+    width: auto;
+    height: 60px;
+    margin: 8px 10px;
+    padding: 0 8px;
+    flex-direction: row;
+    border-radius: 30px;
+    background: linear-gradient(180deg, #00305c 0%, #001d39 60%, #00152b 100%);
+    box-shadow:
+      0 10px 22px rgb(0 29 57 / 0.3),
+      inset 0 1px 0 rgb(189 216 233 / 0.22);
+  }
+  .vd-pill-shape,
+  .vd-badge,
+  .vd-lb {
+    display: none;
+  }
+  .vd-items {
+    flex: 1;
+    flex-direction: row;
+    justify-content: space-around;
+  }
+  .vd-it {
+    flex: 1;
+    width: auto;
+    height: 44px;
+  }
+  .vd-it.is-lit {
+    background: rgb(123 189 232 / 0.2);
+  }
+  .vd-shell {
+    padding: 0 0 80px;
+  }
+  .vd-shell > .vd-dock-left {
+    position: static;
+    width: auto;
+  }
+  .vd-shell > .vd-dock-right {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+}

@@ -10,14 +10,26 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ClinicRouteImport } from './routes/clinic'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PendingApprovalRouteImport } from './routes/pending-approval'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as DoctorIndexRouteImport } from './routes/doctor.index'
 import { Route as MModuleIdRouteImport } from './routes/m.$moduleId'
+import { Route as PatientIdRouteImport } from './routes/patient.$id'
+import { Route as PatientIdIndexRouteImport } from './routes/patient.$id.index'
+import { Route as PatientIdSectionRouteImport } from './routes/patient.$id.$section'
+import { Route as DoctorPatientIdIndexRouteImport } from './routes/doctor.patient.$id.index'
+import { Route as DoctorPatientIdSectionRouteImport } from './routes/doctor.patient.$id.$section'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClinicRoute = ClinicRouteImport.update({
+  id: '/clinic',
+  path: '/clinic',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -35,55 +47,139 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
   path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DoctorIndexRoute = DoctorIndexRouteImport.update({
+  id: '/doctor/',
+  path: '/doctor/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MModuleIdRoute = MModuleIdRouteImport.update({
   id: '/m/$moduleId',
   path: '/m/$moduleId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PatientIdRoute = PatientIdRouteImport.update({
+  id: '/patient/$id',
+  path: '/patient/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PatientIdIndexRoute = PatientIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PatientIdRoute,
+} as any)
+const PatientIdSectionRoute = PatientIdSectionRouteImport.update({
+  id: '/$section',
+  path: '/$section',
+  getParentRoute: () => PatientIdRoute,
+} as any)
+const DoctorPatientIdIndexRoute = DoctorPatientIdIndexRouteImport.update({
+  id: '/doctor/patient/$id/',
+  path: '/doctor/patient/$id/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorPatientIdSectionRoute = DoctorPatientIdSectionRouteImport.update({
+  id: '/doctor/patient/$id/$section',
+  path: '/doctor/patient/$id/$section',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/clinic': typeof ClinicRoute
   '/login': typeof LoginRoute
   '/pending-approval': typeof PendingApprovalRoute
   '/reset-password': typeof ResetPasswordRoute
   '/m/$moduleId': typeof MModuleIdRoute
+  '/patient/$id': typeof PatientIdRouteWithChildren
+  '/doctor/': typeof DoctorIndexRoute
+  '/patient/$id/$section': typeof PatientIdSectionRoute
+  '/patient/$id/': typeof PatientIdIndexRoute
+  '/doctor/patient/$id/$section': typeof DoctorPatientIdSectionRoute
+  '/doctor/patient/$id/': typeof DoctorPatientIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/clinic': typeof ClinicRoute
   '/login': typeof LoginRoute
   '/pending-approval': typeof PendingApprovalRoute
   '/reset-password': typeof ResetPasswordRoute
   '/m/$moduleId': typeof MModuleIdRoute
+  '/doctor': typeof DoctorIndexRoute
+  '/patient/$id/$section': typeof PatientIdSectionRoute
+  '/patient/$id': typeof PatientIdIndexRoute
+  '/doctor/patient/$id/$section': typeof DoctorPatientIdSectionRoute
+  '/doctor/patient/$id': typeof DoctorPatientIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/clinic': typeof ClinicRoute
   '/login': typeof LoginRoute
   '/pending-approval': typeof PendingApprovalRoute
   '/reset-password': typeof ResetPasswordRoute
   '/m/$moduleId': typeof MModuleIdRoute
+  '/patient/$id': typeof PatientIdRouteWithChildren
+  '/doctor/': typeof DoctorIndexRoute
+  '/patient/$id/$section': typeof PatientIdSectionRoute
+  '/patient/$id/': typeof PatientIdIndexRoute
+  '/doctor/patient/$id/$section': typeof DoctorPatientIdSectionRoute
+  '/doctor/patient/$id/': typeof DoctorPatientIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/login' | '/pending-approval' | '/reset-password' | '/m/$moduleId'
-  fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/pending-approval' | '/reset-password' | '/m/$moduleId'
-  id:
-    | '__root__'
     | '/'
+    | '/clinic'
     | '/login'
     | '/pending-approval'
     | '/reset-password'
     | '/m/$moduleId'
+    | '/patient/$id'
+    | '/doctor/'
+    | '/patient/$id/$section'
+    | '/patient/$id/'
+    | '/doctor/patient/$id/$section'
+    | '/doctor/patient/$id/'
+  fileRoutesByTo: FileRoutesByTo
+  to:
+    | '/'
+    | '/clinic'
+    | '/login'
+    | '/pending-approval'
+    | '/reset-password'
+    | '/m/$moduleId'
+    | '/doctor'
+    | '/patient/$id/$section'
+    | '/patient/$id'
+    | '/doctor/patient/$id/$section'
+    | '/doctor/patient/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/clinic'
+    | '/login'
+    | '/pending-approval'
+    | '/reset-password'
+    | '/m/$moduleId'
+    | '/patient/$id'
+    | '/doctor/'
+    | '/patient/$id/$section'
+    | '/patient/$id/'
+    | '/doctor/patient/$id/$section'
+    | '/doctor/patient/$id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ClinicRoute: typeof ClinicRoute
   LoginRoute: typeof LoginRoute
   PendingApprovalRoute: typeof PendingApprovalRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   MModuleIdRoute: typeof MModuleIdRoute
+  PatientIdRoute: typeof PatientIdRouteWithChildren
+  DoctorIndexRoute: typeof DoctorIndexRoute
+  DoctorPatientIdSectionRoute: typeof DoctorPatientIdSectionRoute
+  DoctorPatientIdIndexRoute: typeof DoctorPatientIdIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -93,6 +189,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/clinic': {
+      id: '/clinic'
+      path: '/clinic'
+      fullPath: '/clinic'
+      preLoaderRoute: typeof ClinicRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -116,6 +219,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/doctor/': {
+      id: '/doctor/'
+      path: '/doctor'
+      fullPath: '/doctor/'
+      preLoaderRoute: typeof DoctorIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/m/$moduleId': {
       id: '/m/$moduleId'
       path: '/m/$moduleId'
@@ -123,15 +233,69 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MModuleIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/patient/$id': {
+      id: '/patient/$id'
+      path: '/patient/$id'
+      fullPath: '/patient/$id'
+      preLoaderRoute: typeof PatientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/patient/$id/': {
+      id: '/patient/$id/'
+      path: '/'
+      fullPath: '/patient/$id/'
+      preLoaderRoute: typeof PatientIdIndexRouteImport
+      parentRoute: typeof PatientIdRoute
+    }
+    '/patient/$id/$section': {
+      id: '/patient/$id/$section'
+      path: '/$section'
+      fullPath: '/patient/$id/$section'
+      preLoaderRoute: typeof PatientIdSectionRouteImport
+      parentRoute: typeof PatientIdRoute
+    }
+    '/doctor/patient/$id/': {
+      id: '/doctor/patient/$id/'
+      path: '/doctor/patient/$id'
+      fullPath: '/doctor/patient/$id/'
+      preLoaderRoute: typeof DoctorPatientIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/patient/$id/$section': {
+      id: '/doctor/patient/$id/$section'
+      path: '/doctor/patient/$id/$section'
+      fullPath: '/doctor/patient/$id/$section'
+      preLoaderRoute: typeof DoctorPatientIdSectionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface PatientIdRouteChildren {
+  PatientIdSectionRoute: typeof PatientIdSectionRoute
+  PatientIdIndexRoute: typeof PatientIdIndexRoute
+}
+
+const PatientIdRouteChildren: PatientIdRouteChildren = {
+  PatientIdSectionRoute: PatientIdSectionRoute,
+  PatientIdIndexRoute: PatientIdIndexRoute,
+}
+
+const PatientIdRouteWithChildren = PatientIdRoute._addFileChildren(
+  PatientIdRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ClinicRoute: ClinicRoute,
   LoginRoute: LoginRoute,
   PendingApprovalRoute: PendingApprovalRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   MModuleIdRoute: MModuleIdRoute,
+  PatientIdRoute: PatientIdRouteWithChildren,
+  DoctorIndexRoute: DoctorIndexRoute,
+  DoctorPatientIdSectionRoute: DoctorPatientIdSectionRoute,
+  DoctorPatientIdIndexRoute: DoctorPatientIdIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

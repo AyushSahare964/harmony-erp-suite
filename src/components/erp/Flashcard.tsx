@@ -5,13 +5,6 @@ import { cn } from "@/lib/utils";
 import type { Flashcard as FlashcardData } from "@/lib/erp/config";
 import { getIcon } from "./icon";
 
-const ACCENT = {
-  blue: "bg-primary-soft text-primary",
-  green: "bg-success-soft text-success",
-  amber: "bg-warning-soft text-warning",
-  red: "bg-danger-soft text-destructive",
-} as const;
-
 const BADGE = {
   blue: "bg-primary-soft text-primary",
   green: "bg-success-soft text-success",
@@ -37,13 +30,13 @@ export function ModuleFlashcard({ card, index = 0 }: { card: FlashcardData; inde
       <Link
         to="/m/$moduleId"
         params={{ moduleId: card.module }}
-        className="erp-card group flex h-full flex-col p-5 transition-all duration-300 hover:border-primary hover:shadow-[var(--shadow-card-hover)]"
+        className="erp-card erp-flashcard group flex h-full flex-col p-5"
       >
         <div className="flex items-start justify-between gap-3">
           <motion.span
             whileHover={{ scale: 1.1, rotate: 3 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
-            className={cn("flex size-10 items-center justify-center rounded-lg", ACCENT[accent])}
+            className="erp-kpi-icon"
           >
             <Icon className="size-5" />
           </motion.span>

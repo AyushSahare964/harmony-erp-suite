@@ -1,0 +1,310 @@
+/* Scoped to the doctor home dashboard: exact styles from reference/home-reference/home-design.html */
+:root {
+  --k-body: url("/doctor/kitten-body.webp");
+  --k-tail: url("/doctor/kitten-tail.webp");
+}
+
+.home,
+.vd-home {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  --ch: clamp(190px, 31vh, 340px); /* height of the kitten: big */
+  --u: calc(var(--ch) / 688); /* one unit of the new kitten picture */
+  --bh: calc(var(--u) * 209); /* light blue board height: low and long */
+  --kl: calc(var(--rail-w, 64px) + 20px); /* distance of the kitten from the left edge */
+}
+
+/* Clinic identity */
+.clinic,
+.vd-clinic {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0;
+}
+
+.clinic-mark,
+.vd-clinic-mark {
+  display: block;
+  height: clamp(110px, 24vh, 210px) !important;
+  width: auto !important;
+  max-width: min(640px, 88%) !important;
+  object-fit: contain;
+  margin-bottom: clamp(8px, 1.6vh, 14px) !important;
+}
+
+.powered,
+.vd-powered {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted, #4d6a86);
+  font-size: 15px;
+}
+
+.powered .brand-chip,
+.powered .vd-brand-chip,
+.vd-powered .brand-chip,
+.vd-powered .vd-brand-chip {
+  font-size: 14px;
+}
+
+/* ---------- Pets + running screen ---------- */
+.stage,
+.vd-stage {
+  --mt: clamp(18px, 3.2vh, 30px); /* dark band above the light blue board (room for the soft edge) */
+  --mb: clamp(14px, 3vh, 26px); /* dark band below the kitten's feet */
+  flex: none;
+  position: relative;
+  z-index: 2;
+  width: calc(100% + 2 * var(--rail-w, 64px)) !important; /* edge to edge, behind the side bars */
+  height: calc(var(--mt) + var(--bh) + var(--u) * 76 + var(--mb)) !important;
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0 2px, transparent 2px 15px),
+    linear-gradient(180deg, #9dbcf5 0%, #91b0f2 10%, #7f9fee 20%, #7492e7 30%, #546acf 40%, #4658c5 48%, #4050bd 55%, #2f3aa5 65%, #27309b 75%, #191e8f 85%, #080781 95%, #05037e 100%) !important;
+  box-shadow: none !important;
+}
+
+.kitten {
+  position: absolute;
+  left: var(--kl);
+  bottom: var(--mb);
+  width: calc(var(--u) * 940);
+  height: calc(var(--u) * 688);
+  pointer-events: none;
+  filter: drop-shadow(0 6px 8px rgba(0, 29, 57, 0.22));
+}
+
+.kitten i {
+  position: absolute;
+  inset: 0;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  will-change: transform;
+}
+
+.k-body {
+  background-image: var(--k-body);
+}
+
+.k-tail {
+  background-image: var(--k-tail);
+  transform-origin: 30% 88.5%;
+  animation: k-tail 2.6s ease-in-out infinite;
+}
+
+.k-sway {
+  position: absolute;
+  inset: 0;
+  transform-origin: 22% 98%;
+  animation: k-sway 5.2s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes k-tail {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(5.5deg); }
+}
+
+@keyframes k-sway {
+  0%, 100% { transform: rotate(-0.6deg) scale(1); }
+  50% { transform: rotate(0.9deg) scale(1.008); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kitten i,
+  .k-sway {
+    animation: none;
+  }
+}
+
+/* ---------- Board and running text ---------- */
+.screen,
+.vd-screen {
+  position: absolute;
+  left: calc(var(--kl) + var(--u) * 230) !important;
+  right: clamp(46px, 5.5vw, 78px) !important;
+  bottom: calc(var(--mb) + var(--u) * 76) !important;
+  height: var(--bh) !important;
+  top: auto !important;
+  padding-top: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+  overflow: visible !important; /* the soft edge spreads outside the board */
+  display: flex !important;
+  align-items: center !important;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif !important;
+  font-feature-settings: "tnum" 1, "cv11" 1;
+  font-size: 3vw; /* fallback */
+  font-size: calc(var(--sw, calc(100vw - 128px)) * 0.021) !important; /* grows with the screen */
+  color: #08233f !important;
+}
+
+.screen .track,
+.vd-screen .track,
+.screen .vd-track,
+.vd-screen .vd-track {
+  padding-left: calc(var(--u) * 70) !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.screen::before,
+.vd-screen::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: calc(var(--bh) * -0.26);
+  top: calc(var(--bh) * -0.26);
+  bottom: calc(var(--bh) * -0.26);
+  background: linear-gradient(180deg, #cfe3f2 0%, #bdd8e9 100%);
+  border-radius: 8px 28px 28px 8px;
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent 0, rgba(0,0,0,.08) calc(calc(var(--bh) * .26) * .22), rgba(0,0,0,.26) calc(calc(var(--bh) * .26) * .5), rgba(0,0,0,.6) calc(calc(var(--bh) * .26) * .78), #000 calc(var(--bh) * .26), #000 calc(100% - calc(var(--bh) * .26)), rgba(0,0,0,.6) calc(100% - calc(var(--bh) * .26) * .78), rgba(0,0,0,.26) calc(100% - calc(var(--bh) * .26) * .5), rgba(0,0,0,.08) calc(100% - calc(var(--bh) * .26) * .22), transparent 100%),
+    linear-gradient(to left, transparent 0, rgba(0,0,0,.08) calc(calc(var(--bh) * .26) * .22), rgba(0,0,0,.26) calc(calc(var(--bh) * .26) * .5), rgba(0,0,0,.6) calc(calc(var(--bh) * .26) * .78), #000 calc(var(--bh) * .26));
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to bottom, transparent 0, rgba(0,0,0,.08) calc(calc(var(--bh) * .26) * .22), rgba(0,0,0,.26) calc(calc(var(--bh) * .26) * .5), rgba(0,0,0,.6) calc(calc(var(--bh) * .26) * .78), #000 calc(var(--bh) * .26), #000 calc(100% - calc(var(--bh) * .26)), rgba(0,0,0,.6) calc(100% - calc(var(--bh) * .26) * .78), rgba(0,0,0,.26) calc(100% - calc(var(--bh) * .26) * .5), rgba(0,0,0,.08) calc(100% - calc(var(--bh) * .26) * .22), transparent 100%),
+    linear-gradient(to left, transparent 0, rgba(0,0,0,.08) calc(calc(var(--bh) * .26) * .22), rgba(0,0,0,.26) calc(calc(var(--bh) * .26) * .5), rgba(0,0,0,.6) calc(calc(var(--bh) * .26) * .78), #000 calc(var(--bh) * .26));
+  mask-composite: intersect;
+  pointer-events: none;
+}
+
+.track,
+.vd-track {
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+
+.marquee,
+.vd-marquee {
+  display: flex;
+  width: max-content;
+  height: 100%;
+  align-items: center;
+  animation: slide 70s linear infinite !important;
+}
+
+.item,
+.vd-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  white-space: nowrap;
+  font-weight: 500 !important;
+  letter-spacing: -0.005em !important;
+  padding-right: 2.2em !important;
+  color: #08233f !important;
+}
+
+.item .brand-chip,
+.item .vd-brand-chip,
+.vd-item .brand-chip,
+.vd-item .vd-brand-chip {
+  font-family: inherit !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  font-size: 0.72em !important;
+  padding: 0.12em 0.5em 0.14em !important;
+  border-radius: 0.4em !important;
+  background: #001D39 !important;
+  color: #7BBDE8 !important;
+}
+
+.item em,
+.vd-item em {
+  font-style: normal !important;
+  font-weight: 600 !important;
+  color: #0A4174 !important;
+}
+
+.dot,
+.vd-dot {
+  width: 0.3em;
+  height: 0.3em;
+  border-radius: 50%;
+  background: #7BBDE8;
+  opacity: 0.7;
+  flex: none;
+  margin-left: 0.3em;
+}
+
+.pawdot,
+.vd-pawdot {
+  width: 0.62em !important;
+  height: 0.62em !important;
+  fill: #5f87a8 !important;
+  opacity: 0.85 !important;
+  flex: none;
+  margin-left: 0.5em !important;
+  transform: rotate(-18deg);
+}
+
+@keyframes slide {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Reduced motion: show one message at a time instead of sliding */
+.screen.reduced .marquee,
+.vd-screen.is-reduced .vd-marquee,
+.screen.is-reduced .marquee,
+.vd-screen.reduced .vd-marquee {
+  animation: none !important;
+  width: 100% !important;
+  justify-content: center !important;
+}
+
+.screen.reduced .item,
+.vd-screen.is-reduced .vd-item,
+.screen.is-reduced .item,
+.vd-screen.reduced .vd-item {
+  padding: 0 !important;
+}
+
+.screen.reduced .dot,
+.vd-screen.is-reduced .vd-dot {
+  display: none !important;
+}
+
+/* Hide any legacy elements if present */
+.home .vd-pets-back,
+.home .vd-paws,
+.vd-home .vd-pets-back,
+.vd-home .vd-paws {
+  display: none !important;
+}
+
+/* ---------- Phones: rails move to top and bottom ---------- */
+@media (max-width: 760px) {
+  :root {
+    --sw: 100vw;
+  }
+  .home,
+  .vd-home {
+    --ch: 150px;
+    --kl: 8px;
+  }
+  .screen,
+  .vd-screen {
+    font-size: calc(var(--sw, 100vw) * 0.04) !important;
+    right: 14px !important;
+  }
+  .stage,
+  .vd-stage {
+    width: 100% !important;
+    height: calc(var(--mt) + var(--bh) + var(--u) * 76 + var(--mb)) !important;
+  }
+}
