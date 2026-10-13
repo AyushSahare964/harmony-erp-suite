@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/select";
 import { KpiCard } from "@/components/erp/KpiCard";
 import { useInventory, type Batch } from "./useInventoryStore";
-import { stockDisplayLabel } from "@/lib/inventory/packagingUtils";
+import { stockUnitTotals } from "@/lib/inventory/packagingUtils";
 
 function money(v: number) {
   return `₹${v.toLocaleString("en-IN")}`;
@@ -285,7 +285,7 @@ export function StockView() {
                         </div>
                         {med.packagingHierarchy && (
                           <div className="text-[11px] font-normal text-muted-foreground mt-0.5">
-                            {stockDisplayLabel(totalQty, med.packagingHierarchy)}
+                            {stockUnitTotals(totalQty, med.packagingHierarchy).join(" · ")}
                           </div>
                         )}
                       </td>

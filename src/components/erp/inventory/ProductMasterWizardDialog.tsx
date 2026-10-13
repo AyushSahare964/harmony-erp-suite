@@ -7,7 +7,7 @@
  * Category Immutability in Edit Mode
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -528,13 +528,19 @@ function AddItemFlow({
 }) {
   const { refetchItems } = useInventory();
   const [created, setCreated] = useState<InventoryItemRow | null>(null);
+  // NewItemModal calls onClose() right after onSuccess; that must not tear down the flow before the bill opens.
+  const createdRef = useRef(false);
 
   useEffect(() => {
-    if (!open) setCreated(null);
+    if (!open) {
+      setCreated(null);
+      createdRef.current = false;
+    }
   }, [open]);
 
   const finish = () => {
     setCreated(null);
+    createdRef.current = false;
     void refetchItems(); // inventory list shows the new item (and any stock change)
     onClose();
   };
@@ -543,10 +549,11 @@ function AddItemFlow({
     <>
       <NewItemModal
         open={open && !created}
-        onClose={onClose}
+        onClose={() => { if (!createdRef.current) onClose(); }}
         defaultType={defaultType}
         initialName={initialName}
         onSuccess={(item) => {
+          createdRef.current = true;
           setCreated(item);
           void refetchItems();
           onItemCreated?.(item as unknown as Medicine);

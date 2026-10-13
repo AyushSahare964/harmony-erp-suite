@@ -4,6 +4,7 @@ import {
   convertFromBase,
   getAvailableUnits,
   stockDisplayLabel,
+  stockUnitTotals,
   resolveUnitPrice,
   getDefaultHierarchy,
   computePrescriptionQty,
@@ -108,6 +109,13 @@ describe("packagingUtils - Unit Hierarchy & Conversion Engine", () => {
     it("should return base and purchase units for 2-tier items", () => {
       const units = getAvailableUnits(liquidHierarchy);
       expect(units).toEqual(["ml", "Bottle"]);
+    });
+  });
+
+  describe("stockUnitTotals", () => {
+    it("shows stock in every unit, largest first", () => {
+      expect(stockUnitTotals(200, tabletHierarchy)).toEqual(["2 Box", "20 Strip", "200 Tablet"]);
+      expect(stockUnitTotals(125, tabletHierarchy)).toEqual(["1.25 Box", "12.5 Strip", "125 Tablet"]);
     });
   });
 

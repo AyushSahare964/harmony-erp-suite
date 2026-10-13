@@ -272,6 +272,31 @@ export function stockDisplayLabel(
   return totalLabel;
 }
 
+/**
+ * Stock expressed in EVERY unit of the hierarchy, largest first.
+ *
+ * @example
+ *   stockUnitTotals(200, tabletHierarchy) → ["2 Box", "20 Strip", "200 Tablet"]
+ *   stockUnitTotals(125, tabletHierarchy) → ["1.25 Box", "12.5 Strip", "125 Tablet"]
+ */
+export function stockUnitTotals(baseQty: number, hierarchy: PackagingHierarchy | undefined): string[] {
+  if (!hierarchy) return [];
+  const qty = Math.max(0, baseQty || 0);
+  return [...getAvailableUnits(hierarchy)]
+    .reverse()
+    .map((u) => `${Math.round(convertFromBase(qty, u, hierarchy) * 100) / 100} ${u}`);
+}
+
+/**
+ * Caption clarifying which unit a stored price is for. Prices are per purchase unit.
+ * @example priceUnitCaption(370, tabletHierarchy) → "per Box · ₹3.7 / Tablet"
+ */
+export function priceUnitCaption(price: number, hierarchy: PackagingHierarchy | undefined): string {
+  if (!hierarchy) return "";
+  if (hierarchy.baseUnitsPerPurchase <= 1 || hierarchy.purchaseUnit === hierarchy.baseUnit) return `per ${hierarchy.baseUnit}`;
+  return `per ${hierarchy.purchaseUnit} · ₹${resolveUnitPrice(price, hierarchy.baseUnit, hierarchy)} / ${hierarchy.baseUnit}`;
+}
+
 // ─── Unit-Based Price Resolution ──────────────────────────────────────────────
 
 /**

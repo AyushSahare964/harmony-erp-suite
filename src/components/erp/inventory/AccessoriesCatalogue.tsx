@@ -37,6 +37,7 @@ import {
 import { KpiCard } from "@/components/erp/KpiCard";
 import { toast } from "sonner";
 import { useInventory, type Medicine } from "./useInventoryStore";
+import { stockUnitTotals, getAvailableUnits, priceUnitCaption } from "@/lib/inventory/packagingUtils";
 import { ProductMasterWizardDialog } from "./ProductMasterWizardDialog";
 import { ItemDetailView } from "./item-detail/ItemDetailView";
 
@@ -428,6 +429,11 @@ export function AccessoriesCatalogue() {
                                     {currentQty} {item.unit}s
                                   </span>
                                 </div>
+                                {item.packagingHierarchy && getAvailableUnits(item.packagingHierarchy).length > 1 && (
+                                  <div className="text-[11px] font-medium text-muted-foreground tabular-nums">
+                                    {stockUnitTotals(currentQty, item.packagingHierarchy).join(" · ")}
+                                  </div>
+                                )}
                                 <div className="text-[10px] text-muted-foreground">
                                   Min level: {item.reorderLevel}
                                 </div>
@@ -449,6 +455,9 @@ export function AccessoriesCatalogue() {
 
                         <td className="px-3 py-3">
                           <div className="font-semibold text-foreground">₹{item.defaultSalePrice}</div>
+                          {item.packagingHierarchy && (
+                            <div className="text-[10px] text-muted-foreground">{priceUnitCaption(item.defaultSalePrice, item.packagingHierarchy)}</div>
+                          )}
                           {item.mrp && item.mrp > item.defaultSalePrice && (
                             <div className="text-[10px] text-muted-foreground line-through">
                               ₹{item.mrp}

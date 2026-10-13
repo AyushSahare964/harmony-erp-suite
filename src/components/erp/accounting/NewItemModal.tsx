@@ -14,6 +14,8 @@ import {
 import { DatePicker } from "@/components/ui/date-picker";
 import { addItemFn, peekItemCodeFn, type InventoryItemRow } from "@/lib/mongodb/serverFns/inventory";
 import { cn } from "@/lib/utils";
+import { todayIST } from "@/lib/utils/dateUtils";
+import { convertToBase, getAvailableUnits, type PackagingHierarchy } from "@/lib/inventory/packagingUtils";
 import { toast } from "sonner";
 
 type ProductType = InventoryItemRow["productType"];
@@ -263,6 +265,7 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
 
   // Opening stock & batch/expiry — default 0 / empty
   const [currentStock, setCurrentStock] = useState("0");
+  const [stockUnit, setStockUnit] = useState(""); // unit the opening stock is typed in ("" = base unit)
   const [batchNo, setBatchNo] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [manufacturingDate, setManufacturingDate] = useState("");
@@ -272,7 +275,9 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
   const [mrp, setMrp] = useState("");
   const [salePrice, setSalePrice] = useState("");
   const [gst, setGst] = useState("0");
+  const [priceUnit, setPriceUnit] = useState(""); // unit the prices are typed in ("" = purchase unit)
   const [hsn, setHsn] = useState("");
+  const [hsnTouched, setHsnTouched] = useState(false); // once the user edits HSN/GST, stop auto-suggesting
   const [saving, setSaving] = useState(false);
 
   const isRx = type === "MEDICINE" || type === "INJECTION";
@@ -288,9 +293,9 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
     setAccessoryType(""); setPetSize(""); setStorageLocation("");
     setPkg(emptyPkg());
     setPurchasePrice(""); setMrp(""); setSalePrice("");
-    setCurrentStock("0"); setReorderLevel("0");
+    setCurrentStock("0"); setStockUnit(""); setReorderLevel("0");
     setBatchNo(""); setExpiryDate(""); setManufacturingDate("");
-    setHsn(""); setGst("0");
+    setHsn(""); setGst("0"); setPriceUnit(""); setHsnTouched(false);
   }, [open, initialName, defaultType]);
 
   // Peek the auto item ID for the chosen category
@@ -314,10 +319,19 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
     setBatchTracking(t === "MEDICINE" || t === "INJECTION");
   };
 
+  // Keep HSN + GST in step with the item until the user overrides them
+  useEffect(() => {
+    if (!open || hsnTouched || !name.trim()) return;
+    const sg = suggestHsn(type, `${name} ${subGroup} ${genericName}`);
+    setHsn(sg.hsn);
+    setGst(String(sg.gst));
+  }, [open, hsnTouched, type, name, subGroup, genericName]);
+
   const handleAutoSuggestHsn = () => {
     const s = suggestHsn(type, `${name} ${subGroup} ${genericName}`);
     setHsn(s.hsn);
     setGst(String(s.gst));
+    setHsnTouched(false);
     toast.info(`Suggested HSN: ${s.hsn}, GST: ${s.gst}%`);
   };
 
@@ -325,6 +339,33 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
   const baseUnitsPerPurchase = pkg.hasInter
     ? (Number(pkg.perPurchase) || 1) * (Number(pkg.basePerInter) || 1)
     : Number(pkg.perPurchase) || 1;
+
+  const hierarchy = useMemo<PackagingHierarchy | undefined>(() => {
+    if (!pkg.baseUnit.trim() || !pkg.purchaseUnit.trim()) return undefined;
+    return {
+      baseUnit: pkg.baseUnit.trim(),
+      purchaseUnit: pkg.purchaseUnit.trim(),
+      baseUnitsPerPurchase,
+      hasIntermediateUnit: pkg.hasInter,
+      ...(pkg.hasInter && {
+        intermediateUnit: pkg.interUnit.trim(),
+        intermediateUnitsPerPurchase: Number(pkg.perPurchase) || 1,
+        baseUnitsPerIntermediate: Number(pkg.basePerInter) || 1,
+      }),
+    };
+  }, [pkg, baseUnitsPerPurchase]);
+  const stockUnits = useMemo(() => [...new Set(getAvailableUnits(hierarchy))].reverse(), [hierarchy]);
+  const activeStockUnit = stockUnits.includes(stockUnit) ? stockUnit : (hierarchy?.baseUnit ?? "");
+  // Opening stock is always stored in base units
+  const openingBase = hierarchy ? convertToBase(Number(currentStock) || 0, activeStockUnit, hierarchy) : Number(currentStock) || 0;
+
+  // Prices are stored per purchase unit; the user may type them in any unit of the hierarchy.
+  const activePriceUnit = stockUnits.includes(priceUnit) ? priceUnit : (hierarchy?.purchaseUnit ?? "");
+  const baseInPriceUnit = hierarchy ? convertToBase(1, activePriceUnit, hierarchy) || 1 : 1;
+  const toPurchasePrice = (typed: string) => {
+    const n = Number(typed) || 0;
+    return r2((n / baseInPriceUnit) * baseUnitsPerPurchase);
+  };
 
   const hierarchyFormula = useMemo(() => {
     if (!pkg.baseUnit.trim() || !pkg.purchaseUnit.trim()) return null;
@@ -334,15 +375,23 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
     return `1 ${pkg.purchaseUnit} = ${baseUnitsPerPurchase} ${pkg.baseUnit}`;
   }, [pkg, baseUnitsPerPurchase]);
 
-  const perBase = useMemo(() => (p: string) => (Number(p) > 0 ? r2(Number(p) / baseUnitsPerPurchase) : 0), [baseUnitsPerPurchase]);
 
   const handleSave = async () => {
     if (!name.trim()) { toast.error("Item Name is required."); return; }
     if (!pkg.baseUnit.trim() || !pkg.purchaseUnit.trim()) { toast.error("Base unit and purchase unit are required."); return; }
     if (pkg.hasInter && !pkg.interUnit.trim()) { toast.error("Enter the middle unit (e.g. Strip) or untick it."); return; }
+    if (!(Number(pkg.perPurchase) > 0)) { toast.error(`Enter how many ${pkg.hasInter ? pkg.interUnit.trim() || "middle units" : pkg.baseUnit.trim()} are in one ${pkg.purchaseUnit.trim()}.`); return; }
+    if (pkg.hasInter && !(Number(pkg.basePerInter) > 0)) { toast.error(`Enter how many ${pkg.baseUnit.trim()} are in one ${pkg.interUnit.trim()}.`); return; }
+
+    if (!(openingBase > 0)) { toast.error("Quantity (Opening Stock) is required."); return; }
+    if (!batchNo.trim()) { toast.error("Batch Number is required."); return; }
+    if (!expiryDate.trim()) { toast.error("Expiry Date is required."); return; }
+    if (new Date(expiryDate) < new Date(todayIST())) { toast.error("Expiry date is in the past."); return; }
+    if (manufacturingDate && manufacturingDate > expiryDate) { toast.error("Manufacturing date must be before expiry."); return; }
+    if (!/^\d{4}(\d{2}){0,2}$/.test(hsn.trim())) { toast.error("HSN / SAC must be 4, 6 or 8 digits."); return; }
 
     const cat = CATEGORIES.find((c) => c.type === type)!;
-    const sale = Number(salePrice) || Number(mrp) || 0;
+    const sale = toPurchasePrice(salePrice) || toPurchasePrice(mrp) || 0;
     const details = { storageCondition: type === "INJECTION" ? "Cold Chain (2-8°C)" : "Room Temperature (15-25°C)" };
 
     setSaving(true);
@@ -374,10 +423,10 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
           minStockLevel: Number(reorderLevel) || 0,
           batchTracking,
           storageLocation: storageLocation.trim(),
-          defaultPurchasePrice: Number(purchasePrice) || 0,
+          defaultPurchasePrice: toPurchasePrice(purchasePrice),
           defaultSalePrice: sale,
-          mrp: Number(mrp) || sale,
-          valuationRate: Number(purchasePrice) || 0,
+          mrp: toPurchasePrice(mrp) || sale,
+          valuationRate: toPurchasePrice(purchasePrice),
           gstRate: Number(gst) || 0,
           hsnCode: hsn.trim(),
           taxCategory: "Standard",
@@ -385,7 +434,7 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
           defaultSupplierName: supplierName || "",
           leadTimeDays: 0,
           costCenter: isRx ? "Pharmacy" : "Retail Store",
-          currentStock: Number(currentStock) || 0,
+          currentStock: openingBase,
           batchNo: batchNo.trim(),
           expiryDate: expiryDate.trim(),
           manufacturingDate: manufacturingDate.trim(),
@@ -701,15 +750,30 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
 
               <SectionCard title="Stock & Storage" icon={PackageCheck}>
                 <div className="grid grid-cols-2 gap-2.5">
-                  <FormField label="Opening Stock">
-                    <Input
-                      type="number"
-                      min="0"
-                      value={currentStock}
-                      onChange={(e) => setCurrentStock(e.target.value)}
-                      placeholder="0"
-                      className={cn(inputCls, "font-mono font-semibold")}
-                    />
+                  <FormField label="Quantity (Opening Stock)" required>
+                    <div className="flex gap-1.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        value={currentStock}
+                        onChange={(e) => setCurrentStock(e.target.value)}
+                        placeholder="0"
+                        className={cn(inputCls, "font-mono font-semibold")}
+                      />
+                      {stockUnits.length > 1 && (
+                        <select
+                          value={activeStockUnit}
+                          onChange={(e) => setStockUnit(e.target.value)}
+                          className={cn(inputCls, "w-24 shrink-0 rounded-md border px-1.5")}
+                          aria-label="Opening stock unit"
+                        >
+                          {stockUnits.map((u) => <option key={u} value={u}>{u}</option>)}
+                        </select>
+                      )}
+                    </div>
+                    {hierarchy && openingBase > 0 && activeStockUnit !== hierarchy.baseUnit && (
+                      <div className="text-[10px] font-mono text-slate-500">= {openingBase} {hierarchy.baseUnit}</div>
+                    )}
                   </FormField>
                   <FormField label="Reorder Level">
                     <Input
@@ -748,8 +812,20 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
             {/* ─── COLUMN 3: Pricing, Tax & Batch ─── */}
             <div className="space-y-3.5">
               <SectionCard title="Pricing & Tax" icon={IndianRupee}>
-                <div className="text-[10px] text-slate-500 -mt-1 mb-1 font-medium">
-                  {pkg.purchaseUnit ? `Prices per 1 ${pkg.purchaseUnit}` : "Prices per purchase unit"}
+                <div className="flex items-center justify-between gap-2 -mt-1 mb-1">
+                  <span className="text-[10px] text-slate-500 font-medium">Prices entered per 1</span>
+                  {stockUnits.length > 1 ? (
+                    <select
+                      value={activePriceUnit}
+                      onChange={(e) => setPriceUnit(e.target.value)}
+                      className={cn(inputCls, "w-28 rounded-md border px-1.5 font-semibold")}
+                      aria-label="Price unit"
+                    >
+                      {stockUnits.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  ) : (
+                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">{activePriceUnit || "unit"}</span>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   <FormField label="Buy Price">
@@ -762,20 +838,24 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
                     <MoneyInput value={salePrice} onChange={setSalePrice} placeholder="0" />
                   </FormField>
 
-                  {baseUnitsPerPurchase > 1 && (Number(purchasePrice) > 0 || Number(salePrice) > 0 || Number(mrp) > 0) && (
+                  {hierarchy && stockUnits.length > 1 && (Number(purchasePrice) > 0 || Number(salePrice) > 0 || Number(mrp) > 0) && (
                     <div className="col-span-2 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-2 text-[10px] font-mono text-slate-600 dark:text-slate-300 space-y-0.5 shadow-2xs">
-                      <div>Per {pkg.baseUnit || "unit"}: Buy ₹{perBase(purchasePrice)} • MRP ₹{perBase(mrp)} • Sell ₹{perBase(salePrice || mrp)}</div>
-                      {pkg.hasInter && Number(pkg.basePerInter) > 0 && (
-                        <div>Per {pkg.interUnit || "middle"}: Buy ₹{r2(perBase(purchasePrice) * Number(pkg.basePerInter))} • Sell ₹{r2(perBase(salePrice || mrp) * Number(pkg.basePerInter))}</div>
-                      )}
+                      {stockUnits.map((u) => {
+                        const per = (typed: string) => r2((toPurchasePrice(typed) / baseUnitsPerPurchase) * convertToBase(1, u, hierarchy));
+                        return (
+                          <div key={u}>Per {u}: Buy ₹{per(purchasePrice)} • MRP ₹{per(mrp)} • Sell ₹{per(salePrice || mrp)}</div>
+                        );
+                      })}
                     </div>
                   )}
 
-                  <FormField label="HSN / SAC Code">
+                  <FormField label="HSN / SAC Code" required>
                     <div className="relative">
                       <Input
                         value={hsn}
-                        onChange={(e) => setHsn(e.target.value)}
+                        inputMode="numeric"
+                        maxLength={8}
+                        onChange={(e) => { setHsnTouched(true); setHsn(e.target.value.replace(/\D/g, "")); }}
                         placeholder="e.g. 3004"
                         className={cn(inputCls, "font-mono pr-14")}
                       />
@@ -791,14 +871,14 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
                     </div>
                   </FormField>
                   <FormField label="GST Rate">
-                    {sel(gst, setGst, GST_RATES)}
+                    {sel(gst, (v) => { setHsnTouched(true); setGst(v); }, GST_RATES)}
                   </FormField>
                 </div>
               </SectionCard>
 
               <SectionCard title="Batch & Expiry Date" icon={Calendar}>
                 <div className="grid grid-cols-2 gap-2.5">
-                  <FormField label="Batch Number" className="col-span-2">
+                  <FormField label="Batch Number" required className="col-span-2">
                     <Input
                       value={batchNo}
                       onChange={(e) => setBatchNo(e.target.value)}
@@ -814,7 +894,7 @@ export function NewItemModal({ open, onClose, onSuccess, initialName, defaultTyp
                       className={inputCls}
                     />
                   </FormField>
-                  <FormField label="Expiry Date">
+                  <FormField label="Expiry Date" required>
                     <DatePicker
                       value={expiryDate}
                       onChange={setExpiryDate}

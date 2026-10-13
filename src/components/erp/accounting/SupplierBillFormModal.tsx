@@ -26,7 +26,7 @@ import { createPurchaseBillFn } from "@/lib/mongodb/serverFns/purchaseBills";
 import { BillingReminderModal } from "@/components/erp/billing/BillingReminderModal";
 import { NewSupplierModal } from "./NewSupplierModal";
 import { NewItemModal } from "./NewItemModal";
-import { getAvailableUnits, convertToBase, resolveUnitPrice } from "@/lib/inventory/packagingUtils";
+import { getAvailableUnits, convertToBase, convertFromBase, resolveUnitPrice } from "@/lib/inventory/packagingUtils";
 import { toast } from "sonner";
 
 interface SupplierBillFormModalProps {
@@ -173,6 +173,10 @@ export function SupplierBillFormModal({
   // Off by default: stock is otherwise added through Add Stock, so ticking this on every bill would double-count.
   const [receiveStock, setReceiveStock] = useState(false);
   const [shippingCost, setShippingCost] = useState<number>(0);
+  const [payStatus, setPayStatus] = useState<"PAID" | "PARTIAL" | "UNPAID">("UNPAID");
+  const [payMode, setPayMode] = useState<"CASH" | "UPI" | "CARD" | "BANK_TRANSFER" | "CHEQUE">("CASH");
+  const [paidAmount, setPaidAmount] = useState<number>(0);
+  const [dueDate, setDueDate] = useState("");
   const [remarks, setRemarks] = useState("");
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showNewSupplierModal, setShowNewSupplierModal] = useState(false);
@@ -225,7 +229,12 @@ export function SupplierBillFormModal({
     setHsnCode("");
     setBatchNo("");
     setExpiry("");
-    setReceiveStock(false);
+    // Coming from "New Item": the bill is how that item's stock arrives. Skip if opening stock was already entered.
+    setReceiveStock(!!initialItem && !(initialItem.currentStock > 0));
+    setPayStatus("UNPAID");
+    setPayMode("CASH");
+    setPaidAmount(0);
+    setDueDate("");
     setFreeQty(0);
     setDiscountPct(0);
 
@@ -233,7 +242,17 @@ export function SupplierBillFormModal({
       .then(([sups, invItems]) => {
         setSuppliers(sups || []);
         setInventoryItems(invItems || []);
-        if (initialItem) handleSelectProduct(initialItem);
+        if (initialItem) {
+          handleSelectProduct(initialItem);
+          // Pre-fill the line from what was just entered on the item (stock is held in base units)
+          const h = initialItem.packagingHierarchy;
+          const u = initialItem.purchaseUom || initialItem.salesUom || initialItem.unit || "PCS";
+          if (initialItem.currentStock > 0) {
+            setQuantity(Math.round((h ? convertFromBase(initialItem.currentStock, u, h) : initialItem.currentStock) * 100) / 100);
+          }
+          if (initialItem.batchNo) setBatchNo(initialItem.batchNo);
+          if (initialItem.expiryDate) setExpiry(initialItem.expiryDate.slice(0, 7)); // month input takes YYYY-MM
+        }
       })
       .catch((err) => {
         console.error("Failed to load bill masters:", err);
@@ -294,6 +313,8 @@ export function SupplierBillFormModal({
 
   const shipping = addShipping ? Math.max(0, shippingCost || 0) : 0;
   const totalAmount = r2(subTotal + gstTotal + shipping);
+  const settledAmount =
+    payStatus === "PAID" ? totalAmount : payStatus === "PARTIAL" ? Math.min(totalAmount, Math.max(0, paidAmount || 0)) : 0;
 
   // Select an item from combobox
   const handleSelectProduct = (item: InventoryItemRow) => {
@@ -403,6 +424,11 @@ export function SupplierBillFormModal({
       return;
     }
 
+    if (payStatus === "PARTIAL" && !(settledAmount > 0 && settledAmount < totalAmount)) {
+      toast.error("Partial payment must be more than 0 and less than the bill total.");
+      return;
+    }
+
     const sup = suppliers.find((s) => s._id === supplierId);
     const postStock = receiveStock && lines.some((l) => l.itemCode);
     if (postStock) {
@@ -434,6 +460,17 @@ export function SupplierBillFormModal({
           otherCharges: shipping,
           shippingAmount: shipping,
           receiveStock: postStock,
+          dueDate: payStatus !== "PAID" && dueDate ? dueDate : undefined,
+          paymentNow: settledAmount > 0,
+          paymentLines:
+            settledAmount > 0
+              ? [{
+                  mode: payMode,
+                  accountId: "DEFAULT_ACCOUNT",
+                  accountName: payMode === "CASH" ? "Cash Register" : "Main Bank Account",
+                  amount: settledAmount,
+                }]
+              : undefined,
           roundOff: 0,
           grandTotal: totalAmount,
           remarks: remarks.trim() || undefined,
@@ -1106,6 +1143,80 @@ export function SupplierBillFormModal({
                       ₹ {totalAmount.toFixed(2)}
                     </span>
                   </div>
+                </div>
+
+                {/* Payment: Paid / Partial / Unpaid */}
+                <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 space-y-2 shadow-xs">
+                  <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Payment</div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(["PAID", "PARTIAL", "UNPAID"] as const).map((st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => setPayStatus(st)}
+                        className={`h-8 rounded border text-xs font-semibold transition-colors ${
+                          payStatus === st
+                            ? st === "PAID"
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                              : st === "PARTIAL"
+                              ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                              : "border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300"
+                            : "border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        {st === "PAID" ? "Paid" : st === "PARTIAL" ? "Partial" : "Unpaid"}
+                      </button>
+                    ))}
+                  </div>
+                  {payStatus !== "UNPAID" && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={payMode}
+                        onChange={(e) => setPayMode(e.target.value as typeof payMode)}
+                        className="h-8 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 text-xs"
+                        aria-label="Payment mode"
+                      >
+                        <option value="CASH">Cash</option>
+                        <option value="UPI">UPI</option>
+                        <option value="CARD">Card</option>
+                        <option value="BANK_TRANSFER">Bank Transfer</option>
+                        <option value="CHEQUE">Cheque</option>
+                      </select>
+                      {payStatus === "PARTIAL" ? (
+                        <Input
+                          type="number"
+                          min="0"
+                          max={totalAmount}
+                          value={paidAmount || ""}
+                          onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
+                          placeholder="Amount paid ₹"
+                          className="h-8 text-xs font-mono"
+                        />
+                      ) : (
+                        <div className="h-8 flex items-center justify-end text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                          ₹ {totalAmount.toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {payStatus !== "PAID" && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-500">Due date</span>
+                      <Input
+                        type="date"
+                        value={dueDate}
+                        min={billDate}
+                        onChange={(e) => setDueDate(e.target.value)}
+                        className="h-8 w-40 text-xs"
+                      />
+                    </div>
+                  )}
+                  {payStatus !== "PAID" && totalAmount > 0 && (
+                    <div className="flex items-center justify-between text-xs font-semibold text-rose-600 dark:text-rose-400">
+                      <span>Balance due</span>
+                      <span className="font-mono">₹ {r2(totalAmount - settledAmount).toFixed(2)}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Save Button matching reference screenshot */}
