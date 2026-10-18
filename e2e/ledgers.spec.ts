@@ -15,7 +15,7 @@ test.describe('Ledgers module', () => {
     await page.getByPlaceholder(/Search supplier/i).fill('Vivaldi');
     await page.getByRole('button', { name: /Vivaldi/i }).first().click();
 
-    const dialog = page.locator('div[role="dialog"][data-state="open"]');
+    const dialog = page.locator('section[aria-label$=" ledger"]');
     await expect(dialog.getByText('Opening Balance')).toBeVisible();
     await expect(dialog.getByText(/Purchase Bill/).first()).toBeVisible();
     await expect(dialog.getByText(/₹ [\d,]+\.\d{2} (Dr|Cr)/).first()).toBeVisible();
@@ -25,7 +25,7 @@ test.describe('Ledgers module', () => {
     await loginAsAdmin(page);
     await gotoReady(page, '/m/ledgers');
     await page.locator('#ledger-tile-cash').click();
-    await expect(page.locator('div[role="dialog"]').getByText('Opening Balance')).toBeVisible();
+    await expect(page.locator('section[aria-label$=" ledger"]').getByText('Opening Balance')).toBeVisible();
   });
 
   for (const type of ['customer', 'staff']) {
@@ -33,7 +33,7 @@ test.describe('Ledgers module', () => {
       await loginAsAdmin(page);
       await gotoReady(page, '/m/ledgers');
         await page.locator(`#ledger-tile-${type}`).click();
-      const dialog = page.locator('div[role="dialog"][data-state="open"]');
+      const dialog = page.locator('section[aria-label$=" ledger"]');
       await dialog.locator('button.w-full').first().click();
       await expect(dialog.getByText('Opening Balance')).toBeVisible();
       await expect(dialog.getByText(/₹ [\d,]+\.\d{2} (Dr|Cr)/).first()).toBeVisible();

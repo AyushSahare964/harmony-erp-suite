@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -14,6 +14,8 @@ import { ArrowLeft, Download, Plus, RotateCcw, Search, Trash2 } from "lucide-rea
 import { Shell } from "@/components/erp/Shell";
 import { InventoryHub } from "@/components/erp/inventory/InventoryHub";
 import { LedgersHub } from "@/components/erp/ledgers/LedgersHub";
+import { isLedgerType } from "@/components/erp/ledgers/ledgerTypes";
+import { AccountsHub } from "@/components/erp/accounts/AccountsHub";
 import { PetOwnerCrmHub } from "@/components/erp/crm/PetOwnerCrmHub";
 import { PatientBillingHub } from "@/components/erp/billing/PatientBillingHub";
 import { AppointmentsQueueHub } from "@/components/erp/appointments/AppointmentsQueueHub";
@@ -61,6 +63,14 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/m/$moduleId")({
+  // `r` picks the report inside the Accounts module (the sidebar sub-menu links to it).
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { r?: string | undefined; l?: string | undefined } => ({
+    r: typeof search["r"] === "string" ? search["r"] : undefined,
+    // `l` opens one ledger from the Ledgers sidebar flyout.
+    l: typeof search["l"] === "string" ? search["l"] : undefined,
+  }),
   head: ({ params }) => {
     const ws = getWorkspace(params.moduleId);
     const title = ws ? `${ws.title} — VetOS ERP` : "Module — VetOS ERP";
@@ -85,6 +95,8 @@ function money(v: string | number) {
 
 function ModulePage() {
   const { moduleId } = Route.useParams();
+  const { r: accountsReport, l: ledgerParam } = Route.useSearch();
+  const navigate = useNavigate();
   const ws = getWorkspace(moduleId);
   const { getRows, addRow, deleteRow, resetRows } = useErp();
   const [query, setQuery] = useState("");
@@ -132,9 +144,19 @@ function ModulePage() {
     return <InventoryHub initialTab={initialTab} />;
   }
 
+  // ── Accounts module → nine live reports (sub-menu in the sidebar) ──
+  if (moduleId === "accounts") {
+    return <AccountsHub report={accountsReport} />;
+  }
+
   // ── Ledgers module → customer / supplier / staff / cash ledgers ──
   if (moduleId === "ledgers") {
-    return <LedgersHub />;
+    return (
+      <LedgersHub
+        ledger={isLedgerType(ledgerParam) ? ledgerParam : undefined}
+        onClear={() => navigate({ to: "/m/$moduleId", params: { moduleId: "ledgers" }, search: {} })}
+      />
+    );
   }
 
   // ── Pet & Owner CRM module → dedicated PetOwnerCrmHub with dual views ──

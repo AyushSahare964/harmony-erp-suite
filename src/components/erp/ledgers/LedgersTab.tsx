@@ -1,17 +1,40 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Users, Truck, UserCog, Banknote } from "lucide-react";
 import type { LedgerType } from "@/lib/mongodb/serverFns/ledgers";
 import { LedgerReportDialog } from "./LedgerReportDialog";
+import { LEDGER_TYPES } from "./ledgerTypes";
 
-const TILES: { type: LedgerType; label: string; hint: string; Icon: React.FC<{ className?: string }> }[] = [
-  { type: "customer", label: "Customer Ledger", hint: "Invoices, receipts, credit notes", Icon: Users },
-  { type: "supplier", label: "Supplier Ledger", hint: "Purchase bills and payments", Icon: Truck },
-  { type: "staff", label: "Staff Ledger", hint: "Salary, advances, reimbursements", Icon: UserCog },
-  { type: "cash", label: "Cash Ledger", hint: "Cash in hand — day by day", Icon: Banknote },
-];
+const ICONS: Record<LedgerType, React.FC<{ className?: string }>> = {
+  customer: Users,
+  supplier: Truck,
+  staff: UserCog,
+  cash: Banknote,
+};
+const TILES = LEDGER_TYPES.map((t) => ({ type: t.id, label: t.label, hint: t.hint, Icon: ICONS[t.id] }));
 
-export function LedgersTab() {
-  const [open, setOpen] = useState<LedgerType | null>(null);
+/** `selected` comes from the sidebar flyout (?l=); leaving the ledger calls `onClear` to drop it from the URL. */
+export function LedgersTab({
+  selected,
+  onClear,
+}: {
+  selected?: LedgerType | undefined;
+  onClear?: (() => void) | undefined;
+}) {
+  const [open, setOpen] = useState<LedgerType | null>(selected ?? null);
+  useEffect(() => setOpen(selected ?? null), [selected]);
+
+  // A chosen ledger takes over the page as a section; "All ledgers" brings the tiles back.
+  if (open) {
+    return (
+      <LedgerReportDialog
+        type={open}
+        onClose={() => {
+          setOpen(null);
+          onClear?.();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 py-4">
@@ -34,7 +57,6 @@ export function LedgersTab() {
           </button>
         ))}
       </div>
-      <LedgerReportDialog type={open} onClose={() => setOpen(null)} />
     </div>
   );
 }

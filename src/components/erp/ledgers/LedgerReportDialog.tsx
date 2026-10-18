@@ -26,9 +26,9 @@ import {
   Building2,
   CheckCircle2,
   Info,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -184,22 +184,22 @@ export function LedgerReportDialog({ type, onClose }: Props) {
   };
 
   return (
-    <Dialog open={type !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent
-        className={cn(
-          "flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 border border-border shadow-2xl transition-all duration-200",
-          needsPicker ? "max-w-xl" : "max-w-6xl"
-        )}
-      >
+    <section
+      aria-label={`${config.title} ledger`}
+      className={cn(
+        "mx-auto flex w-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs",
+        needsPicker ? "max-w-3xl" : "max-w-6xl"
+      )}
+    >
         {/* Header */}
-        <DialogHeader className="border-b px-5 py-3.5 bg-muted/20">
+        <header className="border-b px-5 py-3.5 bg-muted/20">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl border", config.color)}>
                 <IconComp className="size-5" />
               </div>
               <div className="min-w-0">
-                <DialogTitle className="text-base font-semibold truncate flex items-center gap-2">
+                <h2 className="text-base font-semibold truncate flex items-center gap-2">
                   {report && !needsPicker ? (
                     <>
                       <span>{report.subjectName}</span>
@@ -210,8 +210,8 @@ export function LedgerReportDialog({ type, onClose }: Props) {
                   ) : (
                     <span>Select {config.title}</span>
                   )}
-                </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground truncate">
+                </h2>
+                <p className="text-xs text-muted-foreground truncate">
                   {report && !needsPicker ? (
                     <span>
                       Period: {formatDisplayDate(from)} to {formatDisplayDate(to)}
@@ -220,27 +220,32 @@ export function LedgerReportDialog({ type, onClose }: Props) {
                   ) : (
                     config.subtitle
                   )}
-                </DialogDescription>
+                </p>
               </div>
             </div>
 
-            {/* Quick switcher if in report mode */}
-            {subject && !needsPicker && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSubject(null);
-                  setReport(null);
-                }}
-                className="h-8 gap-1.5 text-xs font-medium shrink-0 hover:border-primary/50"
-              >
-                <ArrowLeftRight className="size-3.5 text-muted-foreground" />
-                Change {config.title}
+            <div className="flex shrink-0 items-center gap-2">
+              {subject && !needsPicker && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSubject(null);
+                    setReport(null);
+                  }}
+                  className="h-8 gap-1.5 text-xs font-medium hover:border-primary/50"
+                >
+                  <ArrowLeftRight className="size-3.5 text-muted-foreground" />
+                  Change {config.title}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onClose} className="h-8 gap-1.5 text-xs font-medium">
+                <ArrowLeft className="size-3.5" />
+                All ledgers
               </Button>
-            )}
+            </div>
           </div>
-        </DialogHeader>
+        </header>
 
         {/* ─── PARTY PICKER VIEW ─────────────────────────────────────── */}
         {needsPicker ? (
@@ -272,7 +277,7 @@ export function LedgerReportDialog({ type, onClose }: Props) {
               <span className="hidden sm:inline">Click to open ledger statement</span>
             </div>
 
-            <div className="max-h-[52vh] overflow-y-auto divide-y rounded-xl border border-border bg-card">
+            <div className="max-h-[60vh] overflow-y-auto divide-y rounded-xl border border-border bg-card">
               {loadingSubjects ? (
                 <div className="py-12 text-center text-xs text-muted-foreground animate-pulse">
                   Searching accounts…
@@ -683,8 +688,7 @@ export function LedgerReportDialog({ type, onClose }: Props) {
             </div>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+    </section>
   );
 }
 

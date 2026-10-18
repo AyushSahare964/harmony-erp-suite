@@ -2,6 +2,7 @@ import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { 
   Bell, 
   ChevronDown, 
+  ChevronRight,
   LogOut, 
   Menu, 
   Search, 
@@ -25,11 +26,14 @@ import { cn } from "@/lib/utils";
 import { ROLES, ROLE_ORDER, roleModules, type RoleId } from "@/lib/erp/config";
 import { useErp } from "@/lib/erp/store";
 import { getIcon } from "./icon";
+import { ACCOUNT_REPORTS, DEFAULT_ACCOUNT_REPORT } from "./accounts/reports";
+import { LEDGER_TYPES } from "./ledgers/ledgerTypes";
 import { CLINIC_CONFIG } from "@/lib/config/clinicConfig";
 import { getMongoStatusFn, type MongoStatusRow } from "@/lib/mongodb/serverFns/status";
 import { listPetsWithOwnersFn } from "@/lib/mongodb/serverFns/crm";
 import { settleReminderFn } from "@/lib/mongodb/serverFns/reminders";
 import { getNotificationsFn, type NotificationRow, type NotificationCategory } from "@/lib/mongodb/serverFns/notifications";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
   DropdownMenu,
@@ -96,16 +100,35 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
         <p className="section-label px-2 pb-2">Navigation</p>
         <nav className="space-y-1">
           <NavRow icon="LayoutGrid" label="Home Dashboard" active={pathname === "/"} onNavigate={onNavigate} />
-          {navItems.map((item) => (
-            <NavRow
-              key={item.module}
-              module={item.module}
-              icon={item.icon}
-              label={item.title.replace(/\s*\(.*\)$/, "")}
-              active={pathname === `/m/${item.module}`}
-              onNavigate={onNavigate}
-            />
-          ))}
+          {navItems.map((item) => {
+            const itemLabel = item.title.replace(/\s*\(.*\)$/, "");
+            if (item.module === "accounts" || item.module === "ledgers") {
+              const isAccounts = item.module === "accounts";
+              return (
+                <FlyoutNav
+                  key={item.module}
+                  module={item.module}
+                  icon={item.icon}
+                  label={itemLabel}
+                  pathname={pathname}
+                  items={isAccounts ? ACCOUNT_REPORTS : LEDGER_TYPES}
+                  searchKey={isAccounts ? "r" : "l"}
+                  defaultId={isAccounts ? DEFAULT_ACCOUNT_REPORT : undefined}
+                  onNavigate={onNavigate}
+                />
+              );
+            }
+            return (
+              <NavRow
+                key={item.module}
+                module={item.module}
+                icon={item.icon}
+                label={itemLabel}
+                active={pathname === `/m/${item.module}`}
+                onNavigate={onNavigate}
+              />
+            );
+          })}
         </nav>
       </div>
 
@@ -140,6 +163,100 @@ function Sidebar({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
         </div>
       </div>
     </div>
+  );
+}
+
+interface FlyoutItem {
+  id: string;
+  label: string;
+}
+
+/**
+ * A module with a side flyout instead of a page of its own: one row with a › arrow, and
+ * hovering/clicking it opens the sub-items to the right. Each item deep-links via ?r= or ?l=.
+ */
+function FlyoutNav({
+  module,
+  icon,
+  label,
+  pathname,
+  items,
+  searchKey,
+  defaultId,
+  onNavigate,
+}: {
+  module: string;
+  icon: string;
+  label: string;
+  pathname: string;
+  items: readonly FlyoutItem[];
+  searchKey: "r" | "l";
+  defaultId?: string | undefined;
+  onNavigate?: (() => void) | undefined;
+}) {
+  const Icon = getIcon(icon);
+  const onModule = pathname === `/m/${module}`;
+  const search = useRouterState({ select: (s) => s.location.search }) as Record<string, string | undefined>;
+  const current = search[searchKey];
+  const activeId = onModule ? (items.some((i) => i.id === current) ? current : defaultId) : undefined;
+  const [open, setOpen] = useState(false);
+  // Hover opens the flyout; a short close delay lets the pointer cross the gap to it.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const show = () => {
+    clearTimeout(closeTimer.current);
+    setOpen(true);
+  };
+  const hide = () => {
+    clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setOpen(false), 120);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onMouseEnter={show}
+          onMouseLeave={hide}
+          className={cn(
+            "relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[0.82rem] font-medium transition-colors duration-150",
+            onModule || open ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground" : "text-sidebar-foreground hover:bg-muted/70",
+          )}
+        >
+          <Icon className={cn("size-4 shrink-0", onModule ? "text-primary" : "text-muted-foreground")} />
+          <span className="truncate">{label}</span>
+          <ChevronRight className="ml-auto size-3.5 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="right"
+        align="start"
+        sideOffset={6}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        className="w-56 p-1"
+      >
+        {items.map((item) => (
+          <Link
+            key={item.id}
+            to="/m/$moduleId"
+            params={{ moduleId: module }}
+            search={searchKey === "r" ? { r: item.id } : { l: item.id }}
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
+            className={cn(
+              "block rounded-md px-3 py-2 text-[0.82rem] transition-colors",
+              activeId === item.id ? "bg-sidebar-accent font-semibold text-primary" : "hover:bg-muted",
+            )}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 

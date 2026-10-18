@@ -378,6 +378,16 @@ export const ROLES: Record<RoleId, RoleConfig> = {
         category: "Finance & People",
         cards: [
           {
+            module: "accounts",
+            icon: "Landmark",
+            title: "Accounts (view)",
+            subtitle: "Cash book, payments, GST, P&L, chart of accounts & balance sheet",
+            metricLabel: "Reports",
+            metricValue: "9",
+            accent: "blue",
+            badge: "Finance",
+          },
+          {
             module: "ledgers",
             icon: "BookOpen",
             title: "Ledgers (view)",
@@ -568,6 +578,16 @@ export const ROLES: Record<RoleId, RoleConfig> = {
       {
         category: "Finance & People",
         cards: [
+          {
+            module: "accounts",
+            icon: "Landmark",
+            title: "Accounts",
+            subtitle: "Cash book, payments, GST, P&L, chart of accounts & balance sheet",
+            metricLabel: "Reports",
+            metricValue: "9",
+            accent: "blue",
+            badge: "Finance",
+          },
           {
             module: "ledgers",
             icon: "BookOpen",

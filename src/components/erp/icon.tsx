@@ -25,6 +25,7 @@ import {
   Wallet,
   Waves,
   BookOpen,
+  Landmark,
   type LucideIcon,
 } from "lucide-react";
 
@@ -54,6 +55,7 @@ const MAP: Record<string, LucideIcon> = {
   Wallet,
   Waves,
   BookOpen,
+  Landmark,
 };
 
 export function getIcon(name: string): LucideIcon {
