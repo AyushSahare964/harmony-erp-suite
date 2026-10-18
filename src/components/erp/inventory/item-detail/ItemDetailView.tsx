@@ -8,7 +8,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/erp/StatusPill";
 import { toast } from "sonner";
-import { Edit, PlusCircle } from "lucide-react";
+import { Edit, PlusCircle, Receipt } from "lucide-react";
+import { SupplierBillFormModal } from "@/components/erp/accounting/SupplierBillFormModal";
+import { getItemsFn, type InventoryItemRow } from "@/lib/mongodb/serverFns/inventory";
 
 import { useInventory, type Medicine, type Batch } from "../useInventoryStore";
 import { ItemMasterDialog } from "../ItemMasterDialog";
@@ -84,6 +86,18 @@ export function ItemDetailView({ medicine, batches, stockQty, onBack, onNext, on
   const [saved, setSaved] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [grnOpen, setGrnOpen] = useState(false);
+  const [billItem, setBillItem] = useState<InventoryItemRow | null>(null);
+
+  const openPurchaseBill = async () => {
+    try {
+      const items = await getItemsFn({ data: { status: "Active" } });
+      const row = items.find((i) => i.itemCode === medicine.itemCode);
+      if (row) setBillItem(row);
+      else toast.error("Item not found in inventory");
+    } catch {
+      toast.error("Failed to load item");
+    }
+  };
 
   const handleSave = async () => {
     try {
@@ -151,6 +165,9 @@ export function ItemDetailView({ medicine, batches, stockQty, onBack, onNext, on
             className="text-xs h-8 bg-success hover:bg-success/90 text-success-foreground"
           >
             <PlusCircle className="size-3.5 mr-1" /> Receive Stock (GRN)
+          </Button>
+          <Button size="sm" variant="outline" onClick={openPurchaseBill} className="text-xs h-8">
+            <Receipt className="size-3.5 mr-1" /> Add Purchase Bill
           </Button>
           <div className="flex items-center rounded-lg border border-border">
             <button
@@ -335,6 +352,15 @@ export function ItemDetailView({ medicine, batches, stockQty, onBack, onNext, on
         onClose={() => setEditOpen(false)}
         editing={medicine}
       />
+      {billItem && (
+        <SupplierBillFormModal
+          open
+          existingItem
+          initialItem={billItem}
+          onClose={() => setBillItem(null)}
+          onSuccess={() => setBillItem(null)}
+        />
+      )}
       <AddStockDialog
         open={grnOpen}
         onClose={() => setGrnOpen(false)}

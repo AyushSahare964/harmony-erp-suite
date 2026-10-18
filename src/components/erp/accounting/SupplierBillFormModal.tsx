@@ -36,6 +36,8 @@ interface SupplierBillFormModalProps {
   initialSupplierId?: string;
   /** Pre-fills the particulars row with this item (used right after creating an item) */
   initialItem?: InventoryItemRow | undefined;
+  /** initialItem already exists in inventory: a fresh purchase, so don't prefill qty/batch from its stock and receive stock by default */
+  existingItem?: boolean | undefined;
 }
 
 interface PurchaseLine {
@@ -132,6 +134,7 @@ export function SupplierBillFormModal({
   onSuccess,
   initialSupplierId,
   initialItem,
+  existingItem,
 }: SupplierBillFormModalProps) {
   const [suppliers, setSuppliers] = useState<SupplierMasterRow[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([]);
@@ -230,7 +233,7 @@ export function SupplierBillFormModal({
     setBatchNo("");
     setExpiry("");
     // Coming from "New Item": the bill is how that item's stock arrives. Skip if opening stock was already entered.
-    setReceiveStock(!!initialItem && !(initialItem.currentStock > 0));
+    setReceiveStock(!!initialItem && (!!existingItem || !(initialItem.currentStock > 0)));
     setPayStatus("UNPAID");
     setPayMode("CASH");
     setPaidAmount(0);
@@ -244,6 +247,7 @@ export function SupplierBillFormModal({
         setInventoryItems(invItems || []);
         if (initialItem) {
           handleSelectProduct(initialItem);
+          if (existingItem) return;
           // Pre-fill the line from what was just entered on the item (stock is held in base units)
           const h = initialItem.packagingHierarchy;
           const u = initialItem.purchaseUom || initialItem.salesUom || initialItem.unit || "PCS";
