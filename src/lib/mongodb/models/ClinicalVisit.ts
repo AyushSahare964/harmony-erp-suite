@@ -46,6 +46,8 @@ export interface IPaymentRecord {
   timestamp: string;
   recordedBy?: string | undefined;
   notes?: string | undefined;
+  /** Cheques only. Unset means cleared, which is what every older record is. */
+  clearingStatus?: "PENDING" | "CLEARED" | "BOUNCED" | undefined;
 }
 
 // ── Structured Prescription Clinical Schema Types (New_prescription_imp_plan.md) ──
@@ -225,6 +227,11 @@ export interface IClinicalVisit extends Document {
   billDiscount: number;
   taxableAmount: number;
   gstAmount: number;
+  /** GST split and place of supply as computed on the invoice. Unset on older bills. */
+  placeOfSupply?: string | undefined;
+  cgstAmount?: number | undefined;
+  sgstAmount?: number | undefined;
+  igstAmount?: number | undefined;
   roundOff: number;
   totalAmount: number;
   amountPaid: number;
@@ -315,6 +322,7 @@ const PaymentRecordSchema = new Schema<IPaymentRecord>({
   timestamp: { type: String, required: true },
   recordedBy: { type: String },
   notes: { type: String },
+  clearingStatus: { type: String, enum: ["PENDING", "CLEARED", "BOUNCED"] },
 });
 
 const ClinicalVisitSchema = new Schema<IClinicalVisit>(
@@ -370,6 +378,10 @@ const ClinicalVisitSchema = new Schema<IClinicalVisit>(
     billDiscount: { type: Number, default: 0 },
     taxableAmount: { type: Number, default: 0 },
     gstAmount: { type: Number, default: 0 },
+    placeOfSupply: { type: String },
+    cgstAmount: { type: Number },
+    sgstAmount: { type: Number },
+    igstAmount: { type: Number },
     roundOff: { type: Number, default: 0 },
     totalAmount: { type: Number, default: 0 },
     amountPaid: { type: Number, default: 0 },

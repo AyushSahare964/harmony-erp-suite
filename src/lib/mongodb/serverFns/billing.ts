@@ -81,7 +81,7 @@ export const listInvoicesFn = createServerFn({ method: "GET" })
     if (filter.status && filter.status !== "all") {
       queryObj.status = filter.status;
     }
-    const invoices = await ClinicalVisit.find(queryObj).sort({ createdAt: -1, date: -1 }).limit(100).lean();
+    const invoices = await ClinicalVisit.find(queryObj).sort({ createdAt: -1, date: -1 }).limit(1000).lean();
     return toPlain<any[]>(invoices);
   });
 

@@ -78,11 +78,10 @@ import {
 } from "@/components/ui/select";
 import {
   DateRangeFilter,
-  defaultDateRange,
   type DateRange,
 } from "@/components/erp/shared/DateRangeFilter";
 import { StatusPill } from "@/components/erp/StatusPill";
-import { formatDisplayDate } from "@/lib/utils/dateUtils";
+import { formatDisplayDate, presetDateRange, todayIST } from "@/lib/utils/dateUtils";
 import { DailySummaryModal } from "./DailySummaryModal";
 import { StockSummaryModal } from "./StockSummaryModal";
 import { QuotationsRegisterView } from "../reports/QuotationsRegisterView";
@@ -132,6 +131,17 @@ interface BillingDeskDashboardProps {
   clientsRefreshKey?: number;
 }
 
+/** Visits that are not billed yet carry no sale; cancelled / void documents never do. */
+const UNBILLED_STATUSES = ["Admitted", "In Consultation", "Diagnosed"];
+const isSale = (inv: { status?: string }) =>
+  !UNBILLED_STATUSES.includes(String(inv.status ?? "")) && !/^(cancel|void)/i.test(String(inv.status ?? ""));
+
+/** A payment is stamped in UTC; the clinic's day is the Indian one. */
+const istDay = (ts?: string) => {
+  const d = ts ? new Date(ts) : null;
+  return d && !isNaN(d.getTime()) ? d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) : "";
+};
+
 export function BillingDeskDashboard({
   invoices,
   loading = false,
@@ -156,7 +166,10 @@ export function BillingDeskDashboard({
   clientsRefreshKey = 0,
 }: BillingDeskDashboardProps) {
   const [masked, setMasked] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRange>(defaultDateRange());
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const { from, to } = presetDateRange("THIS_FY");
+    return { from, to, preset: "THIS_FY" };
+  });
 
   // Hitech Right Column Activity Tabs
   const [activeActivityTab, setActiveActivityTab] = useState<
@@ -343,10 +356,11 @@ export function BillingDeskDashboard({
     return () => clearInterval(timer);
   }, []);
 
-  // Filter invoices for selected date range
+  // Filter invoices for selected date range. Cancelled / void bills are not sales.
   const filteredInvoices = useMemo(() => {
     return invoices.filter((inv) => {
-      const d = inv.date || inv.createdAt?.slice(0, 10);
+      if (!isSale(inv)) return false;
+      const d = (inv.date || inv.createdAt || "").slice(0, 10);
       if (!d) return true;
       if (dateRange.from && d < dateRange.from) return false;
       if (dateRange.to && d > dateRange.to) return false;
@@ -360,10 +374,69 @@ export function BillingDeskDashboard({
     return Math.max(0, (inv.totalAmount || 0) - (inv.amountPaid || 0));
   }
 
+  // Derived Payment Receipts from Invoices
+  const paymentList = useMemo(() => {
+    const list: any[] = [];
+    invoices.forEach((inv) => {
+      if (inv.payments && Array.isArray(inv.payments) && inv.payments.length > 0) {
+        inv.payments.forEach((p: any, idx: number) => {
+          if (/account\s*due/i.test(String(p.mode ?? ""))) return;
+          list.push({
+            receiptNo: p.paymentId && p.paymentId.startsWith("RCP")
+              ? p.paymentId
+              : `RCP-2026-${inv.invoiceNo?.replace(/[^0-9]/g, "").slice(-4) || String(idx + 1).padStart(4, "0")}`,
+            invoiceNo: inv.invoiceNo,
+            date: istDay(p.timestamp) || p.date || inv.date || inv.createdAt?.slice(0, 10),
+            ownerName: inv.ownerName || "Walk-in Client",
+            petName: inv.petName || "General OTC",
+            mode: p.mode || inv.paymentMode || "Cash",
+            amount: p.amount || 0,
+            trxRef: p.reference || p.trxRef || "—",
+            recordedBy: p.recordedBy || inv.doctorName || "Billing Counter",
+            status: "Cleared",
+          });
+        });
+      } else if (inv.amountPaid > 0 && !/account\s*due/i.test(String(inv.paymentMode ?? ""))) {
+        list.push({
+          receiptNo: `RCP-2026-${inv.invoiceNo?.replace(/[^0-9]/g, "").slice(-4) || "0001"}`,
+          invoiceNo: inv.invoiceNo,
+          date: inv.date || inv.createdAt?.slice(0, 10),
+          ownerName: inv.ownerName || "Walk-in Client",
+          petName: inv.petName || "General OTC",
+          mode: inv.paymentMode || "Cash",
+          amount: inv.amountPaid,
+          trxRef: inv.trxRef || "—",
+          recordedBy: inv.doctorName || "Billing Counter",
+          status: "Cleared",
+        });
+      }
+    });
+    return list;
+  }, [invoices]);
+
   // Compute Primary Hitech Metrics (Matches Quick Info in Screenshot)
   const totalSale = filteredInvoices.reduce((s, i) => s + (i.totalAmount || 0), 0);
   const amountReceived = filteredInvoices.reduce((s, i) => s + (i.amountPaid || 0), 0);
   const amountDue = filteredInvoices.reduce((s, i) => s + invBalance(i), 0);
+
+  // TODAY — independent of the date filter, so the card means what it says.
+  const today = todayIST();
+  const todayStats = useMemo(() => {
+    const live = invoices.filter(isSale);
+    const todays = live.filter((inv) => (inv.date || inv.createdAt || "").slice(0, 10) === today);
+    return {
+      invoices: todays.length,
+      sale: todays.reduce((s, i) => s + (i.totalAmount || 0), 0),
+      due: todays.reduce((s, i) => s + invBalance(i), 0),
+      // Cash collected today, including receipts against older invoices.
+      received: paymentList
+        .filter((p) => String(p.date ?? "").slice(0, 10) === today)
+        .reduce((s, p) => s + (Number(p.amount) || 0), 0),
+      // Everything clients still owe, whenever it was billed.
+      outstanding: live.reduce((s, i) => s + invBalance(i), 0),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoices, paymentList, today]);
 
   // Masking format helper
   const fmtMoney = (amount: number) => {
@@ -378,24 +451,16 @@ export function BillingDeskDashboard({
     let card = 0;
     let bank = 0;
 
-    filteredInvoices.forEach((inv) => {
-      if (inv.payments && Array.isArray(inv.payments) && inv.payments.length > 0) {
-        inv.payments.forEach((p: any) => {
-          const raw = (p.mode || "").toUpperCase();
-          const amt = Number(p.amount) || 0;
-          if (raw.includes("CASH")) cash += amt;
-          else if (raw.includes("UPI") || raw.includes("QR") || raw.includes("GPAY") || raw.includes("PAYTM")) upi += amt;
-          else if (raw.includes("CARD") || raw.includes("POS") || raw.includes("DEBIT") || raw.includes("CREDIT")) card += amt;
-          else bank += amt;
-        });
-      } else if (inv.amountPaid > 0) {
-        const raw = (inv.paymentMode || "").toUpperCase();
-        const amt = Number(inv.amountPaid) || 0;
-        if (raw.includes("CASH")) cash += amt;
-        else if (raw.includes("UPI") || raw.includes("QR") || raw.includes("GPAY") || raw.includes("PAYTM")) upi += amt;
-        else if (raw.includes("CARD") || raw.includes("POS") || raw.includes("DEBIT") || raw.includes("CREDIT")) card += amt;
-        else bank += amt;
-      }
+    paymentList.forEach((p) => {
+      const d = String(p.date ?? "").slice(0, 10);
+      if (dateRange.from && d && d < dateRange.from) return;
+      if (dateRange.to && d && d > dateRange.to) return;
+      const raw = String(p.mode || "").toUpperCase();
+      const amt = Number(p.amount) || 0;
+      if (raw.includes("CASH")) cash += amt;
+      else if (raw.includes("UPI") || raw.includes("QR") || raw.includes("GPAY") || raw.includes("PAYTM")) upi += amt;
+      else if (raw.includes("CARD") || raw.includes("POS") || raw.includes("DEBIT") || raw.includes("CREDIT")) card += amt;
+      else bank += amt;
     });
 
     const total = cash + upi + card + bank;
@@ -415,7 +480,7 @@ export function BillingDeskDashboard({
         { name: "Bank / Transfer", value: bank, color: "#f59e0b" },
       ].filter((d) => d.value > 0),
     };
-  }, [filteredInvoices]);
+  }, [paymentList, dateRange.from, dateRange.to]);
 
   // 15-Day Recent Sales Bar Chart Data (Truthful real-time data across last 15 days)
   const salesChartData = useMemo(() => {
@@ -437,7 +502,7 @@ export function BillingDeskDashboard({
 
     // Sum from all active invoices in the workspace
     (invoices || []).forEach((inv) => {
-      if (inv.status === "CANCELLED" || inv.status === "VOID") return;
+      if (!isSale(inv)) return;
       const rawDate = inv.date || inv.createdAt;
       if (!rawDate) return;
       const invIso = typeof rawDate === "string" ? rawDate.slice(0, 10) : new Date(rawDate).toLocaleDateString("en-CA");
@@ -463,7 +528,7 @@ export function BillingDeskDashboard({
     const cutoffIso = cutoff.toLocaleDateString("en-CA");
 
     const saleTotal = (invoices || []).reduce((sum, inv) => {
-      if (inv.status === "CANCELLED" || inv.status === "VOID") return sum;
+      if (!isSale(inv)) return sum;
       const dStr = (typeof inv.date === "string" ? inv.date : (inv.createdAt || "")).slice(0, 10);
       if (dStr && dStr >= cutoffIso) {
         return sum + (Number(inv.totalAmount) || 0);
@@ -485,45 +550,6 @@ export function BillingDeskDashboard({
       last30DaysPurchases: Math.round(purchaseTotal),
     };
   }, [invoices, purchases]);
-
-  // Derived Payment Receipts from Invoices
-  const paymentList = useMemo(() => {
-    const list: any[] = [];
-    invoices.forEach((inv) => {
-      if (inv.payments && Array.isArray(inv.payments) && inv.payments.length > 0) {
-        inv.payments.forEach((p: any, idx: number) => {
-          list.push({
-            receiptNo: p.paymentId && p.paymentId.startsWith("RCP")
-              ? p.paymentId
-              : `RCP-2026-${inv.invoiceNo?.replace(/[^0-9]/g, "").slice(-4) || String(idx + 1).padStart(4, "0")}`,
-            invoiceNo: inv.invoiceNo,
-            date: p.date || inv.date || inv.createdAt?.slice(0, 10),
-            ownerName: inv.ownerName || "Walk-in Client",
-            petName: inv.petName || "General OTC",
-            mode: p.mode || inv.paymentMode || "Cash",
-            amount: p.amount || 0,
-            trxRef: p.reference || p.trxRef || "—",
-            recordedBy: p.recordedBy || inv.doctorName || "Billing Counter",
-            status: "Cleared",
-          });
-        });
-      } else if (inv.amountPaid > 0) {
-        list.push({
-          receiptNo: `RCP-2026-${inv.invoiceNo?.replace(/[^0-9]/g, "").slice(-4) || "0001"}`,
-          invoiceNo: inv.invoiceNo,
-          date: inv.date || inv.createdAt?.slice(0, 10),
-          ownerName: inv.ownerName || "Walk-in Client",
-          petName: inv.petName || "General OTC",
-          mode: inv.paymentMode || "Cash",
-          amount: inv.amountPaid,
-          trxRef: inv.trxRef || "—",
-          recordedBy: inv.doctorName || "Billing Counter",
-          status: "Cleared",
-        });
-      }
-    });
-    return list;
-  }, [invoices]);
 
   // Derived Credit Notes from Invoices
   const creditNotesList = useMemo(() => {
@@ -1047,43 +1073,80 @@ export function BillingDeskDashboard({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* ════════ LEFT COLUMN (5 cols on lg): Quick Info, 6 Buttons Grid, 30-Day Donut ════════ */}
         <div className="lg:col-span-5 space-y-4">
-          {/* 1. QUICK INFO CARD (Matches Image 1 & 5) */}
+          {/* 1. QUICK INFO CARD: today on top, the selected period underneath */}
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#005bb5] via-[#004f9f] to-[#003875] text-white p-4 shadow-md border border-blue-600/30">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-bold uppercase tracking-wider text-blue-100">
                 QUICK INFO
               </span>
               <span className="rounded-md bg-[#ffe600] px-2.5 py-0.5 text-[11px] font-black text-black shadow-xs tracking-wider">
-                TODAY
+                TODAY · {formatDisplayDate(today)}
               </span>
             </div>
 
             <div className="grid grid-cols-3 gap-2 text-left pt-1">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider text-blue-200">
-                  TOTAL SALE
+                  SALE TODAY
                 </div>
                 <div className="text-base sm:text-lg font-black font-mono mt-0.5 tracking-tight">
-                  {fmtMoney(totalSale)}
+                  {fmtMoney(todayStats.sale)}
+                </div>
+                <div className="text-[10px] text-blue-200/80">
+                  {todayStats.invoices} invoice{todayStats.invoices === 1 ? "" : "s"}
                 </div>
               </div>
 
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider text-blue-200">
-                  AMOUNT RECEIVED
+                  RECEIVED TODAY
                 </div>
                 <div className="text-base sm:text-lg font-black font-mono mt-0.5 tracking-tight text-emerald-300">
-                  {fmtMoney(amountReceived)}
+                  {fmtMoney(todayStats.received)}
                 </div>
+                <div className="text-[10px] text-blue-200/80">incl. older dues</div>
               </div>
 
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider text-blue-200">
-                  AMOUNT DUE
+                  DUE TODAY
                 </div>
                 <div className="text-base sm:text-lg font-black font-mono mt-0.5 tracking-tight text-amber-300">
-                  {fmtMoney(amountDue)}
+                  {fmtMoney(todayStats.due)}
                 </div>
+                <div className="text-[10px] text-blue-200/80">on today&apos;s bills</div>
+              </div>
+            </div>
+
+            {todayStats.invoices === 0 && (
+              <p className="mt-3 rounded-lg bg-white/10 px-3 py-1.5 text-[11px] text-blue-100">
+                No sales billed yet today
+                {todayStats.received > 0 ? ", but payments were collected." : "."}
+              </p>
+            )}
+
+            {/* Selected period: follows the date filter above */}
+            <div className="mt-3 border-t border-white/15 pt-2.5">
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-200">
+                Selected period · {formatDisplayDate(dateRange.from)} – {formatDisplayDate(dateRange.to)}
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-left">
+                <div>
+                  <div className="text-[10px] text-blue-200">Total sale</div>
+                  <div className="font-mono text-sm font-bold">{fmtMoney(totalSale)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-blue-200">Received</div>
+                  <div className="font-mono text-sm font-bold text-emerald-300">{fmtMoney(amountReceived)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-blue-200">Due on these bills</div>
+                  <div className="font-mono text-sm font-bold text-amber-300">{fmtMoney(amountDue)}</div>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-between rounded-lg bg-black/20 px-3 py-1.5 text-[11px]">
+                <span className="text-blue-100">Total outstanding from all clients</span>
+                <span className="font-mono font-bold text-amber-300">{fmtMoney(todayStats.outstanding)}</span>
               </div>
             </div>
           </div>
@@ -1099,10 +1162,13 @@ export function BillingDeskDashboard({
                   <span className="text-xs font-bold uppercase tracking-wider text-foreground">
                     Collections by Mode
                   </span>
+                  <span className="block text-[10px] text-muted-foreground">
+                    Money received {formatDisplayDate(dateRange.from)} – {formatDisplayDate(dateRange.to)}
+                  </span>
                 </div>
               </div>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
-                {totalSale > 0 ? `${Math.round((amountReceived / totalSale) * 100)}% Settled` : "100% Balanced"}
+                {totalSale > 0 ? `${Math.round((amountReceived / totalSale) * 100)}% Settled` : "No sales in period"}
               </span>
             </div>
 
@@ -1174,7 +1240,7 @@ export function BillingDeskDashboard({
                   <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary mb-2">
                     <CreditCard className="size-5" />
                   </div>
-                  <p className="text-xs font-bold text-foreground">No Collection Split in Date Range</p>
+                  <p className="text-xs font-bold text-foreground">No payments received in this period</p>
                   <p className="text-[11px] text-muted-foreground max-w-[260px] mt-0.5">
                     Counter bills and receipts recorded via F2 will automatically populate payment channels here.
                   </p>
@@ -1191,14 +1257,14 @@ export function BillingDeskDashboard({
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
                   <span>Recovery Ratio (Inflow vs Due)</span>
                   <span className="font-mono font-bold text-foreground">
-                    {totalSale > 0 ? `${Math.round((amountReceived / totalSale) * 100)}%` : "100%"}
+                    {totalSale > 0 ? `${Math.round((amountReceived / totalSale) * 100)}%` : "—"}
                   </span>
                 </div>
                 <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
                     style={{
-                      width: `${totalSale > 0 ? Math.min(100, Math.round((amountReceived / totalSale) * 100)) : 100}%`,
+                      width: `${totalSale > 0 ? Math.min(100, Math.round((amountReceived / totalSale) * 100)) : 0}%`,
                     }}
                   />
                 </div>

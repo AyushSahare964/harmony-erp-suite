@@ -150,6 +150,10 @@ const FinalizeVisitInputZ = z.object({
   billDiscount: z.number().default(0),
   taxableAmount: z.number(),
   gstAmount: z.number(),
+  placeOfSupply: z.string().optional(),
+  cgstAmount: z.number().optional(),
+  sgstAmount: z.number().optional(),
+  igstAmount: z.number().optional(),
   roundOff: z.number().default(0),
   totalAmount: z.number(),
   amountPaid: z.number().min(0, "Amount received cannot be negative"),
@@ -1403,6 +1407,10 @@ export const finalizeVisitAndBillFn = createServerFn({ method: "POST" })
     visit.billDiscount = data.billDiscount;
     visit.taxableAmount = data.taxableAmount;
     visit.gstAmount = data.gstAmount;
+    if (data.placeOfSupply !== undefined) visit.placeOfSupply = data.placeOfSupply;
+    if (data.cgstAmount !== undefined) visit.cgstAmount = data.cgstAmount;
+    if (data.sgstAmount !== undefined) visit.sgstAmount = data.sgstAmount;
+    if (data.igstAmount !== undefined) visit.igstAmount = data.igstAmount;
     visit.roundOff = data.roundOff;
     visit.totalAmount = data.totalAmount;
     visit.amountPaid = data.amountPaid;
