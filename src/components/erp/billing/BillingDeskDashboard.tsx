@@ -104,6 +104,8 @@ import { PurchaseBillPrintView } from "./PurchaseBillPrintView";
 import { PurchaseOrderPrintView } from "./PurchaseOrderPrintView";
 import { type ClinicPurchaseOrderRecord } from "./PurchaseOrderModal";
 import { cn } from "@/lib/utils";
+import { useErp } from "@/lib/erp/store";
+import { listPoDraftsFn, deletePoDraftFn } from "@/lib/mongodb/serverFns/poDrafts";
 
 interface BillingDeskDashboardProps {
   invoices: any[];
@@ -115,6 +117,7 @@ interface BillingDeskDashboardProps {
   onNewQuotation: () => void;
   onAddPurchase: () => void;
   onAddPurchaseOrder?: () => void;
+  onEditPurchaseOrderDraft?: (draft: ClinicPurchaseOrderRecord) => void;
   onAddExpense: () => void;
   onPaymentIn: (invoiceNo?: string) => void;
   onPaymentOut: () => void;
@@ -151,6 +154,7 @@ export function BillingDeskDashboard({
   onNewQuotation,
   onAddPurchase,
   onAddPurchaseOrder,
+  onEditPurchaseOrderDraft,
   onAddExpense,
   onPaymentIn,
   onPaymentOut,
@@ -189,19 +193,23 @@ export function BillingDeskDashboard({
     "invoices" | "quotations" | "creditNotes" | "payments" | "purchases" | "purchaseOrders" | "expenses" | "suppliers" | "clients"
   >("invoices");
 
-  // Purchase Orders — stored in localStorage by PurchaseOrderModal
+  const isAdmin = useErp().roleId === "admin";
+  // Purchase Orders — issued ones live in localStorage (PurchaseOrderModal);
+  // drafts (po.draftCreatedAt set) come from the server and are merged in below.
   const [purchaseOrders, setPurchaseOrders] = useState<ClinicPurchaseOrderRecord[]>([]);
   const [poSearchQuery, setPoSearchQuery] = useState("");
   const [selectedPurchaseOrder, setSelectedPurchaseOrder] = useState<ClinicPurchaseOrderRecord | null>(null);
   const [showPurchaseOrderPrintView, setShowPurchaseOrderPrintView] = useState(false);
 
-  const loadPurchaseOrders = () => {
+  const loadPurchaseOrders = async () => {
+    let local: ClinicPurchaseOrderRecord[] = [];
     try {
       const raw = localStorage.getItem("clinic_purchase_orders");
-      setPurchaseOrders(raw ? (JSON.parse(raw) as ClinicPurchaseOrderRecord[]) : []);
-    } catch {
-      setPurchaseOrders([]);
-    }
+      local = raw ? (JSON.parse(raw) as ClinicPurchaseOrderRecord[]) : [];
+    } catch {}
+    setPurchaseOrders(local);
+    const drafts = await listPoDraftsFn().catch(() => [] as ClinicPurchaseOrderRecord[]);
+    setPurchaseOrders([...drafts, ...local]);
   };
 
   useEffect(() => {
@@ -3131,7 +3139,43 @@ export function BillingDeskDashboard({
                                 <Eye className="size-3.5" />
                                 <span>View</span>
                               </Button>
-                              {po.status !== "RECEIVED" && po.status !== "CANCELLED" && (
+                              {po.draftCreatedAt && isAdmin && (() => {
+                                const editable = Date.now() - new Date(po.draftCreatedAt).getTime() <= 30 * 864e5;
+                                return (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={!editable}
+                                      onClick={() => onEditPurchaseOrderDraft?.(po)}
+                                      className="h-6 px-2 text-[10px] font-bold gap-1"
+                                      title={editable ? "Edit draft" : "Drafts can only be changed within 30 days"}
+                                    >
+                                      <Pencil className="size-3" />
+                                      <span>{editable ? "Edit" : "Locked"}</span>
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={async () => {
+                                        if (!confirm(`Delete draft ${po.poNumber}?`)) return;
+                                        try {
+                                          await deletePoDraftFn({ data: { id: po.id } });
+                                          void loadPurchaseOrders();
+                                          toast.success(`Draft ${po.poNumber} deleted.`);
+                                        } catch (e: any) {
+                                          toast.error(e.message);
+                                        }
+                                      }}
+                                      className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                                      title="Delete draft"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </Button>
+                                  </>
+                                );
+                              })()}
+                              {!po.draftCreatedAt && po.status !== "RECEIVED" && po.status !== "CANCELLED" && (
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -3154,7 +3198,7 @@ export function BillingDeskDashboard({
                                   <span>Received</span>
                                 </Button>
                               )}
-                              {po.status !== "RECEIVED" && po.status !== "CANCELLED" && (
+                              {!po.draftCreatedAt && po.status !== "RECEIVED" && po.status !== "CANCELLED" && (
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -3177,7 +3221,7 @@ export function BillingDeskDashboard({
                                   <X className="size-3.5" />
                                 </Button>
                               )}
-                              <Button
+                              {!po.draftCreatedAt && <Button
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => {
@@ -3194,7 +3238,7 @@ export function BillingDeskDashboard({
                                 title="Delete PO"
                               >
                                 <Trash2 className="size-3.5" />
-                              </Button>
+                              </Button>}
                             </div>
                           </td>
                         </tr>
@@ -3382,7 +3426,7 @@ export function BillingDeskDashboard({
         order={selectedPurchaseOrder}
         open={showPurchaseOrderPrintView}
         onClose={() => setShowPurchaseOrderPrintView(false)}
-        onMarkReceived={(orderId) => {
+        onMarkReceived={selectedPurchaseOrder?.draftCreatedAt ? undefined : (orderId) => {
           try {
             const raw = localStorage.getItem("clinic_purchase_orders");
             const list: any[] = raw ? JSON.parse(raw) : [];
@@ -3397,7 +3441,7 @@ export function BillingDeskDashboard({
             toast.success("Purchase order marked as Received!");
           } catch {}
         }}
-        onDelete={(orderId, poNo) => {
+        onDelete={selectedPurchaseOrder?.draftCreatedAt ? undefined : (orderId, poNo) => {
           if (!confirm(`Delete PO ${poNo || ""} permanently?`)) return;
           try {
             const raw = localStorage.getItem("clinic_purchase_orders");

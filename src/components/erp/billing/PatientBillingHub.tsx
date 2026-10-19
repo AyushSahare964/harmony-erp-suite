@@ -22,7 +22,7 @@ import { SupplierLedgerModal } from "@/components/erp/accounting/SupplierLedgerM
 import { type SupplierMasterRow } from "@/lib/mongodb/serverFns/masters";
 import { DailySummaryModal } from "./DailySummaryModal";
 import { StockSummaryModal } from "./StockSummaryModal";
-import { PurchaseOrderModal } from "./PurchaseOrderModal";
+import { PurchaseOrderModal, type ClinicPurchaseOrderRecord } from "./PurchaseOrderModal";
 
 function PatientBillingHubInner() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -50,6 +50,7 @@ function PatientBillingHubInner() {
   const [showDailySummary, setShowDailySummary] = useState(false);
   const [showStockSummary, setShowStockSummary] = useState(false);
   const [showPurchaseOrderModal, setShowPurchaseOrderModal] = useState(false);
+  const [editingPoDraft, setEditingPoDraft] = useState<ClinicPurchaseOrderRecord | null>(null);
 
   // Full Patient Bill Details Modal
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
@@ -142,6 +143,10 @@ function PatientBillingHubInner() {
             onNewQuotation={() => setShowQuotationModal(true)}
             onAddPurchase={() => setShowPurchaseBillModal(true)}
             onAddPurchaseOrder={() => setShowPurchaseOrderModal(true)}
+            onEditPurchaseOrderDraft={(d) => {
+              setEditingPoDraft(d);
+              setShowPurchaseOrderModal(true);
+            }}
             onAddExpense={() => setShowExpenseModal(true)}
             onPaymentIn={(invoiceNo) => {
               setPayInvoiceNo(invoiceNo);
@@ -274,7 +279,11 @@ function PatientBillingHubInner() {
         {/* ── 13. Purchase Order Modal ── */}
         <PurchaseOrderModal
           open={showPurchaseOrderModal}
-          onClose={() => setShowPurchaseOrderModal(false)}
+          draft={editingPoDraft}
+          onClose={() => {
+            setShowPurchaseOrderModal(false);
+            setEditingPoDraft(null);
+          }}
           onSuccess={() => setPurchasesRefreshKey((k) => k + 1)}
         />
 

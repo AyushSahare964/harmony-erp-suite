@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { BREEDS_BY_SPECIES } from "@/lib/utils/breeds";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   UserPlus,
@@ -1211,10 +1212,14 @@ export function OwnerPetRegistrationModal({
                   </Label>
                   <Input
                     placeholder="e.g. Labrador Retriever, Persian Cat, Beagle"
+                    list="pet-breed-list"
                     value={activePet.breed}
                     onChange={(e) => updateCurrentPet("breed", e.target.value)}
                     className="text-sm h-9"
                   />
+                  <datalist id="pet-breed-list">
+                    {(BREEDS_BY_SPECIES[activePet.species] || []).map((b) => <option key={b} value={b} />)}
+                  </datalist>
                 </div>
 
                 <div className="space-y-1">

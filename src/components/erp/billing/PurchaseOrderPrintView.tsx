@@ -23,8 +23,8 @@ interface PurchaseOrderPrintViewProps {
   order: ClinicPurchaseOrderRecord | null;
   open: boolean;
   onClose: () => void;
-  onMarkReceived?: (orderId: string) => void;
-  onDelete?: (orderId: string, poNo?: string) => void;
+  onMarkReceived?: ((orderId: string) => void) | undefined;
+  onDelete?: ((orderId: string, poNo?: string) => void) | undefined;
 }
 
 export function PurchaseOrderPrintView({

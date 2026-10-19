@@ -34,14 +34,7 @@ import { useErp } from "@/lib/erp/store";
 import { listAppointmentsFn, updateAppointmentStatusFn } from "@/lib/mongodb/serverFns/appointments";
 import { searchOwnersFn, createOwnerWithMultiplePetsFn } from "@/lib/mongodb/serverFns/crm";
 
-const COMMON_BREEDS_BY_SPECIES: Record<string, string[]> = {
-  Canine: ["Labrador Retriever", "Golden Retriever", "German Shepherd", "Indie / Mixed", "Shih Tzu", "Beagle", "Rottweiler", "Pomeranian", "Pug"],
-  Feline: ["Persian", "Domestic Shorthair", "Indie Cat", "Siamese", "British Shorthair", "Maine Coon", "Bengal"],
-  Avian: ["Budgerigar", "Cockatiel", "Lovebird", "Indian Ringneck", "Pigeon", "African Grey"],
-  Rabbit: ["Netherland Dwarf", "Holland Lop", "Angora", "Domestic Rabbit"],
-  Exotic: ["Guinea Pig", "Hamster", "Turtle / Terrapin", "Iguana", "Ferret"],
-  Other: ["Mixed / Crossbreed", "Standard"],
-};
+import { BREEDS_BY_SPECIES as COMMON_BREEDS_BY_SPECIES } from "@/lib/utils/breeds";
 
 const QUICK_COMPLAINTS = [
   "Routine OPD consultation",
@@ -1138,10 +1131,14 @@ export function AdmitPatientPickerModal({
                     </div>
                     <Input
                       placeholder="e.g. Labrador Retriever, Persian"
+                      list="walkin-breed-list"
                       value={walkinBreed}
                       onChange={(e) => setWalkinBreed(e.target.value)}
                       className="h-8.5 text-xs mt-1"
                     />
+                    <datalist id="walkin-breed-list">
+                      {(COMMON_BREEDS_BY_SPECIES[walkinSpecies] || []).map((b) => <option key={b} value={b} />)}
+                    </datalist>
                     {/* Quick Breed Pills */}
                     <div className="flex items-center gap-1 overflow-x-auto pt-1.5 scrollbar-none">
                       {(COMMON_BREEDS_BY_SPECIES[walkinSpecies] || []).slice(0, 5).map((b) => (

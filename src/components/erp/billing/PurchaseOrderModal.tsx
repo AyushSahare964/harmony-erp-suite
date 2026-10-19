@@ -32,12 +32,16 @@ import { getItemsFn, type InventoryItemRow } from "@/lib/mongodb/serverFns/inven
 import { NewSupplierModal } from "../accounting/NewSupplierModal";
 import { NewItemModal } from "../accounting/NewItemModal";
 import { toast } from "sonner";
+import { useErp } from "@/lib/erp/store";
+import { savePoDraftFn, updatePoDraftFn, deletePoDraftFn } from "@/lib/mongodb/serverFns/poDrafts";
 
 interface PurchaseOrderModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
   initialSupplierId?: string;
+  /** Admin editing an existing server-side draft */
+  draft?: ClinicPurchaseOrderRecord | null;
 }
 
 export interface PurchaseOrderItemLine {
@@ -86,6 +90,8 @@ export interface ClinicPurchaseOrderRecord {
   remarks: string;
   status: "DRAFT" | "ISSUED" | "PENDING_DELIVERY" | "RECEIVED" | "CANCELLED";
   createdAt: string;
+  /** Set only on server-side drafts (see poDrafts.ts) */
+  draftCreatedAt?: string | undefined;
 }
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -155,7 +161,10 @@ export function PurchaseOrderModal({
   onClose,
   onSuccess,
   initialSupplierId,
+  draft,
 }: PurchaseOrderModalProps) {
+  const { roleId } = useErp();
+  const isAdmin = roleId === "admin";
   // Master lists
   const [suppliers, setSuppliers] = useState<SupplierMasterRow[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([]);
@@ -228,6 +237,29 @@ export function PurchaseOrderModal({
       })
       .finally(() => setLoadingMasters(false));
   }, [open, initialSupplierId]);
+
+  // Prefill when admin opens an existing draft
+  useEffect(() => {
+    if (!open) return;
+    if (!draft) {
+      // fresh form per open so a previously viewed draft/PO never leaks into a new one
+      setLines([]);
+      setPoNumber("");
+      return;
+    }
+    setOrderType(draft.orderType);
+    setPoDate(draft.poDate);
+    setDeliveryDate(draft.deliveryDate);
+    setSupplierId(draft.supplierId);
+    setPlaceOfSupply(draft.placeOfSupply);
+    setPoNumber(draft.poNumber);
+    setTransportMode(draft.transportMode);
+    setDeliveryLocation(draft.deliveryLocation);
+    setLines(draft.items);
+    setAddShipping(draft.shippingCost > 0);
+    setShippingCost(draft.shippingCost);
+    setRemarks(draft.remarks);
+  }, [open, draft]);
 
   // Generate clean PO Number on open
   useEffect(() => {
@@ -563,8 +595,35 @@ export function PurchaseOrderModal({
     toast.success(`Added ${newLines.length} items from clinic preset!`);
   };
 
-  // Save Purchase Order
-  const handleSaveOrder = () => {
+  const buildRecord = (status: ClinicPurchaseOrderRecord["status"]): ClinicPurchaseOrderRecord => ({
+    id: "PO_REC_" + Date.now(),
+    poNumber: poNumber.trim(),
+    orderType,
+    poDate,
+    deliveryDate,
+    supplierId,
+    supplierName: selectedSupplier?.name || "Supplier",
+    supplierGstin: selectedSupplier?.gstin,
+    supplierPhone: selectedSupplier?.phone || selectedSupplier?.mobileNo,
+    supplierAddress: selectedSupplier?.address,
+    placeOfSupply,
+    transportMode,
+    deliveryLocation,
+    items: lines,
+    subTotal,
+    gstTotal,
+    cgstTotal,
+    sgstTotal,
+    igstTotal,
+    shippingCost: shipping,
+    totalAmount,
+    remarks: remarks.trim(),
+    status,
+    createdAt: new Date().toISOString(),
+  });
+
+  // Save Purchase Order (issued — final; also issues an admin-opened draft)
+  const handleSaveOrder = async () => {
     if (!supplierId) {
       toast.error("Please select a Supplier Name.");
       return;
@@ -580,32 +639,7 @@ export function PurchaseOrderModal({
 
     setSubmitting(true);
     try {
-      const record: ClinicPurchaseOrderRecord = {
-        id: "PO_REC_" + Date.now(),
-        poNumber: poNumber.trim(),
-        orderType,
-        poDate,
-        deliveryDate,
-        supplierId,
-        supplierName: selectedSupplier?.name || "Supplier",
-        supplierGstin: selectedSupplier?.gstin,
-        supplierPhone: selectedSupplier?.phone || selectedSupplier?.mobileNo,
-        supplierAddress: selectedSupplier?.address,
-        placeOfSupply,
-        transportMode,
-        deliveryLocation,
-        items: lines,
-        subTotal,
-        gstTotal,
-        cgstTotal,
-        sgstTotal,
-        igstTotal,
-        shippingCost: shipping,
-        totalAmount,
-        remarks: remarks.trim(),
-        status: "ISSUED",
-        createdAt: new Date().toISOString(),
-      };
+      const record = buildRecord("ISSUED");
 
       // Persist in localStorage
       let existingList: ClinicPurchaseOrderRecord[] = [];
@@ -622,12 +656,35 @@ export function PurchaseOrderModal({
         localStorage.setItem("clinic_po_last_seq", String(parseInt(numMatch[0], 10)));
       }
 
+      if (draft) await deletePoDraftFn({ data: { id: draft.id } });
+
       toast.success(`Purchase Order ${record.poNumber} created & issued successfully!`);
       onSuccess?.();
       onClose();
     } catch (err: any) {
       console.error("[PurchaseOrderModal] Save error:", err);
       toast.error("Failed to save purchase order: " + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Save as Draft — shared via server; only admin can reopen/edit it later
+  const handleSaveDraft = async () => {
+    if (lines.length === 0) {
+      toast.error("Add at least one item before saving a draft.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const record = buildRecord("DRAFT");
+      if (draft) await updatePoDraftFn({ data: { id: draft.id, record } });
+      else await savePoDraftFn({ data: { record } });
+      toast.success(`Draft ${record.poNumber} saved. Admin can review it in Purchase Orders.`);
+      onSuccess?.();
+      onClose();
+    } catch (err: any) {
+      toast.error("Failed to save draft: " + err.message);
     } finally {
       setSubmitting(false);
     }
@@ -1410,6 +1467,19 @@ export function PurchaseOrderModal({
                     <Download className="size-3.5" />
                     <span>PDF</span>
                   </Button>
+
+                  {(!draft || isAdmin) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleSaveDraft}
+                      disabled={submitting}
+                      className="h-9 px-3 gap-1.5 text-xs font-semibold border-slate-300 dark:border-slate-700"
+                    >
+                      <FileSpreadsheet className="size-3.5" />
+                      <span>{draft ? "Update Draft" : "Save as Draft"}</span>
+                    </Button>
+                  )}
 
                   <Button
                     type="button"
