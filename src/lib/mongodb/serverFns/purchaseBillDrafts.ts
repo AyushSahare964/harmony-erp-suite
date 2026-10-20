@@ -10,7 +10,7 @@ import { z } from "zod";
 import { connectDB } from "@/lib/mongodb/client";
 import { ErpRow } from "@/lib/mongodb/models/ErpRow";
 import { getMeFn } from "./auth";
-import { CreateBillZ, createPurchaseBill } from "./purchaseBills";
+import { CreateBillZ } from "./purchaseBills";
 
 const MODULE_ID = "purchase-bill-drafts";
 const EDIT_DAYS = 30;
@@ -53,6 +53,7 @@ export const listBillDraftsFn = createServerFn({ method: "GET" })
     });
     for (const d of expired) {
       try {
+        const { createPurchaseBill } = await import("@/lib/mongodb/purchaseBillCreate");
         await createPurchaseBill((d.data as any).bill);
         await ErpRow.deleteOne({ _id: d._id });
       } catch (e) {
