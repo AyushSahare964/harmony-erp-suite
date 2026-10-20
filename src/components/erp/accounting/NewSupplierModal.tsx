@@ -411,7 +411,7 @@ export function NewSupplierModal({ open, onClose, onSuccess, supplierToEdit }: N
                     <div className="col-span-8">
                       <Input
                         value={phoneNo}
-                        onChange={(e) => setPhoneNo(e.target.value)}
+                        onChange={(e) => setPhoneNo(e.target.value.replace(/D/g, "").slice(0, 10))}
                         placeholder="022-28765432"
                         className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-mono"
                       />
@@ -622,7 +622,7 @@ export function NewSupplierModal({ open, onClose, onSuccess, supplierToEdit }: N
                     <div className="col-span-8">
                       <Input
                         value={mobileNo}
-                        onChange={(e) => setMobileNo(e.target.value)}
+                        onChange={(e) => setMobileNo(e.target.value.replace(/D/g, "").slice(0, 10))}
                         placeholder="e.g. 9820011223"
                         className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-mono font-medium"
                       />

@@ -640,7 +640,7 @@ export function QuotationModal({ open, onClose, onConvertToInvoice }: QuotationM
                       type="text"
                       placeholder="e.g. 9823011223"
                       value={mobileNo}
-                      onChange={(e) => setMobileNo(e.target.value)}
+                      onChange={(e) => setMobileNo(e.target.value.replace(/D/g, "").slice(0, 10))}
                       className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                     />
                   </div>

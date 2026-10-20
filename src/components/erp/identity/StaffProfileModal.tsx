@@ -222,7 +222,7 @@ export function StaffProfileModal({ open, staff, onClose, onUpdated, onDeleted }
                   </label>
                   <Input
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => setPhone(e.target.value.replace(/D/g, "").slice(0, 10))}
                     placeholder="+91 98222 33445"
                     className="h-9 text-xs"
                   />

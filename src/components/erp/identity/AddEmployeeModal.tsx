@@ -145,7 +145,7 @@ export function AddEmployeeModal({ open, onClose, onAdded }: Props) {
                 <Input
                   placeholder="+91 98000 12345"
                   value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/D/g, "").slice(0, 10) })}
                   className="h-9 text-xs"
                 />
               </div>

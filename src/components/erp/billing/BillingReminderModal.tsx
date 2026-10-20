@@ -459,7 +459,7 @@ export function BillingReminderModal({ open, onClose, invoices = [] }: BillingRe
                   <Input
                     placeholder="e.g. 9823011223"
                     value={ownerPhone}
-                    onChange={(e) => setOwnerPhone(e.target.value)}
+                    onChange={(e) => setOwnerPhone(e.target.value.replace(/D/g, "").slice(0, 10))}
                     className="h-8 text-xs mt-1"
                   />
                 </div>

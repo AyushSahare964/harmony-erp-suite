@@ -106,9 +106,9 @@ function BatchRows({ batches }: { batches: Batch[] }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export function StockView() {
+export function StockView({ initialQuery = "" }: { initialQuery?: string | undefined } = {}) {
   const { medicines, getBatches, getTotalQty, getStockStatus, getExpiryStatus, ledger } = useInventory();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterCat, setFilterCat] = useState("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());

@@ -66,7 +66,12 @@ export const Route = createFileRoute("/m/$moduleId")({
   // `r` picks the report inside the Accounts module (the sidebar sub-menu links to it).
   validateSearch: (
     search: Record<string, unknown>,
-  ): { r?: string | undefined; l?: string | undefined } => ({
+  ): { r?: string | undefined; l?: string | undefined; tab?: string | undefined; q?: string | undefined; st?: string | undefined; open?: string | undefined } => ({
+    st: typeof search["st"] === "string" ? search["st"] : undefined,
+    open: typeof search["open"] === "string" ? search["open"] : undefined,
+    // `tab` + `q` come from a notification: open this tab/register, pre-filtered by q.
+    tab: typeof search["tab"] === "string" ? search["tab"] : undefined,
+    q: typeof search["q"] === "string" ? search["q"] : undefined,
     r: typeof search["r"] === "string" ? search["r"] : undefined,
     // `l` opens one ledger from the Ledgers sidebar flyout.
     l: typeof search["l"] === "string" ? search["l"] : undefined,
@@ -95,7 +100,7 @@ function money(v: string | number) {
 
 function ModulePage() {
   const { moduleId } = Route.useParams();
-  const { r: accountsReport, l: ledgerParam } = Route.useSearch();
+  const { r: accountsReport, l: ledgerParam, tab: focusTab, q: focusQ, st: focusSt, open: focusOpen } = Route.useSearch();
   const navigate = useNavigate();
   const ws = getWorkspace(moduleId);
   const { getRows, addRow, deleteRow, resetRows } = useErp();
@@ -141,7 +146,7 @@ function ModulePage() {
         : moduleId === "stock"
         ? "stock"
         : "catalogue";
-    return <InventoryHub initialTab={initialTab} />;
+    return <InventoryHub key={`${focusTab}|${focusQ}`} initialTab={initialTab} initialQuery={focusQ} />;
   }
 
   // ── Accounts module → nine live reports (sub-menu in the sidebar) ──
@@ -166,12 +171,12 @@ function ModulePage() {
 
   // ── Patient Billing & Sales module → dedicated PatientBillingHub ──
   if (moduleId === "billing" || moduleId === "sales" || moduleId === "invoices") {
-    return <PatientBillingHub />;
+    return <PatientBillingHub focus={focusTab ? { tab: focusTab, q: focusQ, st: focusSt, open: focusOpen } : undefined} />;
   }
 
   // ── Appointments & Live Queue module → dedicated AppointmentsQueueHub ──
   if (moduleId === "appointments" || moduleId === "opd-queue" || moduleId === "queue" || moduleId === "opd") {
-    return <AppointmentsQueueHub />;
+    return <AppointmentsQueueHub key={focusQ} initialQuery={focusQ} />;
   }
 
   // ── Pet Boarding & Swimming / Hydrotherapy module → dedicated BoardingSwimmingHub ──

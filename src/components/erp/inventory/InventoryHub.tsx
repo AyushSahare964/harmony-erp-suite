@@ -52,10 +52,12 @@ const TABS: TabDef[] = [
 
 // ─── Inner hub (needs InventoryProvider in scope) ─────────────────────────────
 export interface InventoryHubProps {
-  initialTab?: TabId;
+  initialTab?: TabId | undefined;
+  /** Search text for the Stock tab (from a notification) */
+  initialQuery?: string | undefined;
 }
 
-function InventoryHubInner({ initialTab = "catalogue" }: InventoryHubProps) {
+function InventoryHubInner({ initialTab = "catalogue", initialQuery }: InventoryHubProps) {
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search);
@@ -156,7 +158,7 @@ function InventoryHubInner({ initialTab = "catalogue" }: InventoryHubProps) {
             {activeTab === "injection"   && <InjectionCatalogue />}
             {activeTab === "food"        && <FoodCatalogue />}
             {activeTab === "accessories" && <AccessoriesCatalogue />}
-            {activeTab === "stock"       && <StockView />}
+            {activeTab === "stock"       && <StockView initialQuery={initialQuery} />}
             {activeTab === "movements"   && <StockMovements />}
             {activeTab === "alerts"      && <AlertsPanel />}
           </motion.div>
@@ -167,10 +169,10 @@ function InventoryHubInner({ initialTab = "catalogue" }: InventoryHubProps) {
 }
 
 // ─── Public export — wraps with the shared store provider ─────────────────────
-export function InventoryHub({ initialTab }: InventoryHubProps = {}) {
+export function InventoryHub({ initialTab, initialQuery }: InventoryHubProps = {}) {
   return (
     <InventoryProvider>
-      <InventoryHubInner initialTab={initialTab} />
+      <InventoryHubInner initialTab={initialTab} initialQuery={initialQuery} />
     </InventoryProvider>
   );
 }

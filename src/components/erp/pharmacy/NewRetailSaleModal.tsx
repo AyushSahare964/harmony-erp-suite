@@ -467,7 +467,7 @@ export function NewRetailSaleModal({ open, onClose, onSaleCompleted }: Props) {
                     <Input
                       placeholder="Mobile No."
                       value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      onChange={(e) => setCustomerPhone(e.target.value.replace(/D/g, "").slice(0, 10))}
                       className="text-xs h-8 font-mono"
                     />
                   </div>

@@ -398,7 +398,7 @@ export function PartyFormModal({
                     <Label className="text-xs font-medium text-foreground">Phone No</Label>
                     <Input
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) => setPhone(e.target.value.replace(/D/g, "").slice(0, 10))}
                       placeholder="022-28765432"
                       className="h-8 text-xs font-mono bg-background"
                     />
@@ -558,7 +558,7 @@ export function PartyFormModal({
                     <Input
                       required
                       value={mobile}
-                      onChange={(e) => setMobile(e.target.value)}
+                      onChange={(e) => setMobile(e.target.value.replace(/D/g, "").slice(0, 10))}
                       placeholder="9820012345"
                       className="h-8 text-xs font-mono bg-background"
                     />

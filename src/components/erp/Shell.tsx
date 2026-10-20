@@ -577,6 +577,7 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
                           <Link
                             to="/m/$moduleId"
                             params={{ moduleId: n.moduleId }}
+                            search={(n.link ?? {}) as any}
                             onClick={() => setNotifOpen(false)}
                             className="text-[11px] font-semibold text-primary hover:underline"
                           >

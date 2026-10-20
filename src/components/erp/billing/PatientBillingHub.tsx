@@ -25,7 +25,7 @@ import { DailySummaryModal } from "./DailySummaryModal";
 import { StockSummaryModal } from "./StockSummaryModal";
 import { PurchaseOrderModal, type ClinicPurchaseOrderRecord } from "./PurchaseOrderModal";
 
-function PatientBillingHubInner() {
+function PatientBillingHubInner({ focus }: { focus?: { tab: string; q?: string | undefined; st?: string | undefined; open?: string | undefined } | undefined }) {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -137,6 +137,7 @@ function PatientBillingHubInner() {
             invoices={invoices}
             loading={loading}
             deepLinkPet={deepLinkPet}
+            focus={focus}
             onRefresh={loadInvoices}
             purchasesRefreshKey={purchasesRefreshKey}
             suppliersRefreshKey={suppliersRefreshKey}
@@ -323,10 +324,10 @@ function PatientBillingHubInner() {
   );
 }
 
-export function PatientBillingHub() {
+export function PatientBillingHub({ focus }: { focus?: { tab: string; q?: string | undefined; st?: string | undefined; open?: string | undefined } | undefined } = {}) {
   return (
     <InventoryProvider>
-      <PatientBillingHubInner />
+      <PatientBillingHubInner focus={focus} />
     </InventoryProvider>
   );
 }

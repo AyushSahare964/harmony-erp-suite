@@ -113,6 +113,8 @@ interface BillingDeskDashboardProps {
   loading?: boolean;
   /** Deep link from Global Search — filter the invoice register to this patient and highlight it. */
   deepLinkPet?: { petId: string; petName: string } | null;
+  /** From a notification: open this register tab, searched for q. */
+  focus?: { tab: string; q?: string | undefined; st?: string | undefined; open?: string | undefined } | undefined;
   onRefresh: () => void;
   onNewInvoice: () => void;
   onNewQuotation: () => void;
@@ -151,6 +153,7 @@ export function BillingDeskDashboard({
   invoices,
   loading = false,
   deepLinkPet,
+  focus,
   onRefresh,
   onNewInvoice,
   onNewQuotation,
@@ -283,6 +286,27 @@ export function BillingDeskDashboard({
   // Invoices table search and filter
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Notification "Open": jump to the register tab and search for the item it named
+  useEffect(() => {
+    if (!focus) return;
+    setRegisterTab(focus.tab as typeof registerTab);
+    setSearchQuery(focus.q ?? "");
+    setStatusFilter(focus.st ?? "all");
+    setOpenId(focus.open ?? null);
+    setTimeout(() => document.getElementById("billing-documents-register")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  }, [focus?.tab, focus?.q, focus?.st, focus?.open]);
+
+  // Then open the record the notification was about, once the registers have loaded
+  const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!openId) return;
+    const bill = purchases.find((p) => p._id === openId);
+    if (!bill) return;
+    setSelectedPurchaseBill(bill);
+    setShowPurchaseBillPrintView(true);
+    setOpenId(null);
+  }, [openId, purchases]);
 
   // Deep link from Global Search: filter the invoice register to that patient and highlight
   // it if they have records, or tell the user plainly that they don't — instead of silently
@@ -936,6 +960,7 @@ export function BillingDeskDashboard({
         if (statusFilter === "Paid" && inv.status !== "Paid") return false;
         if (statusFilter === "Unpaid" && inv.status !== "Unpaid") return false;
         if (statusFilter === "Partially Paid" && inv.status !== "Partially Paid") return false;
+        if (statusFilter === "Outstanding" && inv.status !== "Unpaid" && inv.status !== "Partially Paid") return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -3341,6 +3366,7 @@ export function BillingDeskDashboard({
                   <SelectItem value="Paid">Paid</SelectItem>
                   <SelectItem value="Partially Paid">Partially Paid</SelectItem>
                   <SelectItem value="Unpaid">Unpaid</SelectItem>
+                  <SelectItem value="Outstanding">Outstanding (unpaid + partial)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -114,10 +114,10 @@ function renderCategoryBadge(category?: string | null) {
   );
 }
 
-export function AppointmentsQueueHub() {
+export function AppointmentsQueueHub({ initialQuery = "" }: { initialQuery?: string | undefined } = {}) {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [statusFilter, setStatusFilter] = useState("all");
   const [doctorFilter, setDoctorFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
