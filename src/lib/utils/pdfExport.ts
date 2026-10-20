@@ -405,3 +405,25 @@ export function printOrSaveDocumentAsPdf(elementId: string, docTitle: string) {
   printWindow.document.close();
   toast.success(`Prepared ${docTitle} — Choose "Save as PDF" in the print dialog.`);
 }
+
+/**
+ * Renders an on-screen document element (the same one printOrSaveDocumentAsPdf prints) to a
+ * multi-page A4 PDF and returns it as a base64 data URI. Null when the element is missing.
+ */
+export async function elementToPdfBase64(elementId: string): Promise<string | null> {
+  const el = document.getElementById(elementId);
+  if (!el) return null;
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+  const canvas = await html2canvas(el, { scale: 1.5, backgroundColor: "#ffffff", useCORS: true });
+  const pdf = new jsPDF({ unit: "pt", format: "a4" });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const imgH = (canvas.height * pageW) / canvas.width;
+  // JPEG keeps the file small; EmailJS caps attachment size.
+  const img = canvas.toDataURL("image/jpeg", 0.8);
+  for (let y = 0, page = 0; y < imgH; y += pageH, page++) {
+    if (page > 0) pdf.addPage();
+    pdf.addImage(img, "JPEG", 0, -y, pageW, imgH);
+  }
+  return pdf.output("datauristring").replace(/^data:application\/pdf;filename=[^;]*;/, "data:application/pdf;");
+}

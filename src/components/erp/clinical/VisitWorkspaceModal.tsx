@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Stethoscope,
+  Mail,
   Receipt,
   User,
   Heart,
@@ -31,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { sendVisitDocsEmail } from "@/lib/email/visitDocsEmail";
 import { cn } from "@/lib/utils";
 import { useErp } from "@/lib/erp/store";
 import { getItemsFn } from "@/lib/mongodb/serverFns/inventory";
@@ -222,6 +224,7 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
   const [finalizedVisit, setFinalizedVisit] = useState<any | null>(null);
   const [paymentSentToReceptionist, setPaymentSentToReceptionist] = useState(false);
   const [isSendingToReceptionist, setIsSendingToReceptionist] = useState(false);
+  const [isEmailingDocs, setIsEmailingDocs] = useState(false);
   const [billingTabSentToReceptionist, setBillingTabSentToReceptionist] = useState(false);
   const [isBillingTabSending, setIsBillingTabSending] = useState(false);
 
@@ -2180,6 +2183,28 @@ export function VisitWorkspaceModal({ open, onClose, visit, onVisitFinalized, in
                     className="h-8 text-xs font-semibold bg-white hover:bg-slate-50 border-emerald-200 text-emerald-900 shadow-2xs gap-1.5"
                   >
                     <Printer className="size-3.5" /> Print Invoice
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isEmailingDocs}
+                    onClick={async () => {
+                      if (finalizedVisit.billEmailSentAt && !confirm("The bill and prescription were already emailed for this visit. Send again?")) return;
+                      setIsEmailingDocs(true);
+                      try {
+                        const to = await sendVisitDocsEmail(finalizedVisit.visitId);
+                        setFinalizedVisit((v: any) => ({ ...v, billEmailSentAt: new Date().toISOString() }));
+                        toast.success(`Bill and prescription emailed to ${to}.`);
+                      } catch (e: any) {
+                        toast.error(e?.message || "Could not send the email.");
+                      } finally {
+                        setIsEmailingDocs(false);
+                      }
+                    }}
+                    className="h-8 text-xs font-semibold bg-white hover:bg-slate-50 border-emerald-200 text-emerald-900 shadow-2xs gap-1.5"
+                  >
+                    <Mail className="size-3.5" /> {isEmailingDocs ? "Sending…" : "Email to Client"}
                   </Button>
 
                   <Button
