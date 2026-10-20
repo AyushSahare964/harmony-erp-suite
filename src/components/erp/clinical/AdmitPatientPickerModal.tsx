@@ -25,6 +25,7 @@ import {
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BreedInput } from "@/components/ui/breed-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusPill } from "@/components/erp/StatusPill";
@@ -1129,16 +1130,13 @@ export function AdmitPatientPickerModal({
                       <Label className="text-xs font-semibold">Breed</Label>
                       <span className="text-[10px] text-muted-foreground">Pick quick suggestion or type</span>
                     </div>
-                    <Input
+                    <BreedInput
                       placeholder="e.g. Labrador Retriever, Persian"
-                      list="walkin-breed-list"
                       value={walkinBreed}
-                      onChange={(e) => setWalkinBreed(e.target.value)}
+                      onChange={setWalkinBreed}
+                      options={COMMON_BREEDS_BY_SPECIES[walkinSpecies] || []}
                       className="h-8.5 text-xs mt-1"
                     />
-                    <datalist id="walkin-breed-list">
-                      {(COMMON_BREEDS_BY_SPECIES[walkinSpecies] || []).map((b) => <option key={b} value={b} />)}
-                    </datalist>
                     {/* Quick Breed Pills */}
                     <div className="flex items-center gap-1 overflow-x-auto pt-1.5 scrollbar-none">
                       {(COMMON_BREEDS_BY_SPECIES[walkinSpecies] || []).slice(0, 5).map((b) => (

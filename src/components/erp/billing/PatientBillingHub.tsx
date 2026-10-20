@@ -14,6 +14,7 @@ import { NewSalesInvoiceModal } from "./NewSalesInvoiceModal";
 import { QuotationModal } from "./QuotationModal";
 import { BillingReminderModal } from "./BillingReminderModal";
 import { PaymentInModal } from "./PaymentInModal";
+import type { PurchaseBillDraft } from "@/lib/mongodb/serverFns/purchaseBillDrafts";
 import { SupplierBillFormModal } from "@/components/erp/accounting/SupplierBillFormModal";
 import { ExpenseFormModal } from "@/components/erp/accounting/ExpenseFormModal";
 import { OwnerPetRegistrationModal } from "@/components/erp/crm/OwnerPetRegistrationModal";
@@ -51,6 +52,7 @@ function PatientBillingHubInner() {
   const [showStockSummary, setShowStockSummary] = useState(false);
   const [showPurchaseOrderModal, setShowPurchaseOrderModal] = useState(false);
   const [editingPoDraft, setEditingPoDraft] = useState<ClinicPurchaseOrderRecord | null>(null);
+  const [editingBillDraft, setEditingBillDraft] = useState<PurchaseBillDraft | null>(null);
 
   // Full Patient Bill Details Modal
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
@@ -142,6 +144,10 @@ function PatientBillingHubInner() {
             onNewInvoice={() => setShowNewInvoiceModal(true)}
             onNewQuotation={() => setShowQuotationModal(true)}
             onAddPurchase={() => setShowPurchaseBillModal(true)}
+            onEditPurchaseBillDraft={(d) => {
+              setEditingBillDraft(d);
+              setShowPurchaseBillModal(true);
+            }}
             onAddPurchaseOrder={() => setShowPurchaseOrderModal(true)}
             onEditPurchaseOrderDraft={(d) => {
               setEditingPoDraft(d);
@@ -229,7 +235,11 @@ function PatientBillingHubInner() {
         {/* ── 5. Add Supplier Purchase Bill Modal (Matches Image 2) ── */}
         <SupplierBillFormModal
           open={showPurchaseBillModal}
-          onClose={() => setShowPurchaseBillModal(false)}
+          draft={editingBillDraft}
+          onClose={() => {
+            setShowPurchaseBillModal(false);
+            setEditingBillDraft(null);
+          }}
           onSuccess={() => setPurchasesRefreshKey((k) => k + 1)}
         />
 
